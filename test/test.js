@@ -442,12 +442,36 @@ const fixtures = {
 				assert.equal(obj1.value.answer, 42);
 			}
 		}
-	])(new Custom({ answer: 42 }))
+	])(new Custom({ answer: 42 })),
+
+	customFunction: ((func) => [
+		{
+			name: 'Custom function type',
+			value: func,
+			json: '[["function",1],"func"]',
+			reducers: {
+				function: (x) => x === func && 'func'
+			},
+			revivers: {
+        function: (x) => {
+          assert.is(x, 'func');
+          return func;
+        }
+			},
+			validate: (f) => {
+				assert.is(f, func);
+			}
+		}
+	])(() => 42)
 };
 
 for (const [name, tests] of Object.entries(fixtures)) {
 	const test = uvu.suite(`uneval: ${name}`);
 	for (const t of tests) {
+    if (!t.js) {
+      continue;
+    }
+
 		test(t.name, () => {
 			const actual = uneval(t.value, t.replacer);
 			const expected = t.js;

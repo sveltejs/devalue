@@ -44,11 +44,21 @@ export function stringify(value, reducers) {
 
 	/** @param {any} thing */
 	function flatten(thing) {
-		if (typeof thing === 'function') {
-			throw new DevalueError(`Cannot stringify a function`, keys);
+		if (indexes.has(thing)) return indexes.get(thing);
+
+    for (const { key, fn } of custom) {
+			const value = fn(thing);
+			if (value) {
+        const index = p++;
+        indexes.set(thing, index);
+				stringified[index] = `["${key}",${flatten(value)}]`;
+				return index;
+			}
 		}
 
-		if (indexes.has(thing)) return indexes.get(thing);
+    if (typeof thing === 'function') {
+			throw new DevalueError(`Cannot stringify a function`, keys);
+		}
 
 		if (thing === undefined) return UNDEFINED;
 		if (Number.isNaN(thing)) return NAN;
@@ -58,14 +68,6 @@ export function stringify(value, reducers) {
 
 		const index = p++;
 		indexes.set(thing, index);
-
-		for (const { key, fn } of custom) {
-			const value = fn(thing);
-			if (value) {
-				stringified[index] = `["${key}",${flatten(value)}]`;
-				return index;
-			}
-		}
 
 		let str = '';
 
@@ -157,16 +159,16 @@ export function stringify(value, reducers) {
 					str = '["' + type + '","' + base64 + '"]';
 					break;
 				}
-					
+
 				case "ArrayBuffer": {
 					/** @type {ArrayBuffer} */
 					const arraybuffer = thing;
 					const base64 = encode64(arraybuffer);
-					
+
 					str = `["ArrayBuffer","${base64}"]`;
 					break;
 				}
-				
+
 				default:
 					if (!is_plain_object(thing)) {
 						throw new DevalueError(
