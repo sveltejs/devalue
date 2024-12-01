@@ -48,13 +48,13 @@ export function stringify(value, reducers) {
 			throw new DevalueError(`Cannot stringify a function`, keys);
 		}
 
-		if (indexes.has(thing)) return indexes.get(thing);
-
 		if (thing === undefined) return UNDEFINED;
 		if (Number.isNaN(thing)) return NAN;
 		if (thing === Infinity) return POSITIVE_INFINITY;
 		if (thing === -Infinity) return NEGATIVE_INFINITY;
 		if (thing === 0 && 1 / thing < 0) return NEGATIVE_ZERO;
+
+		if (indexes.has(thing)) return indexes.get(thing);
 
 		const index = p++;
 		indexes.set(thing, index);
