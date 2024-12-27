@@ -202,16 +202,24 @@ function asNumberOrThrow(str) {
 export async function parseAsyncIterable(value, revivers = {}) {
   const iterator = value[Symbol.asyncIterator]();
 
-  /** @type {Map<number, ReturnType<typeof createStreamController>>} */
-  const asyncMap = new Map();
+  /** @type {Map<number, (v: [number, unknown] | Error) => void>} */
+  const enqueueMap = new Map();
 
   /** @param {number} id */
   function registerAsync(id) {
-    const controller = createStreamController();
+    /** @type {ReadableStreamDefaultController<[number, unknown] | Error>} */
+    let originalController;
 
-    asyncMap.set(id, controller);
+    /** @type {ReadableStream<[number, unknown] | Error>} */
+    const stream = new ReadableStream({
+      start(controller) {
+        originalController = controller;
+      },
+    });
 
-    return controller;
+    enqueueMap.set(id, (v) => originalController.enqueue(v));
+
+    return stream.getReader();
   }
 
   /** @param {string} value */
@@ -219,9 +227,8 @@ export async function parseAsyncIterable(value, revivers = {}) {
     return parse(value, {
       ...revivers,
       Promise: async (idx) => {
-        const async = registerAsync(idx);
+        const reader = registerAsync(idx);
 
-        const reader = async.getReader();
         try {
           const result = await reader.read();
 
@@ -238,14 +245,13 @@ export async function parseAsyncIterable(value, revivers = {}) {
           throw value;
         } finally {
           await reader.cancel();
-          asyncMap.delete(idx);
+          enqueueMap.delete(idx);
         }
       },
       AsyncIterable: function (idx) {
-        const async = registerAsync(idx);
+        const reader = registerAsync(idx);
 
         return (async function* () {
-          const reader = async.getReader();
           try {
             while (true) {
               const result = await reader.read();
@@ -274,7 +280,7 @@ export async function parseAsyncIterable(value, revivers = {}) {
             }
           } finally {
             await reader.cancel();
-            asyncMap.delete(idx);
+            enqueueMap.delete(idx);
           }
         })();
       },
@@ -292,7 +298,7 @@ export async function parseAsyncIterable(value, revivers = {}) {
 
         /** @type {string} */
         let str = result.value;
-
+ 
         let index = str.indexOf(":");
         const idx = asNumberOrThrow(str.slice(0, index));
         str = str.slice(index + 1);
@@ -303,12 +309,12 @@ export async function parseAsyncIterable(value, revivers = {}) {
 
         const value = recurse(str);
 
-        asyncMap.get(idx)?.enqueue([status, value]);
+        enqueueMap.get(idx)?.([status, value]);
       }
     })().catch((cause) => {
       // go through all the asyncMap and enqueue the error
-      for (const [_, controller] of asyncMap) {
-        controller.enqueue(
+      for (const [_, enqueue] of enqueueMap) {
+        enqueue(
           new Error(
             "Stream interrupted",
             // @ts-ignore
