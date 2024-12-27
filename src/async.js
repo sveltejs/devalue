@@ -50,7 +50,7 @@ export async function* stringifyAsyncIterable(value, revivers = {}) {
    * @returns {number} The index assigned to this callback
    */
   function registerAsyncIterable(callback) {
-    const idx = ++counter;
+    const idx = counter++;
 
     const iterator = callback(idx)[Symbol.asyncIterator]();
 
