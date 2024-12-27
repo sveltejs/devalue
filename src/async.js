@@ -82,7 +82,6 @@ export async function* stringifyAsyncIterable(value, revivers = {}) {
         }
         return [
           registerAsyncIterable(async function* (idx) {
-
             v.catch(() => {
               // prevent unhandled promise rejection
             });
@@ -155,6 +154,8 @@ export async function* stringifyAsyncIterable(value, revivers = {}) {
 function createStreamController() {
   /** @type {ReadableStreamDefaultController<[number, unknown] | Error>} */
   let originalController;
+
+  /** @type {ReadableStream<[number, unknown] | Error>} */
   const stream = new ReadableStream({
     start(controller) {
       originalController = controller;
@@ -205,17 +206,19 @@ export async function parseAsyncIterable(value, revivers = {}) {
 
   /** @param {string} value */
   function recurse(value) {
-
     return parse(value, {
       ...revivers,
       Promise: async (v) => {
         const [idx] = v;
         const async = registerAsync(idx);
 
+        const reader = async.getReader();
         try {
-          const reader = async.getReader();
-
           const result = await reader.read();
+
+          if (result.value instanceof Error) {
+            throw result.value;
+          }
 
           const [status, value] = result.value;
 
@@ -225,6 +228,39 @@ export async function parseAsyncIterable(value, revivers = {}) {
 
           throw value;
         } finally {
+          await reader.cancel();
+          asyncMap.delete(idx);
+        }
+      },
+      AsyncIterable: async function* (v) {
+        const [idx] = v;
+        const async = registerAsync(idx);
+
+        const reader = async.getReader();
+        try {
+          while (true) {
+            const result = await reader.read();
+
+            if (result.done) {
+              return;
+            }
+
+            if (result.value instanceof Error) {
+              throw result.value;
+            }
+
+            const [status, value] = result.value;
+
+            if (status === ASYNC_ITERABLE_STATUS_YIELD) {
+              yield value;
+            } else if (status === ASYNC_ITERABLE_STATUS_RETURN) {
+              return value;
+            } else if (status === ASYNC_ITERABLE_STATUS_ERROR) {
+              throw value;
+            }
+          }
+        } finally {
+          await reader.cancel();
           asyncMap.delete(idx);
         }
       },

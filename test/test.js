@@ -633,55 +633,49 @@ uvu.test('does not create duplicate parameter names', () => {
 	eval(serialized);
 });
 
-uvu.test('stringify stream', async () => {
-	const stream = stringifyAsyncIterable({
-		promise: new Promise((resolve) => {
-			setTimeout(() => {
-				resolve('resolved');
-			}, 0);
-		}),
+uvu.test('stringify and parse async values', async () => {
+	const source = {
+		promise: (async () => {
+			await new Promise(resolve => setTimeout(resolve, 0));
+			return 'resolved promise'
+		})(),
 		asyncIterable: (async function*() {
 			await new Promise(resolve => setTimeout(resolve, 0));
-			yield 'yielded a value'
-			yield 'yielded another value'
-			return 'resolved'
+			yield -0
+			yield 1
+			yield 2;
+			return 'returned async iterable'
 		})(),
-	});
-
-	
-	for await (const value of stream) {
-		console.log('got:', value);
-	}
-})
-
-
-uvu.test.only('e2e', async () => {
-	const stream = stringifyAsyncIterable({
-		promise: new Promise((resolve) => {
-			setTimeout(() => {
-				resolve('resolved');
-			}, 0);
-		}),
-		// asyncIterable: (async function*() {
-		// 	await new Promise(resolve => setTimeout(resolve, 0));
-		// 	yield 'yielded a value'
-		// 	yield 'yielded another value'
-		// 	return 'resolved'
-		// })(),
-	});
+	};
+	const stream = stringifyAsyncIterable(source);
 
 	async function *withDebug(iterable) {
 		for await (const value of iterable) {
-			console.log('yielding', value)
 			yield value
+			// console.log('yielding', value)
 		}
 	}
 
+	/** @type {typeof source} */
 	const result = await parseAsyncIterable(withDebug(stream))
 
-	console.log(result)
+	
+	assert.equal(await result.promise, 'resolved promise')
 
-	console.log('result.promise', await result.promise)
+	const aggregate = []
+	const iterator = result.asyncIterable[Symbol.asyncIterator]()
+	while (true) {
+		const next = await iterator.next()
+		if (next.done) {
+			assert.equal(next.value, 'returned async iterable')
+			break
+		}
+		aggregate.push(next.value)
+	}
+
+
+
+	assert.equal(aggregate, [-0, 1, 2]);
 })
 
 uvu.test.run();
