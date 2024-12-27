@@ -82,7 +82,7 @@ export async function* stringifyAsyncIterable(value, revivers = {}) {
         }
         return [
           registerAsyncIterable(async function* (idx) {
-            // console.log('registerAsyncIterable', v);
+
             v.catch(() => {
               // prevent unhandled promise rejection
             });
@@ -153,7 +153,7 @@ export async function* stringifyAsyncIterable(value, revivers = {}) {
 }
 
 function createStreamController() {
-  /** @type {ReadableStreamDefaultController<string | Error>} */
+  /** @type {ReadableStreamDefaultController<[number, unknown] | Error>} */
   let originalController;
   const stream = new ReadableStream({
     start(controller) {
@@ -162,7 +162,7 @@ function createStreamController() {
   });
 
   return {
-    /** @param {unknown} v */
+    /** @param {[number, unknown] | Error} v */
     enqueue: (v) => originalController.enqueue(v),
     getReader: () => stream.getReader(),
   };
@@ -205,7 +205,7 @@ export async function parseAsyncIterable(value, revivers = {}) {
 
   /** @param {string} value */
   function recurse(value) {
-    console.log("recurse", value);
+
     return parse(value, {
       ...revivers,
       Promise: async (v) => {
@@ -243,8 +243,6 @@ export async function parseAsyncIterable(value, revivers = {}) {
         /** @type {string} */
         let str = result.value;
 
-        console.log("str", str);
-
         let index = str.indexOf(":");
         let idx = asNumberOrThrow(str.slice(0, index));
         str = str.slice(index + 1);
@@ -253,7 +251,6 @@ export async function parseAsyncIterable(value, revivers = {}) {
         let status = asNumberOrThrow(str.slice(0, index));
         str = str.slice(index + 1);
 
-        console.log({ idx, status, str });
         const value = recurse(str);
 
         asyncMap.get(idx)?.enqueue([status, value]);
@@ -261,14 +258,13 @@ export async function parseAsyncIterable(value, revivers = {}) {
     })().catch((cause) => {
       // go through all the asyncMap and enqueue the error
       for (const [_, controller] of asyncMap) {
-        controller.enqueue([
-          ASYNC_ITERABLE_STATUS_ERROR,
+        controller.enqueue(
           new Error(
             "Stream interrupted",
             // @ts-ignore
             { cause }
-          ),
-        ]);
+          )
+        );
       }
     });
   }
