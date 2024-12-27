@@ -35,13 +35,15 @@ const ASYNC_ITERABLE_STATUS_ERROR = 2;
 /**
  * Streams a value into a JSON string that can be parsed with `devalue.parse`
  * @param {unknown} value The value to stream
- * @param {Record<string, (value: any) => any>} [revivers] Optional revivers to handle custom types
- * @returns {AsyncIterable<unknown>} An async iterable that yields the streamed value
+ * @param {object} [options]
+ * @param {Record<string, (value: any) => any>} [options.revivers] Custom revivers to handle special object types
+ * @param {(error: unknown) => unknown} [options.coerceError] Function to transform unknown errors to a known error. The known error must be handled by the reviver.
+ * @returns {AsyncIterable<string>} An async iterable that yields the streamed value as JSON chunks
  */
-export async function* stringifyAsyncIterable(value, revivers = {}) {
+export async function* stringifyAsyncIterable(value, options = {}) {
   let counter = 0;
 
-  /** @type {Set<{iterator: AsyncIterator<unknown>, nextPromise: Promise<IteratorResult<unknown, unknown>>}>} */
+  /** @type {Set<{iterator: AsyncIterator<string>, nextPromise: Promise<IteratorResult<string, string>>}>} */
   const buffer = new Set();
 
   /**
@@ -67,6 +69,18 @@ export async function* stringifyAsyncIterable(value, revivers = {}) {
     return idx;
   }
 
+  /** @param {unknown} cause The error cause to safely stringify - prevents interrupting full stream when error is unregistered */
+  function safeCause(cause) {
+    try {
+      return recurse(cause);
+    } catch (err) {
+      if (!options.coerceError) {
+        throw err;
+      }
+      return recurse(options.coerceError(cause));
+    }
+  }
+
   /**
    * Recursively stringifies a value, handling promises specially
    * @param {unknown} v The value to stringify
@@ -74,7 +88,7 @@ export async function* stringifyAsyncIterable(value, revivers = {}) {
    */
   function recurse(v) {
     return stringify(v, {
-      ...revivers,
+      ...options.revivers,
       Promise: (v) => {
         if (!isPromise(v)) {
           return false;
@@ -87,8 +101,8 @@ export async function* stringifyAsyncIterable(value, revivers = {}) {
             try {
               const next = await v;
               return `${idx}:${PROMISE_STATUS_FULFILLED}:${recurse(next)}`;
-            } catch (e) {
-              return `${idx}:${PROMISE_STATUS_REJECTED}:${recurse(e)}`;
+            } catch (cause) {
+              return `${idx}:${PROMISE_STATUS_REJECTED}:${safeCause(cause)}`;
             }
           }),
         ];
@@ -113,7 +127,7 @@ export async function* stringifyAsyncIterable(value, revivers = {}) {
                 )}`;
               }
             } catch (cause) {
-              return `${idx}:${ASYNC_ITERABLE_STATUS_ERROR}:${recurse(cause)}`;
+              return `${idx}:${ASYNC_ITERABLE_STATUS_ERROR}:${safeCause(cause)}`;
             } finally {
               await iterator.return?.();
             }
@@ -122,6 +136,7 @@ export async function* stringifyAsyncIterable(value, revivers = {}) {
       },
     });
   }
+
   try {
     yield recurse(value);
 

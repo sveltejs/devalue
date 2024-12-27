@@ -679,7 +679,6 @@ uvu.test('stringify and parse async values', async () => {
 })
 
 uvu.test('stringify and parse async values with errors', async () => {
-
 	class MyCustomError extends Error {
 		constructor(message) {
 			super(message);
@@ -687,25 +686,56 @@ uvu.test('stringify and parse async values with errors', async () => {
 		}
 	}
 
+	class UnregisteredError extends Error {
+		constructor(message, opts) {
+			super(
+				message,
+				// @ts-ignore
+				opts
+			);
+			this.name = "UnregisteredError";
+		}
+	}
+
 	const source = {
+		unknownErrorDoesNotBlockStream: (async () => {
+			await new Promise(resolve => setTimeout(resolve, 0));
+			throw new Error('unknown error') // <-- this is not handled by the reviver, but coerceError is provided
+		})(),
 		promise: (async () => {
+			await new Promise(resolve => setTimeout(resolve, 0));
 			throw new MyCustomError('error in promise')
 		})(),
 		asyncIterable: (async function*() {
+			await new Promise(resolve => setTimeout(resolve, 0));
 			yield -0
 			throw new MyCustomError('error in async iterable')
 		})(),
 	};
+
 	const stream = stringifyAsyncIterable(source, {
-		MyCustomError: (value) => {
-			if (value instanceof MyCustomError) {
-				return value.message
+		revivers: {
+			MyCustomError: (value) => {
+				if (value instanceof MyCustomError) {
+					return value.message
+				}
+				return false
+			},
+			UnregisteredError: (value) => {
+				if (value instanceof UnregisteredError) {
+					return [
+						value.message,
+					]
+				}
+				return false
 			}
-			return false
+		},
+		coerceError: (error) => {
+			return new UnregisteredError(error)
 		}
 	});
 
-	async function *withDebug(iterable) {
+	async function *withDebug(iterable) { 
 		for await (const value of iterable) {
 			yield value
 			// console.log('yielding', value)
@@ -715,16 +745,26 @@ uvu.test('stringify and parse async values with errors', async () => {
 	/** @type {typeof source} */
 	const result = await parseAsyncIterable(withDebug(stream), {
 		MyCustomError: (value) => {
-			console.log('reviving', value)
 			return new MyCustomError(value)
+		},
+		UnregisteredError: (...args) => {
+			return new UnregisteredError(...args)
 		}
 	})
 
+	try {
+		await result.unknownErrorDoesNotBlockStream
+		assert.unreachable('expected error')
+	} catch (e) {
+		assert.instance(e, UnregisteredError)
+		assert.equal(e.message, 'Error: unknown error')
+	}
 	try {
 		await result.promise
 		assert.unreachable('expected error')
 	} catch (e) {
 		assert.equal(e.message, 'error in promise')
+		assert.instance(e, MyCustomError)
 	}
 
 	let aggregate = []
@@ -734,6 +774,7 @@ uvu.test('stringify and parse async values with errors', async () => {
 		}
 	} catch (e) {
 		assert.equal(e.message, 'error in async iterable')
+		assert.instance(e, MyCustomError)
 	}
 
 	assert.equal(aggregate, [-0])
