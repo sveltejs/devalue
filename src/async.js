@@ -25,7 +25,6 @@ function isAsyncIterable(value) {
     typeof value === "object" && value !== null && Symbol.asyncIterator in value
   );
 }
-
 const PROMISE_STATUS_FULFILLED = 0;
 const PROMISE_STATUS_REJECTED = 1;
 
@@ -51,7 +50,7 @@ export async function* stringifyAsyncIterable(value, revivers = {}) {
    * @returns {number} The index assigned to this callback
    */
   function registerAsyncIterable(callback) {
-    const idx = counter++;
+    const idx = ++counter;
 
     const iterator = callback(idx)[Symbol.asyncIterator]();
 
@@ -250,13 +249,17 @@ export async function parseAsyncIterable(value, revivers = {}) {
             }
 
             const [status, value] = result.value;
-
-            if (status === ASYNC_ITERABLE_STATUS_YIELD) {
-              yield value;
-            } else if (status === ASYNC_ITERABLE_STATUS_RETURN) {
-              return value;
-            } else if (status === ASYNC_ITERABLE_STATUS_ERROR) {
-              throw value;
+            switch (status) {
+              case ASYNC_ITERABLE_STATUS_YIELD:
+                yield value;
+                break;
+              case ASYNC_ITERABLE_STATUS_RETURN:
+                return value;
+              case ASYNC_ITERABLE_STATUS_ERROR:
+                throw value;
+              default: {
+                throw new Error(`Unknown status: ${status}`);
+              }
             }
           }
         } finally {

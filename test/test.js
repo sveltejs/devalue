@@ -678,4 +678,65 @@ uvu.test('stringify and parse async values', async () => {
 	assert.equal(aggregate, [-0, 1, 2]);
 })
 
+uvu.test('stringify and parse async values with errors', async () => {
+
+	class MyCustomError extends Error {
+		constructor(message) {
+			super(message);
+			this.name = 'MyCustomError';
+		}
+	}
+
+	const source = {
+		promise: (async () => {
+			throw new MyCustomError('error in promise')
+		})(),
+		asyncIterable: (async function*() {
+			yield -0
+			throw new MyCustomError('error in async iterable')
+		})(),
+	};
+	const stream = stringifyAsyncIterable(source, {
+		MyCustomError: (value) => {
+			if (value instanceof MyCustomError) {
+				return value.message
+			}
+			return false
+		}
+	});
+
+	async function *withDebug(iterable) {
+		for await (const value of iterable) {
+			yield value
+			// console.log('yielding', value)
+		}
+	}
+
+	/** @type {typeof source} */
+	const result = await parseAsyncIterable(withDebug(stream), {
+		MyCustomError: (value) => {
+			console.log('reviving', value)
+			return new MyCustomError(value)
+		}
+	})
+
+	try {
+		await result.promise
+		assert.unreachable('expected error')
+	} catch (e) {
+		assert.equal(e.message, 'error in promise')
+	}
+
+	let aggregate = []
+	try {
+		for await (const value of result.asyncIterable) {
+			aggregate.push(value)
+		}
+	} catch (e) {
+		assert.equal(e.message, 'error in async iterable')
+	}
+
+	assert.equal(aggregate, [-0])
+})
+
 uvu.test.run();
