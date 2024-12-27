@@ -241,40 +241,42 @@ export async function parseAsyncIterable(value, revivers = {}) {
           asyncMap.delete(idx);
         }
       },
-      AsyncIterable: async function* (idx) {
+      AsyncIterable: function (idx) {
         const async = registerAsync(idx);
 
-        const reader = async.getReader();
-        try {
-          while (true) {
-            const result = await reader.read();
+        return (async function* () {
+          const reader = async.getReader();
+          try {
+            while (true) {
+              const result = await reader.read();
 
-            if (result.done) {
-              return;
-            }
+              if (result.done) {
+                return;
+              }
 
-            if (result.value instanceof Error) {
-              throw result.value;
-            }
+              if (result.value instanceof Error) {
+                throw result.value;
+              }
 
-            const [status, value] = result.value;
-            switch (status) {
-              case ASYNC_ITERABLE_STATUS_YIELD:
-                yield value;
-                break;
-              case ASYNC_ITERABLE_STATUS_RETURN:
-                return value;
-              case ASYNC_ITERABLE_STATUS_ERROR:
-                throw value;
-              default: {
-                throw new Error(`Unknown status: ${status}`);
+              const [status, value] = result.value;
+              switch (status) {
+                case ASYNC_ITERABLE_STATUS_YIELD:
+                  yield value;
+                  break;
+                case ASYNC_ITERABLE_STATUS_RETURN:
+                  return value;
+                case ASYNC_ITERABLE_STATUS_ERROR:
+                  throw value;
+                default: {
+                  throw new Error(`Unknown status: ${status}`);
+                }
               }
             }
+          } finally {
+            await reader.cancel();
+            asyncMap.delete(idx);
           }
-        } finally {
-          await reader.cancel();
-          asyncMap.delete(idx);
-        }
+        })();
       },
     });
   }
