@@ -10,7 +10,7 @@
 		"diagnostics": true,
 		"noImplicitThis": true,
 		"noEmitOnError": true,
-		"lib": ["es6", "es2020"],
+		"lib": ["es6", "es2020", "DOM"],
 		"target": "es2020"
 	},
 	"module": "ES6",

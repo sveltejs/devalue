@@ -2,6 +2,7 @@ import * as vm from 'vm';
 import * as assert from 'uvu/assert';
 import * as uvu from 'uvu';
 import { uneval, unflatten, parse, stringify } from '../index.js';
+import { stringifyStream } from '../src/async.js';
 
 class Custom {
 	constructor(value) {
@@ -628,7 +629,26 @@ uvu.test('does not create duplicate parameter names', () => {
 	const bar = foo.map((_, i) => ({ [i]: foo[i] }));
 	const serialized = uneval([foo, ...bar]);
 
+
 	eval(serialized);
 });
+
+uvu.test.only('stringify stream', async () => {
+	const stream = stringifyStream({
+		promise: new Promise((resolve) => {
+			setTimeout(() => {
+				resolve('resolved');
+			}, 0);
+		}),
+	});
+
+	
+	for await (const value of stream) {
+		console.log('got:', value);
+	}
+
+	
+
+})
 
 uvu.test.run();
