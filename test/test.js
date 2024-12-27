@@ -2,7 +2,7 @@ import * as vm from 'vm';
 import * as assert from 'uvu/assert';
 import * as uvu from 'uvu';
 import { uneval, unflatten, parse, stringify } from '../index.js';
-import { stringifyStream } from '../src/async.js';
+import { parseAsyncIterable, stringifyAsyncIterable } from '../src/async.js';
 
 class Custom {
 	constructor(value) {
@@ -633,22 +633,55 @@ uvu.test('does not create duplicate parameter names', () => {
 	eval(serialized);
 });
 
-uvu.test.only('stringify stream', async () => {
-	const stream = stringifyStream({
+uvu.test('stringify stream', async () => {
+	const stream = stringifyAsyncIterable({
 		promise: new Promise((resolve) => {
 			setTimeout(() => {
 				resolve('resolved');
 			}, 0);
 		}),
+		asyncIterable: (async function*() {
+			await new Promise(resolve => setTimeout(resolve, 0));
+			yield 'yielded a value'
+			yield 'yielded another value'
+			return 'resolved'
+		})(),
 	});
 
 	
 	for await (const value of stream) {
 		console.log('got:', value);
 	}
+})
 
-	
 
+uvu.test.only('e2e', async () => {
+	const stream = stringifyAsyncIterable({
+		promise: new Promise((resolve) => {
+			setTimeout(() => {
+				resolve('resolved');
+			}, 0);
+		}),
+		// asyncIterable: (async function*() {
+		// 	await new Promise(resolve => setTimeout(resolve, 0));
+		// 	yield 'yielded a value'
+		// 	yield 'yielded another value'
+		// 	return 'resolved'
+		// })(),
+	});
+
+	async function *withDebug(iterable) {
+		for await (const value of iterable) {
+			console.log('yielding', value)
+			yield value
+		}
+	}
+
+	const result = await parseAsyncIterable(withDebug(stream))
+
+	console.log(result)
+
+	console.log('result.promise', await result.promise)
 })
 
 uvu.test.run();
