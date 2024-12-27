@@ -52,7 +52,7 @@ export async function* stringifyAsyncIterable(value, options = {}) {
    * @returns {number} The index assigned to this callback
    */
   function registerAsyncIterable(callback) {
-    const idx = counter++;
+    const idx = ++counter;
 
     const iterator = callback(idx)[Symbol.asyncIterator]();
 
@@ -93,46 +93,42 @@ export async function* stringifyAsyncIterable(value, options = {}) {
         if (!isPromise(v)) {
           return false;
         }
-        return [
-          registerAsyncIterable(async function* (idx) {
-            v.catch(() => {
-              // prevent unhandled promise rejection
-            });
-            try {
-              const next = await v;
-              return `${idx}:${PROMISE_STATUS_FULFILLED}:${recurse(next)}`;
-            } catch (cause) {
-              return `${idx}:${PROMISE_STATUS_REJECTED}:${safeCause(cause)}`;
-            }
-          }),
-        ];
+        return registerAsyncIterable(async function* (idx) {
+          v.catch(() => {
+            // prevent unhandled promise rejection
+          });
+          try {
+            const next = await v;
+            return `${idx}:${PROMISE_STATUS_FULFILLED}:${recurse(next)}`;
+          } catch (cause) {
+            return `${idx}:${PROMISE_STATUS_REJECTED}:${safeCause(cause)}`;
+          }
+        });
       },
       AsyncIterable: (v) => {
         if (!isAsyncIterable(v)) {
           return false;
         }
-        return [
-          registerAsyncIterable(async function* (idx) {
-            const iterator = v[Symbol.asyncIterator]();
-            try {
-              while (true) {
-                const next = await iterator.next();
-                if (next.done) {
-                  return `${idx}:${ASYNC_ITERABLE_STATUS_RETURN}:${recurse(
-                    next.value
-                  )}`;
-                }
-                yield `${idx}:${ASYNC_ITERABLE_STATUS_YIELD}:${recurse(
+        return registerAsyncIterable(async function* (idx) {
+          const iterator = v[Symbol.asyncIterator]();
+          try {
+            while (true) {
+              const next = await iterator.next();
+              if (next.done) {
+                return `${idx}:${ASYNC_ITERABLE_STATUS_RETURN}:${recurse(
                   next.value
                 )}`;
               }
-            } catch (cause) {
-              return `${idx}:${ASYNC_ITERABLE_STATUS_ERROR}:${safeCause(cause)}`;
-            } finally {
-              await iterator.return?.();
+              yield `${idx}:${ASYNC_ITERABLE_STATUS_YIELD}:${recurse(
+                next.value
+              )}`;
             }
-          }),
-        ];
+          } catch (cause) {
+            return `${idx}:${ASYNC_ITERABLE_STATUS_ERROR}:${safeCause(cause)}`;
+          } finally {
+            await iterator.return?.();
+          }
+        });
       },
     });
   }
@@ -222,8 +218,7 @@ export async function parseAsyncIterable(value, revivers = {}) {
   function recurse(value) {
     return parse(value, {
       ...revivers,
-      Promise: async (v) => {
-        const [idx] = v;
+      Promise: async (idx) => {
         const async = registerAsync(idx);
 
         const reader = async.getReader();
@@ -246,8 +241,7 @@ export async function parseAsyncIterable(value, revivers = {}) {
           asyncMap.delete(idx);
         }
       },
-      AsyncIterable: async function* (v) {
-        const [idx] = v;
+      AsyncIterable: async function* (idx) {
         const async = registerAsync(idx);
 
         const reader = async.getReader();
