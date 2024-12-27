@@ -244,11 +244,11 @@ export async function parseAsyncIterable(value, revivers = {}) {
         let str = result.value;
 
         let index = str.indexOf(":");
-        let idx = asNumberOrThrow(str.slice(0, index));
+        const idx = asNumberOrThrow(str.slice(0, index));
         str = str.slice(index + 1);
 
         index = str.indexOf(":");
-        let status = asNumberOrThrow(str.slice(0, index));
+        const status = asNumberOrThrow(str.slice(0, index));
         str = str.slice(index + 1);
 
         const value = recurse(str);
