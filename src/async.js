@@ -238,11 +238,14 @@ export async function parseAsyncIterable(value, revivers = {}) {
 
           const [status, value] = result.value;
 
-          if (status === PROMISE_STATUS_FULFILLED) {
-            return value;
+          switch (status) {
+            case PROMISE_STATUS_FULFILLED:
+              return value;
+            case PROMISE_STATUS_REJECTED:
+              throw value;
+            default:
+              throw new Error(`Unknown promise status: ${status}`);
           }
-
-          throw value;
         } finally {
           await reader.cancel();
           enqueueMap.delete(idx);
