@@ -248,41 +248,39 @@ export async function parseAsyncIterable(value, revivers = {}) {
           enqueueMap.delete(idx);
         }
       },
-      AsyncIterable: function (idx) {
+      AsyncIterable: async function* (idx) {
         const reader = registerAsync(idx);
 
-        return (async function* () {
-          try {
-            while (true) {
-              const result = await reader.read();
+        try {
+          while (true) {
+            const result = await reader.read();
 
-              if (result.done) {
-                return;
-              }
+            if (result.done) {
+              return;
+            }
 
-              if (result.value instanceof Error) {
-                throw result.value;
-              }
+            if (result.value instanceof Error) {
+              throw result.value;
+            }
 
-              const [status, value] = result.value;
-              switch (status) {
-                case ASYNC_ITERABLE_STATUS_YIELD:
-                  yield value;
-                  break;
-                case ASYNC_ITERABLE_STATUS_RETURN:
-                  return value;
-                case ASYNC_ITERABLE_STATUS_ERROR:
-                  throw value;
-                default: {
-                  throw new Error(`Unknown status: ${status}`);
-                }
+            const [status, value] = result.value;
+            switch (status) {
+              case ASYNC_ITERABLE_STATUS_YIELD:
+                yield value;
+                break;
+              case ASYNC_ITERABLE_STATUS_RETURN:
+                return value;
+              case ASYNC_ITERABLE_STATUS_ERROR:
+                throw value;
+              default: {
+                throw new Error(`Unknown status: ${status}`);
               }
             }
-          } finally {
-            await reader.cancel();
-            enqueueMap.delete(idx);
           }
-        })();
+        } finally {
+          await reader.cancel();
+          enqueueMap.delete(idx);
+        }
       },
     });
   }
@@ -298,7 +296,7 @@ export async function parseAsyncIterable(value, revivers = {}) {
 
         /** @type {string} */
         let str = result.value;
- 
+
         let index = str.indexOf(":");
         const idx = asNumberOrThrow(str.slice(0, index));
         str = str.slice(index + 1);
