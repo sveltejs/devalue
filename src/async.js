@@ -161,24 +161,6 @@ export async function* stringifyAsyncIterable(value, options = {}) {
   }
 }
 
-function createStreamController() {
-  /** @type {ReadableStreamDefaultController<[number, unknown] | Error>} */
-  let originalController;
-
-  /** @type {ReadableStream<[number, unknown] | Error>} */
-  const stream = new ReadableStream({
-    start(controller) {
-      originalController = controller;
-    },
-  });
-
-  return {
-    /** @param {[number, unknown] | Error} v */
-    enqueue: (v) => originalController.enqueue(v),
-    getReader: () => stream.getReader(),
-  };
-}
-
 /**
  * Converts a string to a number, throwing an error if the conversion fails
  * @param {string} str The string to convert to a number
@@ -219,7 +201,16 @@ export async function parseAsyncIterable(value, revivers = {}) {
 
     enqueueMap.set(id, (v) => originalController.enqueue(v));
 
-    return stream.getReader();
+    const reader = stream.getReader();
+
+    async function dispose() {
+      enqueueMap.delete(id);
+      await reader.cancel();
+      reader.releaseLock();
+      await stream.cancel();
+    }
+
+    return /** @type {const} */ ([reader, dispose]);
   }
 
   /** @param {string} value */
@@ -227,7 +218,7 @@ export async function parseAsyncIterable(value, revivers = {}) {
     return parse(value, {
       ...revivers,
       Promise: async (idx) => {
-        const reader = registerAsync(idx);
+        const [reader, dispose] = registerAsync(idx);
 
         try {
           const result = await reader.read();
@@ -247,12 +238,11 @@ export async function parseAsyncIterable(value, revivers = {}) {
               throw new Error(`Unknown promise status: ${status}`);
           }
         } finally {
-          await reader.cancel();
-          enqueueMap.delete(idx);
+          await dispose();
         }
       },
       AsyncIterable: async function* (idx) {
-        const reader = registerAsync(idx);
+        const [reader, dispose] = registerAsync(idx);
 
         try {
           while (true) {
@@ -281,8 +271,7 @@ export async function parseAsyncIterable(value, revivers = {}) {
             }
           }
         } finally {
-          await reader.cancel();
-          enqueueMap.delete(idx);
+          await dispose();
         }
       },
     });
