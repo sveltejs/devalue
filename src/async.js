@@ -305,11 +305,13 @@ export async function parseAsyncIterable(value, revivers = {}) {
       // go through all the asyncMap and enqueue the error
       for (const [_, enqueue] of enqueueMap) {
         enqueue(
-          new Error(
-            "Stream interrupted",
-            // @ts-ignore
-            { cause }
-          )
+          cause instanceof Error
+            ? cause
+            : new Error(
+                "Stream interrupted",
+                // @ts-ignore this is fine
+                { cause }
+              )
         );
       }
     });
