@@ -162,9 +162,27 @@ export async function* stringifyAsync(value, options = {}) {
  * @returns {asserts value is number} Type assertion that value is a number
  */
 function assertNumber(value) {
-  if (typeof value !== 'number') {
+  if (typeof value !== "number") {
     throw new Error(`Expected number, got ${typeof value}`);
   }
+}
+/**
+ * Creates a deferred promise that can be resolved or rejected externally
+ * @template T The type of the promise value
+ * @returns {{
+ *   promise: Promise<T>,
+ *   resolve: (value: T | PromiseLike<T>) => void,
+ *   reject: (reason?: unknown) => void
+ * }}
+ */
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 /**
@@ -180,30 +198,36 @@ export async function parseAsync(value, revivers = {}) {
   /** @type {Map<number, (v: [number, unknown] | Error) => void>} */
   const enqueueMap = new Map();
 
-  /** @param {number} id */
-  function registerAsync(id) {
-    /** @type {ReadableStreamDefaultController<[number, unknown] | Error>} */
-    let originalController;
+  /**
+   * @param {number} id
+   * @returns {AsyncIterable<[number, unknown]>}
+   */
+  async function* registerAsync(id) {
+    /** @type {Array<Error | [number, unknown]>} */
+    const buffer = [];
 
-    /** @type {ReadableStream<[number, unknown] | Error>} */
-    const stream = new ReadableStream({
-      start(controller) {
-        originalController = controller;
-      },
+    let deferred = createDeferred();
+
+    enqueueMap.set(id, (v) => {
+      buffer.push(v);
+      deferred.resolve();
     });
+    try {
+      while (true) {
+        await deferred.promise;
+        deferred = createDeferred();
 
-    enqueueMap.set(id, (v) => originalController.enqueue(v));
-
-    const reader = stream.getReader();
-
-    async function dispose() {
+        while (buffer.length) {
+          const value = buffer.shift();
+          if (value instanceof Error) {
+            throw value;
+          }
+          yield value;
+        }
+      }
+    } finally {
       enqueueMap.delete(id);
-      await reader.cancel();
-      reader.releaseLock();
-      await stream.cancel();
     }
-
-    return /** @type {const} */ ([reader, dispose]);
   }
 
   /** @param {number | any[]} value */
@@ -211,17 +235,10 @@ export async function parseAsync(value, revivers = {}) {
     return unflatten(value, {
       ...revivers,
       Promise: async (idx) => {
-        const [reader, dispose] = registerAsync(idx);
+        const iterable = registerAsync(idx);
 
-        try {
-          const result = await reader.read();
-
-          if (result.value instanceof Error) {
-            throw result.value;
-          }
-
-          const [status, value] = result.value;
-
+        for await (const item of iterable) {
+          const [status, value] = item;
           switch (status) {
             case PROMISE_STATUS_FULFILLED:
               return value;
@@ -230,41 +247,22 @@ export async function parseAsync(value, revivers = {}) {
             default:
               throw new Error(`Unknown promise status: ${status}`);
           }
-        } finally {
-          await dispose();
         }
       },
       AsyncIterable: async function* (idx) {
-        const [reader, dispose] = registerAsync(idx);
+        const iterable = registerAsync(idx);
 
-        try {
-          while (true) {
-            const result = await reader.read();
-
-            if (result.done) {
-              return;
-            }
-
-            if (result.value instanceof Error) {
-              throw result.value;
-            }
-
-            const [status, value] = result.value;
-            switch (status) {
-              case ASYNC_ITERABLE_STATUS_YIELD:
-                yield value;
-                break;
-              case ASYNC_ITERABLE_STATUS_RETURN:
-                return value;
-              case ASYNC_ITERABLE_STATUS_ERROR:
-                throw value;
-              default: {
-                throw new Error(`Unknown status: ${status}`);
-              }
-            }
+        for await (const item of iterable) {
+          const [status, value] = item;
+          switch (status) {
+            case ASYNC_ITERABLE_STATUS_YIELD:
+              yield value;
+              break;
+            case ASYNC_ITERABLE_STATUS_RETURN:
+              return value;
+            case ASYNC_ITERABLE_STATUS_ERROR:
+              throw value;
           }
-        } finally {
-          await dispose();
         }
       },
     });
