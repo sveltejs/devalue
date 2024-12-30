@@ -410,5 +410,6 @@ export async function* asyncIterableFrom(stream) {
     }
   } finally {
     reader.releaseLock();
+    await reader.cancel()
   }
 }
