@@ -51,7 +51,7 @@ export async function* stringifyAsync(value, options = {}) {
    * @param {(idx: number) => AsyncIterable<[number, number, string]>} callback The async iterable callback function
    * @returns {number} The index assigned to this callback
    */
-  function registerAsyncIterable(callback) {
+  function registerAsync(callback) {
     const idx = ++counter;
 
     const iterator = callback(idx)[Symbol.asyncIterator]();
@@ -69,69 +69,64 @@ export async function* stringifyAsync(value, options = {}) {
     return idx;
   }
 
+  /** @type {Record<string, (value: any) => any>} */
+  const revivers = {
+    ...options.revivers,
+    Promise: (v) => {
+      if (!isPromise(v)) {
+        return false;
+      }
+      return registerAsync(async function* (idx) {
+        v.catch(() => {
+          // prevent unhandled promise rejection
+        });
+        try {
+          const next = await v;
+          yield [idx, PROMISE_STATUS_FULFILLED, stringify(next, revivers)];
+        } catch (cause) {
+          yield [idx, PROMISE_STATUS_REJECTED, safeCause(cause)];
+        }
+      });
+    },
+    AsyncIterable: (v) => {
+      if (!isAsyncIterable(v)) {
+        return false;
+      }
+      return registerAsync(async function* (idx) {
+        const iterator = v[Symbol.asyncIterator]();
+        try {
+          while (true) {
+            const next = await iterator.next();
+            if (next.done) {
+              yield [idx, ASYNC_ITERABLE_STATUS_RETURN, stringify(next.value, revivers)];
+              break;
+            }
+            yield [idx, ASYNC_ITERABLE_STATUS_YIELD, stringify(next.value, revivers)];
+          }
+        } catch (cause) {
+          yield [idx, ASYNC_ITERABLE_STATUS_ERROR, safeCause(cause)];
+        } finally {
+          await iterator.return?.();
+        }
+      });
+    },
+  }
+
   /** @param {unknown} cause The error cause to safely stringify - prevents interrupting full stream when error is unregistered */
   function safeCause(cause) {
     try {
-      return recurse(cause);
+      return stringify(cause, revivers);
     } catch (err) {
       if (!options.coerceError) {
         throw err;
       }
-      return recurse(options.coerceError(cause));
+      return stringify(options.coerceError(cause), revivers);
     }
   }
 
-  /**
-   * Recursively stringifies a value, handling promises specially
-   * @param {unknown} v The value to stringify
-   * @returns {string} The stringified value
-   */
-  function recurse(v) {
-    return stringify(v, {
-      ...options.revivers,
-      Promise: (v) => {
-        if (!isPromise(v)) {
-          return false;
-        }
-        return registerAsyncIterable(async function* (idx) {
-          v.catch(() => {
-            // prevent unhandled promise rejection
-          });
-          try {
-            const next = await v;
-            yield [idx, PROMISE_STATUS_FULFILLED, recurse(next)];
-          } catch (cause) {
-            yield [idx, PROMISE_STATUS_REJECTED, safeCause(cause)];
-          }
-        });
-      },
-      AsyncIterable: (v) => {
-        if (!isAsyncIterable(v)) {
-          return false;
-        }
-        return registerAsyncIterable(async function* (idx) {
-          const iterator = v[Symbol.asyncIterator]();
-          try {
-            while (true) {
-              const next = await iterator.next();
-              if (next.done) {
-                yield [idx, ASYNC_ITERABLE_STATUS_RETURN, recurse(next.value)];
-                break;
-              }
-              yield [idx, ASYNC_ITERABLE_STATUS_YIELD, recurse(next.value)];
-            }
-          } catch (cause) {
-            yield [idx, ASYNC_ITERABLE_STATUS_ERROR, safeCause(cause)];
-          } finally {
-            await iterator.return?.();
-          }
-        });
-      },
-    });
-  }
 
   try {
-    yield recurse(value) + "\n";
+    yield stringify(value, revivers) + "\n";
 
     while (buffer.size) {
       // Race all iterators to get the next value from any of them
@@ -192,9 +187,8 @@ function createDeferred() {
 
  * @returns {Promise<unknown>}
  */
-export async function parseAsync(value, revivers = {}) {
+export async function parseAsync(value, revivers) {
   const iterator = value[Symbol.asyncIterator]();
-
   /** @type {Map<number, (v: [number, unknown] | Error) => void>} */
   const enqueueMap = new Map();
 
@@ -230,47 +224,45 @@ export async function parseAsync(value, revivers = {}) {
     }
   }
 
-  /** @param {number | any[]} value */
-  function recurse(value) {
-    return unflatten(value, {
-      ...revivers,
-      Promise: async (idx) => {
-        const iterable = registerAsync(idx);
+  /** @type {Record<string, (value: any) => any>} */
+  const asyncRevivers = {
+    ...revivers,
+    Promise: async (idx) => {
+      const iterable = registerAsync(idx);
 
-        for await (const item of iterable) {
-          const [status, value] = item;
-          switch (status) {
-            case PROMISE_STATUS_FULFILLED:
-              return value;
-            case PROMISE_STATUS_REJECTED:
-              throw value;
-            default:
-              throw new Error(`Unknown promise status: ${status}`);
-          }
+      for await (const item of iterable) {
+        const [status, value] = item;
+        switch (status) {
+          case PROMISE_STATUS_FULFILLED:
+            return value;
+          case PROMISE_STATUS_REJECTED:
+            throw value;
+          default:
+            throw new Error(`Unknown promise status: ${status}`);
         }
-      },
-      AsyncIterable: async function* (idx) {
-        const iterable = registerAsync(idx);
+      }
+    },
+    AsyncIterable: async function* (idx) {
+      const iterable = registerAsync(idx);
 
-        for await (const item of iterable) {
-          const [status, value] = item;
-          switch (status) {
-            case ASYNC_ITERABLE_STATUS_YIELD:
-              yield value;
-              break;
-            case ASYNC_ITERABLE_STATUS_RETURN:
-              return value;
-            case ASYNC_ITERABLE_STATUS_ERROR:
-              throw value;
-          }
+      for await (const item of iterable) {
+        const [status, value] = item;
+        switch (status) {
+          case ASYNC_ITERABLE_STATUS_YIELD:
+            yield value;
+            break;
+          case ASYNC_ITERABLE_STATUS_RETURN:
+            return value;
+          case ASYNC_ITERABLE_STATUS_ERROR:
+            throw value;
         }
-      },
-    });
+      }
+    },
   }
 
   // will contain the head of the async iterable
   const head = await iterator.next();
-  const headValue = recurse(JSON.parse(head.value));
+  const headValue = unflatten(JSON.parse(head.value), asyncRevivers);
 
   if (!head.done) {
     (async () => {
@@ -283,7 +275,7 @@ export async function parseAsync(value, revivers = {}) {
         assertNumber(idx);
         assertNumber(status);
 
-        enqueueMap.get(idx)?.([status, recurse(flattened)]);
+        enqueueMap.get(idx)?.([status, unflatten(flattened, asyncRevivers)]);
       }
       // if we get here, we've finished the stream, let's go through all the enqueue map and enqueue a stream interrupt error
       // this will only happen if receiving a malformatted stream
