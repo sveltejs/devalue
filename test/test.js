@@ -633,7 +633,7 @@ uvu.test('does not create duplicate parameter names', () => {
 	eval(serialized);
 });
 
-uvu.test.only('stringify and parse async values', async () => {
+uvu.test('stringify and parse async values', async () => {
 	const source = {
 		promise: (async () => {
 			await new Promise(resolve => setTimeout(resolve, 0));
