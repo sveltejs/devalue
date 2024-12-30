@@ -33,6 +33,66 @@ const ASYNC_ITERABLE_STATUS_ERROR = 1;
 const ASYNC_ITERABLE_STATUS_RETURN = 2;
 
 /**
+ * Merges multiple async iterables into a single async iterable that yields values in the order they resolve
+ * @template T
+ * @returns {{
+ *   add: (iterable: AsyncIterable<T>) => void,
+ *   [Symbol.asyncIterator]: () => AsyncIterator<T>
+ * }}
+ */
+function asyncIterableMerge() {
+  /** @type {Set<{iterator: AsyncIterator<T>, next: Promise<IteratorResult<T, any>>}>} */
+  const buffer = new Set();
+
+  let frozen = false;
+
+  return {
+    add(iterable) {
+      if (frozen) {
+        throw new Error("Cannot add to frozen async iterable");
+      }
+      const iterator = iterable[Symbol.asyncIterator]();
+      const next = iterator.next();
+
+      next.catch(() => {
+        // prevent unhandled promise rejection
+      });
+      buffer.add({ iterator, next });
+    },
+
+    async *[Symbol.asyncIterator]() {
+      try {
+        while (buffer.size > 0) {
+          // Race all iterators to get the next value from any of them
+          const [entry, res] = await Promise.race(
+            Array.from(buffer).map(
+              async (it) => /** @type {const} */ ([it, await it.next])
+            )
+          );
+
+          buffer.delete(entry);
+          if (!res.done) {
+            yield res.value
+            buffer.add({
+              iterator: entry.iterator,
+              next: entry.iterator.next(),
+            });
+          }
+        }
+      } finally {
+        // Clean up all iterators
+        await Promise.allSettled(
+          Array.from(buffer).map((it) => it.iterator.return?.())
+        );
+        // freeze the set
+        buffer.clear();
+        frozen = true;
+      }
+    },
+  };
+}
+
+/**
  * Streams a value into a JSON string that can be parsed with `devalue.parse`
  * @param {unknown} value The value to stream
  * @param {object} [options]
@@ -43,28 +103,26 @@ const ASYNC_ITERABLE_STATUS_RETURN = 2;
 export async function* stringifyAsync(value, options = {}) {
   let counter = 0;
 
-  /** @type {Set<{iterator: AsyncIterator<[number, number, string]>, nextPromise: Promise<IteratorResult<[number, number, string], any>>}>} */
-  const buffer = new Set();
+  /** @type {ReturnType<typeof asyncIterableMerge<[number, number, string]>>} */
+  const mergedIterables = asyncIterableMerge();
 
   /**
    * Registers an async iterable callback and returns its index
-   * @param {(idx: number) => AsyncIterable<[number, number, string]>} callback The async iterable callback function
+   * @param {(idx: number) => AsyncIterable<[number, string]>} callback The async iterable callback function
    * @returns {number} The index assigned to this callback
    */
   function registerAsync(callback) {
     const idx = ++counter;
 
-    const iterator = callback(idx)[Symbol.asyncIterator]();
+    const iterable = callback(idx);
 
-    const nextPromise = iterator.next();
-
-    nextPromise.catch(() => {
-      // prevent unhandled promise rejection
-    });
-    buffer.add({
-      iterator,
-      nextPromise,
-    });
+    mergedIterables.add(
+      (async function* () {
+        for await (const item of iterable) {
+          yield [idx, ...item];
+        }
+      })()
+    );
 
     return idx;
   }
@@ -76,15 +134,15 @@ export async function* stringifyAsync(value, options = {}) {
       if (!isPromise(v)) {
         return false;
       }
+      v.catch(() => {
+        // prevent unhandled promise rejection
+      });
       return registerAsync(async function* (idx) {
-        v.catch(() => {
-          // prevent unhandled promise rejection
-        });
         try {
           const next = await v;
-          yield [idx, PROMISE_STATUS_FULFILLED, stringify(next, revivers)];
+          yield [PROMISE_STATUS_FULFILLED, stringify(next, revivers)];
         } catch (cause) {
-          yield [idx, PROMISE_STATUS_REJECTED, safeCause(cause)];
+          yield [PROMISE_STATUS_REJECTED, safeCause(cause)];
         }
       });
     },
@@ -98,19 +156,25 @@ export async function* stringifyAsync(value, options = {}) {
           while (true) {
             const next = await iterator.next();
             if (next.done) {
-              yield [idx, ASYNC_ITERABLE_STATUS_RETURN, stringify(next.value, revivers)];
+              yield [
+                ASYNC_ITERABLE_STATUS_RETURN,
+                stringify(next.value, revivers),
+              ];
               break;
             }
-            yield [idx, ASYNC_ITERABLE_STATUS_YIELD, stringify(next.value, revivers)];
+            yield [
+              ASYNC_ITERABLE_STATUS_YIELD,
+              stringify(next.value, revivers),
+            ];
           }
         } catch (cause) {
-          yield [idx, ASYNC_ITERABLE_STATUS_ERROR, safeCause(cause)];
+          yield [ASYNC_ITERABLE_STATUS_ERROR, safeCause(cause)];
         } finally {
           await iterator.return?.();
         }
       });
     },
-  }
+  };
 
   /** @param {unknown} cause The error cause to safely stringify - prevents interrupting full stream when error is unregistered */
   function safeCause(cause) {
@@ -124,33 +188,13 @@ export async function* stringifyAsync(value, options = {}) {
     }
   }
 
+  yield stringify(value, revivers) + "\n";
 
-  try {
-    yield stringify(value, revivers) + "\n";
-
-    while (buffer.size) {
-      // Race all iterators to get the next value from any of them
-      const [entry, res] = await Promise.race(
-        Array.from(buffer).map(
-          async (it) => /** @type {const} */ ([it, await it.nextPromise])
-        )
-      );
-
-      // Remove current iterator and re-add if not done
-      buffer.delete(entry);
-      if (!res.done) {
-        yield "[" + res.value.join(",") + "]\n";
-        entry.nextPromise = entry.iterator.next();
-        buffer.add(entry);
-      }
-    }
-  } finally {
-    // Return all iterators
-    await Promise.allSettled(
-      Array.from(buffer).map((it) => it.iterator.return())
-    );
+  for await (const item of mergedIterables) {
+    yield "[" + item.join(",") + "]\n";
   }
 }
+
 /**
  * Asserts that a value is a number
  * @param {unknown} value The value to assert
@@ -258,7 +302,7 @@ export async function parseAsync(value, revivers) {
         }
       }
     },
-  }
+  };
 
   // will contain the head of the async iterable
   const head = await iterator.next();
