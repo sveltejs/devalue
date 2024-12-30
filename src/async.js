@@ -1,4 +1,4 @@
-import { parse } from "./parse.js";
+import { unflatten } from "./parse.js";
 import { stringify } from "./stringify.js";
 
 /**
@@ -29,8 +29,8 @@ const PROMISE_STATUS_FULFILLED = 0;
 const PROMISE_STATUS_REJECTED = 1;
 
 const ASYNC_ITERABLE_STATUS_YIELD = 0;
-const ASYNC_ITERABLE_STATUS_RETURN = 1;
-const ASYNC_ITERABLE_STATUS_ERROR = 2;
+const ASYNC_ITERABLE_STATUS_ERROR = 1;
+const ASYNC_ITERABLE_STATUS_RETURN = 2;
 
 /**
  * Streams a value into a JSON string that can be parsed with `devalue.parse`
@@ -43,12 +43,12 @@ const ASYNC_ITERABLE_STATUS_ERROR = 2;
 export async function* stringifyAsync(value, options = {}) {
   let counter = 0;
 
-  /** @type {Set<{iterator: AsyncIterator<string>, nextPromise: Promise<IteratorResult<string, string>>}>} */
+  /** @type {Set<{iterator: AsyncIterator<[number, number, string]>, nextPromise: Promise<IteratorResult<[number, number, string], any>>}>} */
   const buffer = new Set();
 
   /**
    * Registers an async iterable callback and returns its index
-   * @param {(idx: number) => AsyncIterable<`${string}:${string}:${string}`>} callback The async iterable callback function
+   * @param {(idx: number) => AsyncIterable<[number, number, string]>} callback The async iterable callback function
    * @returns {number} The index assigned to this callback
    */
   function registerAsyncIterable(callback) {
@@ -99,9 +99,9 @@ export async function* stringifyAsync(value, options = {}) {
           });
           try {
             const next = await v;
-            return `${idx}:${PROMISE_STATUS_FULFILLED}:${recurse(next)}`;
+            yield [idx, PROMISE_STATUS_FULFILLED, recurse(next)];
           } catch (cause) {
-            return `${idx}:${PROMISE_STATUS_REJECTED}:${safeCause(cause)}`;
+            yield [idx, PROMISE_STATUS_REJECTED, safeCause(cause)];
           }
         });
       },
@@ -115,16 +115,13 @@ export async function* stringifyAsync(value, options = {}) {
             while (true) {
               const next = await iterator.next();
               if (next.done) {
-                return `${idx}:${ASYNC_ITERABLE_STATUS_RETURN}:${recurse(
-                  next.value
-                )}`;
+                yield [idx, ASYNC_ITERABLE_STATUS_RETURN, recurse(next.value)];
+                break;
               }
-              yield `${idx}:${ASYNC_ITERABLE_STATUS_YIELD}:${recurse(
-                next.value
-              )}`;
+              yield [idx, ASYNC_ITERABLE_STATUS_YIELD, recurse(next.value)];
             }
           } catch (cause) {
-            return `${idx}:${ASYNC_ITERABLE_STATUS_ERROR}:${safeCause(cause)}`;
+            yield [idx, ASYNC_ITERABLE_STATUS_ERROR, safeCause(cause)];
           } finally {
             await iterator.return?.();
           }
@@ -144,11 +141,10 @@ export async function* stringifyAsync(value, options = {}) {
         )
       );
 
-      yield res.value + "\n";
-
       // Remove current iterator and re-add if not done
       buffer.delete(entry);
       if (!res.done) {
+        yield "[" + res.value.join(",") + "]\n";
         entry.nextPromise = entry.iterator.next();
         buffer.add(entry);
       }
@@ -160,18 +156,15 @@ export async function* stringifyAsync(value, options = {}) {
     );
   }
 }
-
 /**
- * Converts a string to a number, throwing an error if the conversion fails
- * @param {string} str The string to convert to a number
- * @returns {number} The converted number
- * @throws {Error} If the string cannot be converted to a number
+ * Asserts that a value is a number
+ * @param {unknown} value The value to assert
+ * @returns {asserts value is number} Type assertion that value is a number
  */
-function asNumberOrThrow(str) {
-  if (!/^\d+$/.test(str)) {
-    throw new Error(`Expected positive number, got ${str}`);
+function assertNumber(value) {
+  if (typeof value !== 'number') {
+    throw new Error(`Expected number, got ${typeof value}`);
   }
-  return parseInt(str, 10);
 }
 
 /**
@@ -213,9 +206,9 @@ export async function parseAsync(value, revivers = {}) {
     return /** @type {const} */ ([reader, dispose]);
   }
 
-  /** @param {string} value */
+  /** @param {number | any[]} value */
   function recurse(value) {
-    return parse(value, {
+    return unflatten(value, {
       ...revivers,
       Promise: async (idx) => {
         const [reader, dispose] = registerAsync(idx);
@@ -279,6 +272,7 @@ export async function parseAsync(value, revivers = {}) {
 
   // will contain the head of the async iterable
   const head = await iterator.next();
+  const headValue = recurse(JSON.parse(head.value));
 
   if (!head.done) {
     (async () => {
@@ -286,20 +280,17 @@ export async function parseAsync(value, revivers = {}) {
         const result = await iterator.next();
         if (result.done) break;
 
-        /** @type {string} */
-        let str = result.value;
+        const [idx, status, flattened] = JSON.parse(result.value);
 
-        let index = str.indexOf(":");
-        const idx = asNumberOrThrow(str.slice(0, index));
-        str = str.slice(index + 1);
+        assertNumber(idx);
+        assertNumber(status);
 
-        index = str.indexOf(":");
-        const status = asNumberOrThrow(str.slice(0, index));
-        str = str.slice(index + 1);
-
-        const value = recurse(str);
-
-        enqueueMap.get(idx)?.([status, value]);
+        enqueueMap.get(idx)?.([status, recurse(flattened)]);
+      }
+      // if we get here, we've finished the stream, let's go through all the enqueue map and enqueue a stream interrupt error
+      // this will only happen if receiving a malformatted stream
+      for (const [_, enqueue] of enqueueMap) {
+        enqueue(new Error("Stream interrupted: malformed stream"));
       }
     })().catch((cause) => {
       // go through all the asyncMap and enqueue the error
@@ -317,7 +308,7 @@ export async function parseAsync(value, revivers = {}) {
     });
   }
 
-  return recurse(head.value);
+  return headValue;
 }
 
 /**
