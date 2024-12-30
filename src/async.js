@@ -40,7 +40,7 @@ const ASYNC_ITERABLE_STATUS_ERROR = 2;
  * @param {(error: unknown) => unknown} [options.coerceError] Function to transform unknown errors to a known error. The known error must be handled by the reviver.
  * @returns {AsyncIterable<string>} An async iterable that yields the streamed value as JSON chunks
  */
-export async function* stringifyAsyncIterable(value, options = {}) {
+export async function* stringifyAsync(value, options = {}) {
   let counter = 0;
 
   /** @type {Set<{iterator: AsyncIterator<string>, nextPromise: Promise<IteratorResult<string, string>>}>} */
@@ -134,7 +134,7 @@ export async function* stringifyAsyncIterable(value, options = {}) {
   }
 
   try {
-    yield recurse(value);
+    yield recurse(value) + "\n";
 
     while (buffer.size) {
       // Race all iterators to get the next value from any of them
@@ -144,7 +144,7 @@ export async function* stringifyAsyncIterable(value, options = {}) {
         )
       );
 
-      yield res.value;
+      yield res.value + "\n";
 
       // Remove current iterator and re-add if not done
       buffer.delete(entry);
@@ -181,7 +181,7 @@ function asNumberOrThrow(str) {
 
  * @returns {Promise<unknown>}
  */
-export async function parseAsyncIterable(value, revivers = {}) {
+export async function parseAsync(value, revivers = {}) {
   const iterator = value[Symbol.asyncIterator]();
 
   /** @type {Map<number, (v: [number, unknown] | Error) => void>} */
@@ -318,4 +318,57 @@ export async function parseAsyncIterable(value, revivers = {}) {
   }
 
   return recurse(head.value);
+}
+
+/**
+ * Creates a ReadableStream from an AsyncIterable.
+ *
+ * @template T
+ * @param {AsyncIterable<T>} iterable - The source AsyncIterable to stream from
+ * @returns {ReadableStream<T>} A ReadableStream that yields values from the AsyncIterable
+ */
+export function readableStreamFrom(iterable) {
+  const iterator = iterable[Symbol.asyncIterator]();
+
+  return new ReadableStream({
+    async cancel() {
+      await iterator.return?.();
+    },
+
+    async pull(controller) {
+      const result = await iterator.next();
+
+      if (result.done) {
+        controller.close();
+        return;
+      }
+
+      controller.enqueue(result.value);
+    },
+  });
+}
+
+/**
+ * Converts a ReadableStream to an AsyncIterable.
+ *
+ * @template T
+ * @param {ReadableStream<T>} stream - The ReadableStream to convert
+ * @returns {AsyncIterable<T>} An AsyncIterable that yields values from the stream
+ */
+export async function* asyncIterableFrom(stream) {
+  const reader = stream.getReader();
+
+  try {
+    while (true) {
+      const res = await reader.read();
+
+      if (res.done) {
+        return res.value;
+      }
+
+      yield res.value;
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }

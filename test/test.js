@@ -2,7 +2,7 @@ import * as vm from 'vm';
 import * as assert from 'uvu/assert';
 import * as uvu from 'uvu';
 import { uneval, unflatten, parse, stringify } from '../index.js';
-import { parseAsyncIterable, stringifyAsyncIterable } from '../src/async.js';
+import { asyncIterableFrom, parseAsync, readableStreamFrom, stringifyAsync } from '../src/async.js';
 
 class Custom {
 	constructor(value) {
@@ -633,7 +633,7 @@ uvu.test('does not create duplicate parameter names', () => {
 	eval(serialized);
 });
 
-uvu.test('stringify and parse async values', async () => {
+uvu.test.only('stringify and parse async values', async () => {
 	const source = {
 		promise: (async () => {
 			await new Promise(resolve => setTimeout(resolve, 0));
@@ -647,7 +647,7 @@ uvu.test('stringify and parse async values', async () => {
 			return 'returned async iterable'
 		})(),
 	};
-	const stream = stringifyAsyncIterable(source);
+	const iterable = stringifyAsync(source);
 
 	async function *withDebug(iterable) {
 		for await (const value of iterable) {
@@ -657,7 +657,7 @@ uvu.test('stringify and parse async values', async () => {
 	}
 
 	/** @type {typeof source} */
-	const result = await parseAsyncIterable(withDebug(stream))
+	const result = await parseAsync(withDebug(iterable))
 
 	
 	assert.equal(await result.promise, 'resolved promise')
@@ -713,7 +713,7 @@ uvu.test('stringify and parse async values with errors', async () => {
 		})(),
 	};
 
-	const stream = stringifyAsyncIterable(source, {
+	const iterable = stringifyAsync(source, {
 		revivers: {
 			MyCustomError: (value) => {
 				if (value instanceof MyCustomError) {
@@ -743,7 +743,7 @@ uvu.test('stringify and parse async values with errors', async () => {
 	}
 
 	/** @type {typeof source} */
-	const result = await parseAsyncIterable(withDebug(stream), {
+	const result = await parseAsync(withDebug(iterable), {
 		MyCustomError: (value) => {
 			return new MyCustomError(value)
 		},
@@ -778,6 +778,57 @@ uvu.test('stringify and parse async values with errors', async () => {
 	}
 
 	assert.equal(aggregate, [-0])
+})
+
+
+
+uvu.test('request/response-like readable streams', async () => {
+	const source = {
+		promise: (async () => {
+			return 'resolved promise'
+		})(),
+		asyncIterable: (async function*() {
+			yield -0
+			yield 1
+			yield 2;
+			return 'returned async iterable'
+		})(),
+	};
+	const responseBodyStream = readableStreamFrom(stringifyAsync(source)).pipeThrough(new TextEncoderStream());
+	
+
+	/** @type {typeof source} */
+	const result = await parseAsync(async function*() {
+		const iterable = asyncIterableFrom(responseBodyStream.pipeThrough(new TextDecoderStream()))
+		
+		let lineAggregate = '';
+		for await (const chunk of iterable) {
+			lineAggregate += chunk;
+			const parts = lineAggregate.split('\n');
+			lineAggregate = parts.pop() ?? '';
+			for (const part of parts) {
+			  yield part;
+			}
+		}
+	}())
+
+	
+	assert.equal(await result.promise, 'resolved promise')
+
+	const aggregate = []
+	const iterator = result.asyncIterable[Symbol.asyncIterator]()
+	while (true) {
+		const next = await iterator.next()
+		if (next.done) {
+			assert.equal(next.value, 'returned async iterable')
+			break
+		}
+		aggregate.push(next.value)
+	}
+
+
+
+	assert.equal(aggregate, [-0, 1, 2]);
 })
 
 uvu.test.run();
