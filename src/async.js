@@ -41,9 +41,12 @@ const ASYNC_ITERABLE_STATUS_RETURN = 2;
  * }}
  */
 function asyncIterableMerge() {
+  /** @type {Set<AsyncIterable<T>>} */
+  const pendingIterables = new Set();
   /** @type {Set<{iterator: AsyncIterator<T>, next: Promise<IteratorResult<T, any>>}>} */
-  const buffer = new Set();
-
+  const activeIterators = new Set();
+  
+  let running = false;
   let frozen = false;
 
   return {
@@ -51,29 +54,40 @@ function asyncIterableMerge() {
       if (frozen) {
         throw new Error("Cannot add to frozen async iterable");
       }
-      const iterator = iterable[Symbol.asyncIterator]();
-      const next = iterator.next();
+      
+      if (!running) {
+        pendingIterables.add(iterable);
+        return;
+      }
 
-      next.catch(() => {
-        // prevent unhandled promise rejection
-      });
-      buffer.add({ iterator, next });
+      // If we're already iterating, initialize the iterator immediately
+      const iterator = iterable[Symbol.asyncIterator]();
+      
+      activeIterators.add({ iterator, next: iterator.next() });
     },
 
     async *[Symbol.asyncIterator]() {
       try {
-        while (buffer.size > 0) {
-          // Race all iterators to get the next value from any of them
+        running = true;
+
+        // Initialize any pending iterables
+        for (const iterable of pendingIterables) {
+          const iterator = iterable[Symbol.asyncIterator]();
+          activeIterators.add({ iterator, next: iterator.next() });
+        }
+        pendingIterables.clear();
+
+        while (activeIterators.size > 0) {
           const [entry, res] = await Promise.race(
-            Array.from(buffer).map(
+            Array.from(activeIterators).map(
               async (it) => /** @type {const} */ ([it, await it.next])
             )
           );
 
-          buffer.delete(entry);
+          activeIterators.delete(entry);
           if (!res.done) {
-            yield res.value
-            buffer.add({
+            yield res.value;
+            activeIterators.add({
               iterator: entry.iterator,
               next: entry.iterator.next(),
             });
@@ -82,11 +96,12 @@ function asyncIterableMerge() {
       } finally {
         // Clean up all iterators
         await Promise.allSettled(
-          Array.from(buffer).map((it) => it.iterator.return?.())
+          Array.from(activeIterators).map((it) => it.iterator.return?.())
         );
-        // freeze the set
-        buffer.clear();
+        activeIterators.clear();
+        pendingIterables.clear();
         frozen = true;
+        running = false;
       }
     },
   };
