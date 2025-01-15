@@ -15,7 +15,7 @@ import {
 	POSITIVE_INFINITY,
 	UNDEFINED
 } from './constants.js';
-import { encode64 } from './base64.js';
+import { encode85 } from './z85.js';
 
 /**
  * Turn a value into a JSON string that can be parsed with `devalue.parse`
@@ -153,20 +153,18 @@ export function stringify(value, reducers) {
 				case "BigUint64Array": {
 					/** @type {import("./types.js").TypedArray} */
 					const typedArray = thing;
-					const base64 = encode64(typedArray.buffer);
-					str = '["' + type + '","' + base64 + '"]';
+					str = '["' + type + '","' + encode85(typedArray.buffer) + '"]';
 					break;
 				}
-					
+
 				case "ArrayBuffer": {
 					/** @type {ArrayBuffer} */
 					const arraybuffer = thing;
-					const base64 = encode64(arraybuffer);
-					
-					str = `["ArrayBuffer","${base64}"]`;
+
+					str = `["ArrayBuffer","${encode85(arraybuffer)}"]`;
 					break;
 				}
-				
+
 				default:
 					if (!is_plain_object(thing)) {
 						throw new DevalueError(

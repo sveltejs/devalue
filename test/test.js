@@ -164,13 +164,13 @@ const fixtures = {
 			name: 'Uint8Array',
 			value: new Uint8Array([1, 2, 3]),
 			js: 'new Uint8Array([1,2,3])',
-			json: '[["Uint8Array","AQID"]]'
+			json: '[["Uint8Array","0rJu"]]'
 		},
 		{
 			name: 'ArrayBuffer',
 			value: new Uint8Array([1, 2, 3]).buffer,
 			js: 'new Uint8Array([1,2,3]).buffer',
-			json: '[["ArrayBuffer","AQID"]]'
+			json: '[["ArrayBuffer","0rJu"]]'
 		}
 	],
 

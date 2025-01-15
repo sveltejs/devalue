@@ -1,4 +1,4 @@
-import { decode64 } from './base64.js';
+import { decode85 } from './z85.js';
 import {
 	HOLE,
 	NAN,
@@ -102,31 +102,26 @@ export function unflatten(parsed, revivers) {
 						}
 						break;
 
-          case "Int8Array":
-          case "Uint8Array":
-          case "Uint8ClampedArray":
-          case "Int16Array":
-          case "Uint16Array":
-          case "Int32Array":
-          case "Uint32Array":
-          case "Float32Array":
-          case "Float64Array":
-          case "BigInt64Array":
-          case "BigUint64Array": {
-            const TypedArrayConstructor = globalThis[type];
-            const base64 = value[1];
-            const arraybuffer = decode64(base64);
-            const typedArray = new TypedArrayConstructor(arraybuffer);
-            hydrated[index] = typedArray;
-            break;
-          }
+					case "Int8Array":
+					case "Uint8Array":
+					case "Uint8ClampedArray":
+					case "Int16Array":
+					case "Uint16Array":
+					case "Int32Array":
+					case "Uint32Array":
+					case "Float32Array":
+					case "Float64Array":
+					case "BigInt64Array":
+					case "BigUint64Array": {
+						const TypedArrayConstructor = globalThis[type];
+						hydrated[index] = new TypedArrayConstructor(decode85(value[1]));
+						break;
+					}
 
-          case "ArrayBuffer": {
-            const base64 = value[1];
-            const arraybuffer = decode64(base64);
-            hydrated[index] = arraybuffer;
-            break;
-          }
+					case "ArrayBuffer": {
+						hydrated[index] = decode85(value[1]);
+						break;
+					}
 
 					default:
 						throw new Error(`Unknown type ${type}`);
