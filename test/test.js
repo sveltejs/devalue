@@ -171,6 +171,12 @@ const fixtures = {
 			value: new Uint8Array([1, 2, 3]).buffer,
 			js: 'new Uint8Array([1,2,3]).buffer',
 			json: '[["ArrayBuffer","AQID"]]'
+		},
+		{
+			name: 'URL',
+			value: new URL('https://user:password@example.com/<script>/path?foo=bar#hash'),
+			js: 'new URL("https://user:password@example.com/%3Cscript%3E/path?foo=bar#hash")',
+			json: '[["URL","https://user:password@example.com/%3Cscript%3E/path?foo=bar#hash"]]'
 		}
 	],
 

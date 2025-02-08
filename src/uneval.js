@@ -59,6 +59,7 @@ export function uneval(value, replacer) {
 				case 'Boolean':
 				case 'Date':
 				case 'RegExp':
+				case 'URL':
 					return;
 
 				case 'Array':
@@ -166,6 +167,9 @@ export function uneval(value, replacer) {
 
 			case 'Date':
 				return `new Date(${thing.getTime()})`;
+
+			case 'URL':
+				return `new URL(${stringify_string(thing.href)})`;
 
 			case 'Array':
 				const members = /** @type {any[]} */ (thing).map((v, i) =>
