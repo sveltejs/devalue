@@ -60,6 +60,7 @@ export function uneval(value, replacer) {
 				case 'Date':
 				case 'RegExp':
 				case 'URL':
+				case 'URLSearchParams':
 					return;
 
 				case 'Array':
@@ -170,6 +171,9 @@ export function uneval(value, replacer) {
 
 			case 'URL':
 				return `new URL(${stringify_string(thing.href)})`;
+
+			case 'URLSearchParams':
+				return `new URLSearchParams(${stringify_string(thing.toString())})`;
 
 			case 'Array':
 				const members = /** @type {any[]} */ (thing).map((v, i) =>

@@ -91,7 +91,11 @@ export function stringify(value, reducers) {
 					break;
 
 				case 'URL':
-					str = `["URL",${stringify_string(thing.href)}]`;
+					str = `["URL",${stringify_string(thing.toString())}]`;
+					break;
+
+				case 'URLSearchParams':
+					str = `["URLSearchParams",${stringify_string(thing.toString())}]`;
 					break;
 
 				case 'RegExp':

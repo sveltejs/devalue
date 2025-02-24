@@ -134,6 +134,12 @@ export function unflatten(parsed, revivers) {
 						break;
 					}
 
+					case 'URLSearchParams': {
+						const url = new URLSearchParams(value[1]);
+						hydrated[index] = url;
+						break;
+					}
+
 					default:
 						throw new Error(`Unknown type ${type}`);
 				}
