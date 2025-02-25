@@ -170,7 +170,7 @@ export function uneval(value, replacer) {
 				return `new Date(${thing.getTime()})`;
 
 			case 'URL':
-				return `new URL(${stringify_string(thing.href)})`;
+				return `new URL(${stringify_string(thing.toString())})`;
 
 			case 'URLSearchParams':
 				return `new URLSearchParams(${stringify_string(thing.toString())})`;
