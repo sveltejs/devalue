@@ -3,6 +3,11 @@ import * as assert from 'uvu/assert';
 import * as uvu from 'uvu';
 import { uneval, unflatten, parse, stringify } from '../index.js';
 
+import { Temporal } from '@js-temporal/polyfill'
+if (!globalThis.Temporal) {
+	globalThis.Temporal = Temporal;
+}
+
 class Custom {
 	constructor(value) {
 		this.value = value;
@@ -171,6 +176,61 @@ const fixtures = {
 			value: new Uint8Array([1, 2, 3]).buffer,
 			js: 'new Uint8Array([1,2,3]).buffer',
 			json: '[["ArrayBuffer","AQID"]]'
+		},
+		{
+			name: 'Temporal.Duration',
+			value: Temporal.Duration.from({ years: 1, months: 2, days: 3 }),
+			js: 'Temporal.Duration.from("P1Y2M3D")',
+			json: '[["Temporal.Duration","P1Y2M3D"]]'
+		},
+		{
+			name: 'Temporal.Instant',
+			value: Temporal.Instant.from("1999-09-29T05:30:00Z"),
+			js: 'Temporal.Instant.from("1999-09-29T05:30:00Z")',
+			json: '[["Temporal.Instant","1999-09-29T05:30:00Z"]]'
+		},
+		{
+			name: 'Temporal.PlainDate',
+			value: Temporal.PlainDate.from({ year: 1999, month: 9, day: 29 }),
+			js: 'Temporal.PlainDate.from("1999-09-29")',
+			json: '[["Temporal.PlainDate","1999-09-29"]]'
+		},
+		{
+			name: 'Temporal.PlainTime',
+			value: Temporal.PlainTime.from({ hour: 12, minute: 34, second: 56 }),
+			js: 'Temporal.PlainTime.from("12:34:56")',
+			json: '[["Temporal.PlainTime","12:34:56"]]'
+		},
+		{
+			name: 'Temporal.PlainDateTime',
+			value: Temporal.PlainDateTime.from({
+				year: 1999, month: 9, day: 29,
+				hour: 12, minute: 34, second: 56
+			}),
+			js: 'Temporal.PlainDateTime.from("1999-09-29T12:34:56")',
+			json: '[["Temporal.PlainDateTime","1999-09-29T12:34:56"]]'
+		},
+		{
+			name: 'Temporal.PlainMonthDay',
+			value: Temporal.PlainMonthDay.from({ month: 9, day: 29 }),
+			js: 'Temporal.PlainMonthDay.from("09-29")',
+			json: '[["Temporal.PlainMonthDay","09-29"]]'
+		},
+		{
+			name: 'Temporal.PlainYearMonth',
+			value: Temporal.PlainYearMonth.from({ year: 1999, month: 9 }),
+			js: 'Temporal.PlainYearMonth.from("1999-09")',
+			json: '[["Temporal.PlainYearMonth","1999-09"]]'
+		},
+		{
+			name: 'Temporal.ZonedDateTime',
+			value: Temporal.ZonedDateTime.from({
+				year: 1999, month: 9, day: 29,
+				hour: 12, minute: 34, second: 56,
+				timeZone: 'Europe/Rome'
+			}),
+			js: 'Temporal.ZonedDateTime.from("1999-09-29T12:34:56+02:00[Europe/Rome]")',
+			json: '[["Temporal.ZonedDateTime","1999-09-29T12:34:56+02:00[Europe/Rome]"]]'
 		}
 	],
 

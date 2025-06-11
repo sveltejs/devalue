@@ -99,6 +99,16 @@ export function uneval(value, replacer) {
 				case "ArrayBuffer":
 					return;
 
+				case 'Temporal.Duration':
+				case 'Temporal.Instant':
+				case 'Temporal.PlainDate':
+				case 'Temporal.PlainTime':
+				case 'Temporal.PlainDateTime':
+				case 'Temporal.PlainMonthDay':
+				case 'Temporal.PlainYearMonth':
+				case 'Temporal.ZonedDateTime':
+					return;
+
 				default:
 					if (!is_plain_object(thing)) {
 						throw new DevalueError(
@@ -198,6 +208,16 @@ export function uneval(value, replacer) {
 				const ui8 = new Uint8Array(thing);
 				return `new Uint8Array([${ui8.toString()}]).buffer`;
 			}
+
+			case 'Temporal.Duration':
+			case 'Temporal.Instant':
+			case 'Temporal.PlainDate':
+			case 'Temporal.PlainTime':
+			case 'Temporal.PlainDateTime':
+			case 'Temporal.PlainMonthDay':
+			case 'Temporal.PlainYearMonth':
+			case 'Temporal.ZonedDateTime':
+				return `${type}.from(${stringify_string(thing.toString())})`;
 
 			default:
 				const obj = `{${Object.keys(thing)

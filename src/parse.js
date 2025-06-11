@@ -128,6 +128,20 @@ export function unflatten(parsed, revivers) {
             break;
           }
 
+					case 'Temporal.Duration':
+					case 'Temporal.Instant':
+					case 'Temporal.PlainDate':
+					case 'Temporal.PlainTime':
+					case 'Temporal.PlainDateTime':
+					case 'Temporal.PlainMonthDay':
+					case 'Temporal.PlainYearMonth':
+					case 'Temporal.ZonedDateTime': {
+						const temporalName = type.slice(9);
+						// @ts-expect-error TS doesn't know about Temporal yet
+						hydrated[index] = Temporal[temporalName].from(value[1]);
+						break;
+					}
+
 					default:
 						throw new Error(`Unknown type ${type}`);
 				}

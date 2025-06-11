@@ -166,7 +166,18 @@ export function stringify(value, reducers) {
 					str = `["ArrayBuffer","${base64}"]`;
 					break;
 				}
-				
+
+				case 'Temporal.Duration':
+				case 'Temporal.Instant':
+				case 'Temporal.PlainDate':
+				case 'Temporal.PlainTime':
+				case 'Temporal.PlainDateTime':
+				case 'Temporal.PlainMonthDay':
+				case 'Temporal.PlainYearMonth':
+				case 'Temporal.ZonedDateTime':
+					str = `["${type}",${stringify_string(thing.toString())}]`;
+					break;
+
 				default:
 					if (!is_plain_object(thing)) {
 						throw new DevalueError(
