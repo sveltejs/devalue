@@ -153,7 +153,7 @@ export function stringify(value, reducers) {
 				case "BigUint64Array": {
 					/** @type {import("./types.js").TypedArray} */
 					const typedArray = thing;
-					const base64 = encode64(typedArray.buffer);
+					const base64 = encode64(typedArray.slice().buffer);
 					str = '["' + type + '","' + base64 + '"]';
 					break;
 				}
