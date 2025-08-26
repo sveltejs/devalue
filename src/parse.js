@@ -102,24 +102,57 @@ export function unflatten(parsed, revivers) {
 						}
 						break;
 
-					case "Int8Array":
-					case "Uint8Array":
-					case "Uint8ClampedArray":
-					case "Int16Array":
-					case "Uint16Array":
-					case "Int32Array":
-					case "Uint32Array":
-					case "Float32Array":
-					case "Float64Array":
-					case "BigInt64Array":
-					case "BigUint64Array": {
+					case 'Int8Array':
+					case 'Uint8Array':
+					case 'Uint8ClampedArray':
+					case 'Int16Array':
+					case 'Uint16Array':
+					case 'Int32Array':
+					case 'Uint32Array':
+					case 'Float32Array':
+					case 'Float64Array':
+					case 'BigInt64Array':
+					case 'BigUint64Array': {
 						const TypedArrayConstructor = globalThis[type];
-						hydrated[index] = new TypedArrayConstructor(decode85(value[1]));
+						const typedArray = new TypedArrayConstructor(hydrate(value[1]));
+
+						hydrated[index] =
+							value[2] !== undefined
+								? typedArray.subarray(value[2], value[3])
+								: typedArray;
+
 						break;
 					}
 
-					case "ArrayBuffer": {
-						hydrated[index] = decode85(value[1]);
+					case 'ArrayBuffer': {
+						const arraybuffer = decode85(value[1]);
+						hydrated[index] = arraybuffer;
+						break;
+					}
+
+					case 'Temporal.Duration':
+					case 'Temporal.Instant':
+					case 'Temporal.PlainDate':
+					case 'Temporal.PlainTime':
+					case 'Temporal.PlainDateTime':
+					case 'Temporal.PlainMonthDay':
+					case 'Temporal.PlainYearMonth':
+					case 'Temporal.ZonedDateTime': {
+						const temporalName = type.slice(9);
+						// @ts-expect-error TS doesn't know about Temporal yet
+						hydrated[index] = Temporal[temporalName].from(value[1]);
+						break;
+					}
+
+					case 'URL': {
+						const url = new URL(value[1]);
+						hydrated[index] = url;
+						break;
+					}
+
+					case 'URLSearchParams': {
+						const url = new URLSearchParams(value[1]);
+						hydrated[index] = url;
 						break;
 					}
 

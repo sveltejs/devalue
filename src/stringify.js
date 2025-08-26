@@ -90,6 +90,14 @@ export function stringify(value, reducers) {
 					str = `["Date","${valid ? thing.toISOString() : ''}"]`;
 					break;
 
+				case 'URL':
+					str = `["URL",${stringify_string(thing.toString())}]`;
+					break;
+
+				case 'URLSearchParams':
+					str = `["URLSearchParams",${stringify_string(thing.toString())}]`;
+					break;
+
 				case 'RegExp':
 					const { source, flags } = thing;
 					str = flags
@@ -140,30 +148,49 @@ export function stringify(value, reducers) {
 					str += ']';
 					break;
 
-				case "Int8Array":
-				case "Uint8Array":
-				case "Uint8ClampedArray":
-				case "Int16Array":
-				case "Uint16Array":
-				case "Int32Array":
-				case "Uint32Array":
-				case "Float32Array":
-				case "Float64Array":
-				case "BigInt64Array":
-				case "BigUint64Array": {
+				case 'Int8Array':
+				case 'Uint8Array':
+				case 'Uint8ClampedArray':
+				case 'Int16Array':
+				case 'Uint16Array':
+				case 'Int32Array':
+				case 'Uint32Array':
+				case 'Float32Array':
+				case 'Float64Array':
+				case 'BigInt64Array':
+				case 'BigUint64Array': {
 					/** @type {import("./types.js").TypedArray} */
 					const typedArray = thing;
-					str = '["' + type + '","' + encode85(typedArray.buffer) + '"]';
+					str = '["' + type + '",' + flatten(typedArray.buffer);
+
+					const a = thing.byteOffset;
+					const b = a + thing.byteLength;
+
+					// handle subarrays
+					if (a > 0 || b !== typedArray.buffer.byteLength) {
+						const m = +/(\d+)/.exec(type)[1] / 8;
+						str += `,${a / m},${b / m}`;
+					}
+
+					str += ']';
 					break;
 				}
 
-				case "ArrayBuffer": {
-					/** @type {ArrayBuffer} */
-					const arraybuffer = thing;
-
-					str = `["ArrayBuffer","${encode85(arraybuffer)}"]`;
+				case 'ArrayBuffer': {
+					str = `["ArrayBuffer","${encode85(thing)}"]`;
 					break;
 				}
+
+				case 'Temporal.Duration':
+				case 'Temporal.Instant':
+				case 'Temporal.PlainDate':
+				case 'Temporal.PlainTime':
+				case 'Temporal.PlainDateTime':
+				case 'Temporal.PlainMonthDay':
+				case 'Temporal.PlainYearMonth':
+				case 'Temporal.ZonedDateTime':
+					str = `["${type}",${stringify_string(thing.toString())}]`;
+					break;
 
 				default:
 					if (!is_plain_object(thing)) {
