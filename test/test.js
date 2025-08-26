@@ -181,6 +181,20 @@ const fixtures = {
 			json: '[["ArrayBuffer","AQID"]]'
 		},
 		{
+			name: 'URL',
+			value: new URL(
+				'https://user:password@example.com/<script>/path?foo=bar#hash'
+			),
+			js: 'new URL("https://user:password@example.com/%3Cscript%3E/path?foo=bar#hash")',
+			json: '[["URL","https://user:password@example.com/%3Cscript%3E/path?foo=bar#hash"]]'
+		},
+		{
+			name: 'URLSearchParams',
+			value: new URLSearchParams('foo=1&foo=2&baz=<+>'),
+			js: 'new URLSearchParams("foo=1&foo=2&baz=%3C+%3E")',
+			json: '[["URLSearchParams","foo=1&foo=2&baz=%3C+%3E"]]'
+		},
+		{
 			name: 'Sliced typed array',
 			value: new Uint16Array([10, 20, 30, 40]).subarray(1, 3),
 			js: 'new Uint16Array([10,20,30,40]).subarray(1,3)',

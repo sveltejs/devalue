@@ -90,6 +90,14 @@ export function stringify(value, reducers) {
 					str = `["Date","${valid ? thing.toISOString() : ''}"]`;
 					break;
 
+				case 'URL':
+					str = `["URL",${stringify_string(thing.toString())}]`;
+					break;
+
+				case 'URLSearchParams':
+					str = `["URLSearchParams",${stringify_string(thing.toString())}]`;
+					break;
+
 				case 'RegExp':
 					const { source, flags } = thing;
 					str = flags
