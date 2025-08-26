@@ -1,3 +1,4 @@
+import * as vlq from 'vlq';
 import {
 	DevalueError,
 	enumerable_symbols,
@@ -177,11 +178,7 @@ export function stringify(value, reducers) {
 				}
 
 				case 'ArrayBuffer': {
-					/** @type {ArrayBuffer} */
-					const arraybuffer = thing;
-					const base64 = encode64(arraybuffer);
-
-					str = `["ArrayBuffer","${base64}"]`;
+					str = `["ArrayBuffer","${vlq.encode(new Uint8Array(thing))}"]`;
 					break;
 				}
 

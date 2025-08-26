@@ -1,4 +1,5 @@
 import { decode64 } from './base64.js';
+import * as vlq from 'vlq';
 import {
 	HOLE,
 	NAN,
@@ -125,9 +126,7 @@ export function unflatten(parsed, revivers) {
 					}
 
 					case 'ArrayBuffer': {
-						const base64 = value[1];
-						const arraybuffer = decode64(base64);
-						hydrated[index] = arraybuffer;
+						hydrated[index] = new Uint8Array(vlq.decode(value[1])).buffer;
 						break;
 					}
 
