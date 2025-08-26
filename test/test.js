@@ -3,10 +3,7 @@ import * as assert from 'uvu/assert';
 import * as uvu from 'uvu';
 import { uneval, unflatten, parse, stringify } from '../index.js';
 
-import { Temporal } from '@js-temporal/polyfill'
-if (!globalThis.Temporal) {
-	globalThis.Temporal = Temporal;
-}
+globalThis.Temporal ??= (await import('@js-temporal/polyfill')).Temporal;
 
 class Custom {
 	constructor(value) {
