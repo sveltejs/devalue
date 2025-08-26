@@ -11,11 +11,8 @@ class Custom {
 	}
 }
 
-const NullObject = (() => {
-	const C = function () {};
-	C.prototype = Object.create(null);
-	return C;
-})();
+function NullObject() {}
+NullObject.prototype = Object.create(null);
 
 const node_version = +process.versions.node.split('.')[0];
 
