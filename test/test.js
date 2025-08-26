@@ -133,6 +133,12 @@ const fixtures = {
 			json: '[[1,2,3],"a","b","c"]'
 		},
 		{
+			name: 'Array where negative zero appears after normal zero',
+			value: [0, -0],
+			js: '[0,-0]',
+			json: '[[1,-6],0]'
+		},
+		{
 			name: 'Array (empty)',
 			value: [],
 			js: '[]',
