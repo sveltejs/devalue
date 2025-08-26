@@ -34,5 +34,8 @@
 	},
 	"license": "MIT",
 	"type": "module",
-	"packageManager": "pnpm@8.15.9"
+	"packageManager": "pnpm@8.15.9",
+	"dependencies": {
+		"vlq": "^2.0.4"
+	}
 }
