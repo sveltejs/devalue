@@ -1,5 +1,12 @@
 # devalue changelog
 
+## 5.2.1
+
+### Patch Changes
+
+- e46f4c8: fix: handle repeated array buffers and subarrays
+- 2dfa504: fix: handle custom classes with null proto as pojo
+
 ## 5.2.0
 
 - Handle custom classes with null proto as pojo ([#95](https://github.com/sveltejs/devalue/pull/95))
