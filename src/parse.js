@@ -1,4 +1,3 @@
-import { decode64 } from './base64.js';
 import * as vlq from 'vlq';
 import {
 	HOLE,
