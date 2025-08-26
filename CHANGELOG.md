@@ -1,5 +1,11 @@
 # devalue changelog
 
+## 5.3.1
+
+### Patch Changes
+
+- ae904c5: fix: correctly differentiate between +0 and -0
+
 ## 5.3.0
 
 ### Minor Changes
