@@ -1,5 +1,9 @@
 # devalue changelog
 
+## 5.2.0
+
+- Handle custom classes with null proto as pojo ([#95](https://github.com/sveltejs/devalue/pull/95))
+
 ## 5.1.1
 
 - Only iterate over own properties of reducers ([#80](https://github.com/Rich-Harris/devalue/pull/80))
