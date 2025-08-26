@@ -82,21 +82,22 @@ export function uneval(value, replacer) {
 						keys.pop();
 					}
 					break;
-				
-				case "Int8Array":
-				case "Uint8Array":
-				case "Uint8ClampedArray":
-				case "Int16Array":
-				case "Uint16Array":
-				case "Int32Array":
-				case "Uint32Array":
-				case "Float32Array":
-				case "Float64Array":
-				case "BigInt64Array":
-				case "BigUint64Array":
+
+				case 'Int8Array':
+				case 'Uint8Array':
+				case 'Uint8ClampedArray':
+				case 'Int16Array':
+				case 'Uint16Array':
+				case 'Int32Array':
+				case 'Uint32Array':
+				case 'Float32Array':
+				case 'Float64Array':
+				case 'BigInt64Array':
+				case 'BigUint64Array':
+					walk(thing.buffer);
 					return;
-				
-				case "ArrayBuffer":
+
+				case 'ArrayBuffer':
 					return;
 
 				case 'Temporal.Duration':
@@ -187,24 +188,40 @@ export function uneval(value, replacer) {
 			case 'Set':
 			case 'Map':
 				return `new ${type}([${Array.from(thing).map(stringify).join(',')}])`;
-			
-			case "Int8Array":
-			case "Uint8Array":
-			case "Uint8ClampedArray":
-			case "Int16Array":
-			case "Uint16Array":
-			case "Int32Array":
-			case "Uint32Array":
-			case "Float32Array":
-			case "Float64Array":
-			case "BigInt64Array":
-			case "BigUint64Array": {
-				/** @type {import("./types.js").TypedArray} */
-				const typedArray = thing;
-				return `new ${type}([${typedArray.toString()}])`;
+
+			case 'Int8Array':
+			case 'Uint8Array':
+			case 'Uint8ClampedArray':
+			case 'Int16Array':
+			case 'Uint16Array':
+			case 'Int32Array':
+			case 'Uint32Array':
+			case 'Float32Array':
+			case 'Float64Array':
+			case 'BigInt64Array':
+			case 'BigUint64Array': {
+				let str = `new ${type}`;
+
+				if (counts.get(thing.buffer) === 1) {
+					const array = new thing.constructor(thing.buffer);
+					str += `([${array}])`;
+				} else {
+					str += `([${stringify(thing.buffer)}])`;
+				}
+
+				const a = thing.byteOffset;
+				const b = a + thing.byteLength;
+
+				// handle subarrays
+				if (a > 0 || b !== thing.buffer.byteLength) {
+					const m = +/(\d+)/.exec(type)[1] / 8;
+					str += `.subarray(${a / m},${b / m})`;
+				}
+
+				return str;
 			}
-				
-			case "ArrayBuffer": {
+
+			case 'ArrayBuffer': {
 				const ui8 = new Uint8Array(thing);
 				return `new Uint8Array([${ui8.toString()}]).buffer`;
 			}
@@ -298,6 +315,12 @@ export function uneval(value, replacer) {
 						`${name}.${Array.from(thing)
 							.map(([k, v]) => `set(${stringify(k)}, ${stringify(v)})`)
 							.join('.')}`
+					);
+					break;
+
+				case 'ArrayBuffer':
+					values.push(
+						`new Uint8Array([${new Uint8Array(thing).join(',')}]).buffer`
 					);
 					break;
 
