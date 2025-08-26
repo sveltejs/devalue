@@ -1,7 +1,7 @@
 {
 	"name": "devalue",
 	"description": "Gets the job done when JSON.stringify can't",
-	"version": "5.3.1",
+	"version": "5.3.2",
 	"repository": "sveltejs/devalue",
 	"sideEffects": false,
 	"exports": {
