@@ -10,10 +10,10 @@ class Custom {
 }
 
 const NullObject = (() => {
-  const C = function () {};
-  C.prototype = Object.create(null);
-  return C;
-})()
+	const C = function () {};
+	C.prototype = Object.create(null);
+	return C;
+})();
 
 const node_version = +process.versions.node.split('.')[0];
 
@@ -334,9 +334,8 @@ const fixtures = {
 				js: '(function(a){a.foo="bar";a.self=a;return a}({}))',
 				json: '[{"foo":1,"self":0},"bar"]',
 				validate: (value) => {
-					assert.is(value.foo, "bar")
+					assert.is(value.foo, 'bar');
 					assert.is(value.self, value);
-
 				}
 			};
 		})(Object.assign(new NullObject(), { foo: 'bar' })),
