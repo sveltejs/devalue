@@ -177,6 +177,12 @@ const fixtures = {
 			value: new Uint8Array([1, 2, 3]).buffer,
 			js: 'new Uint8Array([1,2,3]).buffer',
 			json: '[["ArrayBuffer","AQID"]]'
+		},
+		{
+			name: 'Sliced typed array',
+			value: new Uint16Array([10, 20, 30, 40]).subarray(1, 3),
+			js: 'new Uint16Array([10,20,30,40]).subarray(1,3)',
+			json: '[["Uint16Array",1,1,3],["ArrayBuffer","CgAUAB4AKAA="]]'
 		}
 	],
 

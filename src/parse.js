@@ -115,7 +115,11 @@ export function unflatten(parsed, revivers) {
 					case 'BigUint64Array': {
 						const TypedArrayConstructor = globalThis[type];
 						const typedArray = new TypedArrayConstructor(hydrate(value[1]));
-						hydrated[index] = typedArray;
+
+						hydrated[index] =
+							value[2] !== undefined
+								? typedArray.subarray(value[2], value[3])
+								: typedArray;
 
 						break;
 					}

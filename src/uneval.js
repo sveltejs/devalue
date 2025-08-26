@@ -190,13 +190,25 @@ export function uneval(value, replacer) {
 			case 'Float64Array':
 			case 'BigInt64Array':
 			case 'BigUint64Array': {
+				let str = `new ${type}`;
+
 				if (counts.get(thing.buffer) === 1) {
-					/** @type {import("./types.js").TypedArray} */
-					const typedArray = thing;
-					return `new ${type}([${typedArray.toString()}])`;
+					const array = new thing.constructor(thing.buffer);
+					str += `([${array}])`;
+				} else {
+					str += `([${stringify(thing.buffer)}])`;
 				}
 
-				return `new ${type}([${stringify(thing.buffer)}])`;
+				const a = thing.byteOffset;
+				const b = a + thing.byteLength;
+
+				// handle subarrays
+				if (a > 0 || b !== thing.buffer.byteLength) {
+					const m = +/(\d+)/.exec(type)[1] / 8;
+					str += `.subarray(${a / m},${b / m})`;
+				}
+
+				return str;
 			}
 
 			case 'ArrayBuffer': {

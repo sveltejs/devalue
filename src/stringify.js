@@ -153,7 +153,18 @@ export function stringify(value, reducers) {
 				case 'BigUint64Array': {
 					/** @type {import("./types.js").TypedArray} */
 					const typedArray = thing;
-					str = '["' + type + '",' + flatten(typedArray.buffer) + ']';
+					str = '["' + type + '",' + flatten(typedArray.buffer);
+
+					const a = thing.byteOffset;
+					const b = a + thing.byteLength;
+
+					// handle subarrays
+					if (a > 0 || b !== typedArray.buffer.byteLength) {
+						const m = +/(\d+)/.exec(type)[1] / 8;
+						str += `,${a / m},${b / m}`;
+					}
+
+					str += ']';
 					break;
 				}
 
