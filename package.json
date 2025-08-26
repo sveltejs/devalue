@@ -19,6 +19,7 @@
 	"types": "./types/index.d.ts",
 	"devDependencies": {
 		"@changesets/cli": "^2.29.6",
+		"@js-temporal/polyfill": "^0.5.1",
 		"dts-buddy": "^0.6.2",
 		"publint": "^0.3.12",
 		"typescript": "^5.9.2",
