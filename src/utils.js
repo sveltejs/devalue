@@ -41,6 +41,7 @@ export function is_plain_object(thing) {
 	return (
 		proto === Object.prototype ||
 		proto === null ||
+		Object.getPrototypeOf(proto) === null ||
 		Object.getOwnPropertyNames(proto).sort().join('\0') === object_proto_names
 	);
 }

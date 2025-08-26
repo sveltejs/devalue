@@ -1,5 +1,23 @@
 # devalue changelog
 
+## 5.3.0
+
+### Minor Changes
+
+- 2896e7b: feat: support Temporal
+- fec694d: feat: support `URL` and `URLSearchParams` objects
+
+## 5.2.1
+
+### Patch Changes
+
+- e46f4c8: fix: handle repeated array buffers and subarrays
+- 2dfa504: fix: handle custom classes with null proto as pojo
+
+## 5.2.0
+
+- Handle custom classes with null proto as pojo ([#95](https://github.com/sveltejs/devalue/pull/95))
+
 ## 5.1.1
 
 - Only iterate over own properties of reducers ([#80](https://github.com/Rich-Harris/devalue/pull/80))
