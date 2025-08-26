@@ -681,6 +681,16 @@ const invalid = [
 		name: 'empty array',
 		json: '[]',
 		message: 'Invalid input'
+	},
+	{
+		name: 'prototype pollution',
+		json: '[{"__proto__":1},{}]',
+		message: 'Cannot parse an object with a `__proto__` property'
+	},
+	{
+		name: 'bad index',
+		json: '[{"0":1,"toString":"push"},"hello"]',
+		message: 'Invalid input'
 	}
 ];
 

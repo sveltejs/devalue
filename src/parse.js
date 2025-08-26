@@ -44,7 +44,9 @@ export function unflatten(parsed, revivers) {
 		if (index === NEGATIVE_INFINITY) return -Infinity;
 		if (index === NEGATIVE_ZERO) return -0;
 
-		if (standalone) throw new Error(`Invalid input`);
+		if (standalone || typeof index !== 'number') {
+			throw new Error(`Invalid input`);
+		}
 
 		if (index in hydrated) return hydrated[index];
 
@@ -177,6 +179,10 @@ export function unflatten(parsed, revivers) {
 			hydrated[index] = object;
 
 			for (const key in value) {
+				if (key === '__proto__') {
+					throw new Error('Cannot parse an object with a `__proto__` property');
+				}
+
 				const n = value[key];
 				object[key] = hydrate(n);
 			}
