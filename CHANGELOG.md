@@ -1,5 +1,12 @@
 # devalue changelog
 
+## 5.3.0
+
+### Minor Changes
+
+- 2896e7b: feat: support Temporal
+- fec694d: feat: support `URL` and `URLSearchParams` objects
+
 ## 5.2.1
 
 ### Patch Changes
