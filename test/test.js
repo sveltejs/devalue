@@ -181,12 +181,12 @@ const fixtures = {
 			json: '[["ArrayBuffer","AQID"]]'
 		},
 		{
-      name: 'Sliced typed array',
+			name: 'Sliced typed array',
 			value: new Uint16Array([10, 20, 30, 40]).subarray(1, 3),
 			js: 'new Uint16Array([10,20,30,40]).subarray(1,3)',
 			json: '[["Uint16Array",1,1,3],["ArrayBuffer","CgAUAB4AKAA="]]'
-    },
-    {
+		},
+		{
 			name: 'Temporal.Duration',
 			value: Temporal.Duration.from({ years: 1, months: 2, days: 3 }),
 			js: 'Temporal.Duration.from("P1Y2M3D")',
@@ -194,7 +194,7 @@ const fixtures = {
 		},
 		{
 			name: 'Temporal.Instant',
-			value: Temporal.Instant.from("1999-09-29T05:30:00Z"),
+			value: Temporal.Instant.from('1999-09-29T05:30:00Z'),
 			js: 'Temporal.Instant.from("1999-09-29T05:30:00Z")',
 			json: '[["Temporal.Instant","1999-09-29T05:30:00Z"]]'
 		},
@@ -213,8 +213,12 @@ const fixtures = {
 		{
 			name: 'Temporal.PlainDateTime',
 			value: Temporal.PlainDateTime.from({
-				year: 1999, month: 9, day: 29,
-				hour: 12, minute: 34, second: 56
+				year: 1999,
+				month: 9,
+				day: 29,
+				hour: 12,
+				minute: 34,
+				second: 56
 			}),
 			js: 'Temporal.PlainDateTime.from("1999-09-29T12:34:56")',
 			json: '[["Temporal.PlainDateTime","1999-09-29T12:34:56"]]'
@@ -234,8 +238,12 @@ const fixtures = {
 		{
 			name: 'Temporal.ZonedDateTime',
 			value: Temporal.ZonedDateTime.from({
-				year: 1999, month: 9, day: 29,
-				hour: 12, minute: 34, second: 56,
+				year: 1999,
+				month: 9,
+				day: 29,
+				hour: 12,
+				minute: 34,
+				second: 56,
 				timeZone: 'Europe/Rome'
 			}),
 			js: 'Temporal.ZonedDateTime.from("1999-09-29T12:34:56+02:00[Europe/Rome]")',
