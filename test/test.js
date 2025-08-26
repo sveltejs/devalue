@@ -3,6 +3,8 @@ import * as assert from 'uvu/assert';
 import * as uvu from 'uvu';
 import { uneval, unflatten, parse, stringify } from '../index.js';
 
+globalThis.Temporal ??= (await import('@js-temporal/polyfill')).Temporal;
+
 class Custom {
 	constructor(value) {
 		this.value = value;
@@ -10,10 +12,10 @@ class Custom {
 }
 
 const NullObject = (() => {
-  const C = function () {};
-  C.prototype = Object.create(null);
-  return C;
-})()
+	const C = function () {};
+	C.prototype = Object.create(null);
+	return C;
+})();
 
 const node_version = +process.versions.node.split('.')[0];
 
@@ -170,7 +172,7 @@ const fixtures = {
 			name: 'Uint8Array',
 			value: new Uint8Array([1, 2, 3]),
 			js: 'new Uint8Array([1,2,3])',
-			json: '[["Uint8Array","AQID"]]'
+			json: '[["Uint8Array",1],["ArrayBuffer","AQID"]]'
 		},
 		{
 			name: 'ArrayBuffer',
@@ -180,7 +182,9 @@ const fixtures = {
 		},
 		{
 			name: 'URL',
-			value: new URL('https://user:password@example.com/<script>/path?foo=bar#hash'),
+			value: new URL(
+				'https://user:password@example.com/<script>/path?foo=bar#hash'
+			),
 			js: 'new URL("https://user:password@example.com/%3Cscript%3E/path?foo=bar#hash")',
 			json: '[["URL","https://user:password@example.com/%3Cscript%3E/path?foo=bar#hash"]]'
 		},
@@ -189,6 +193,75 @@ const fixtures = {
 			value: new URLSearchParams('foo=1&foo=2&baz=<+>'),
 			js: 'new URLSearchParams("foo=1&foo=2&baz=%3C+%3E")',
 			json: '[["URLSearchParams","foo=1&foo=2&baz=%3C+%3E"]]'
+		},
+		{
+			name: 'Sliced typed array',
+			value: new Uint16Array([10, 20, 30, 40]).subarray(1, 3),
+			js: 'new Uint16Array([10,20,30,40]).subarray(1,3)',
+			json: '[["Uint16Array",1,1,3],["ArrayBuffer","CgAUAB4AKAA="]]'
+		},
+		{
+			name: 'Temporal.Duration',
+			value: Temporal.Duration.from({ years: 1, months: 2, days: 3 }),
+			js: 'Temporal.Duration.from("P1Y2M3D")',
+			json: '[["Temporal.Duration","P1Y2M3D"]]'
+		},
+		{
+			name: 'Temporal.Instant',
+			value: Temporal.Instant.from('1999-09-29T05:30:00Z'),
+			js: 'Temporal.Instant.from("1999-09-29T05:30:00Z")',
+			json: '[["Temporal.Instant","1999-09-29T05:30:00Z"]]'
+		},
+		{
+			name: 'Temporal.PlainDate',
+			value: Temporal.PlainDate.from({ year: 1999, month: 9, day: 29 }),
+			js: 'Temporal.PlainDate.from("1999-09-29")',
+			json: '[["Temporal.PlainDate","1999-09-29"]]'
+		},
+		{
+			name: 'Temporal.PlainTime',
+			value: Temporal.PlainTime.from({ hour: 12, minute: 34, second: 56 }),
+			js: 'Temporal.PlainTime.from("12:34:56")',
+			json: '[["Temporal.PlainTime","12:34:56"]]'
+		},
+		{
+			name: 'Temporal.PlainDateTime',
+			value: Temporal.PlainDateTime.from({
+				year: 1999,
+				month: 9,
+				day: 29,
+				hour: 12,
+				minute: 34,
+				second: 56
+			}),
+			js: 'Temporal.PlainDateTime.from("1999-09-29T12:34:56")',
+			json: '[["Temporal.PlainDateTime","1999-09-29T12:34:56"]]'
+		},
+		{
+			name: 'Temporal.PlainMonthDay',
+			value: Temporal.PlainMonthDay.from({ month: 9, day: 29 }),
+			js: 'Temporal.PlainMonthDay.from("09-29")',
+			json: '[["Temporal.PlainMonthDay","09-29"]]'
+		},
+		{
+			name: 'Temporal.PlainYearMonth',
+			value: Temporal.PlainYearMonth.from({ year: 1999, month: 9 }),
+			js: 'Temporal.PlainYearMonth.from("1999-09")',
+			json: '[["Temporal.PlainYearMonth","1999-09"]]'
+		},
+		{
+			name: 'Temporal.ZonedDateTime',
+			value: Temporal.ZonedDateTime.from({
+				year: 1999,
+				month: 9,
+				day: 29,
+				hour: 12,
+				minute: 34,
+				second: 56,
+				timeZone: 'Europe/Rome'
+			}),
+			js: 'Temporal.ZonedDateTime.from("1999-09-29T12:34:56+02:00[Europe/Rome]")',
+			json: '[["Temporal.ZonedDateTime","1999-09-29T12:34:56+02:00[Europe/Rome]"]]'
 		}
 	],
 
@@ -346,9 +419,8 @@ const fixtures = {
 				js: '(function(a){a.foo="bar";a.self=a;return a}({}))',
 				json: '[{"foo":1,"self":0},"bar"]',
 				validate: (value) => {
-					assert.is(value.foo, "bar")
+					assert.is(value.foo, 'bar');
 					assert.is(value.self, value);
-
 				}
 			};
 		})(Object.assign(new NullObject(), { foo: 'bar' })),
@@ -391,7 +463,26 @@ const fixtures = {
 				js: '(function(a){return [a,a]}({}))',
 				json: '[[1,1],{}]'
 			};
-		})({})
+		})({}),
+
+		{
+			name: 'Array buffer (repetition)',
+			value: (() => {
+				const uint8 = new Uint8Array(10);
+				const uint16 = new Uint16Array(uint8.buffer);
+
+				for (let i = 0; i < uint8.length; i += 1) {
+					uint8[i] = i;
+				}
+
+				return [uint8, uint16];
+			})(),
+			js: '(function(a){return [new Uint8Array([a]),new Uint16Array([a])]}(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer))',
+			json: '[[1,3],["Uint8Array",2],["ArrayBuffer","AAECAwQFBgcICQ=="],["Uint16Array",2]]',
+			validate: ([uint8, uint16]) => {
+				return uint8.buffer === uint16.buffer;
+			}
+		}
 	],
 
 	XSS: [
