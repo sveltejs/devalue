@@ -1,5 +1,12 @@
 # devalue changelog
 
+## 5.3.2
+
+### Patch Changes
+
+- 0623a47: fix: disallow array method access when parsing
+- 0623a47: fix: disallow `__proto__` properties on objects
+
 ## 5.3.1
 
 ### Patch Changes
