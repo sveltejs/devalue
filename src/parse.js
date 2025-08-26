@@ -102,31 +102,30 @@ export function unflatten(parsed, revivers) {
 						}
 						break;
 
-          case "Int8Array":
-          case "Uint8Array":
-          case "Uint8ClampedArray":
-          case "Int16Array":
-          case "Uint16Array":
-          case "Int32Array":
-          case "Uint32Array":
-          case "Float32Array":
-          case "Float64Array":
-          case "BigInt64Array":
-          case "BigUint64Array": {
-            const TypedArrayConstructor = globalThis[type];
-            const base64 = value[1];
-            const arraybuffer = decode64(base64);
-            const typedArray = new TypedArrayConstructor(arraybuffer);
-            hydrated[index] = typedArray;
-            break;
-          }
+					case 'Int8Array':
+					case 'Uint8Array':
+					case 'Uint8ClampedArray':
+					case 'Int16Array':
+					case 'Uint16Array':
+					case 'Int32Array':
+					case 'Uint32Array':
+					case 'Float32Array':
+					case 'Float64Array':
+					case 'BigInt64Array':
+					case 'BigUint64Array': {
+						const TypedArrayConstructor = globalThis[type];
+						const typedArray = new TypedArrayConstructor(hydrate(value[1]));
+						hydrated[index] = typedArray;
 
-          case "ArrayBuffer": {
-            const base64 = value[1];
-            const arraybuffer = decode64(base64);
-            hydrated[index] = arraybuffer;
-            break;
-          }
+						break;
+					}
+
+					case 'ArrayBuffer': {
+						const base64 = value[1];
+						const arraybuffer = decode64(base64);
+						hydrated[index] = arraybuffer;
+						break;
+					}
 
 					default:
 						throw new Error(`Unknown type ${type}`);
