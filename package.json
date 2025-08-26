@@ -2,7 +2,7 @@
 	"name": "devalue",
 	"description": "Gets the job done when JSON.stringify can't",
 	"version": "5.3.0",
-	"repository": "Rich-Harris/devalue",
+	"repository": "sveltejs/devalue",
 	"sideEffects": false,
 	"exports": {
 		".": {
