@@ -516,7 +516,7 @@ const fixtures = {
 		{
 			name: 'Object without prototype',
 			value: Object.create(null),
-			js: 'Object.create(null)',
+			js: '{__proto__:null}',
 			json: '[["null"]]',
 			validate: (value) => {
 				assert.equal(Object.getPrototypeOf(value), null);
