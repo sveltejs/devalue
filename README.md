@@ -116,7 +116,7 @@ If a function passed to `stringify` returns a truthy value, it's treated as a ma
 You can also use custom types with `uneval` by specifying a custom replacer:
 
 ```js
-devalue.uneval(vector, (value, uneval) => {
+devalue.uneval(vector, (value) => {
 	if (value instanceof Vector) {
 		return `new Vector(${value.x},${value.y})`;
 	}
