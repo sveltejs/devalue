@@ -17,7 +17,7 @@ const reserved =
 /**
  * Turn a value into the JavaScript that creates an equivalent value
  * @param {any} value
- * @param {(value: any) => string | void} [replacer]
+ * @param {(value: any, uneval: (value: any) => string | void) => string | void} [replacer]
  */
 export function uneval(value, replacer) {
 	const counts = new Map();
@@ -42,7 +42,7 @@ export function uneval(value, replacer) {
 			counts.set(thing, 1);
 
 			if (replacer) {
-				const str = replacer(thing);
+				const str = replacer(thing, (value) => uneval(value, replacer));
 
 				if (typeof str === 'string') {
 					custom.set(thing, str);

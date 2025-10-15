@@ -5,7 +5,13 @@ import { uneval, unflatten, parse, stringify } from '../index.js';
 
 globalThis.Temporal ??= (await import('@js-temporal/polyfill')).Temporal;
 
-class Custom {
+class Foo {
+	constructor(value) {
+		this.value = value;
+	}
+}
+
+class Bar {
 	constructor(value) {
 		this.value = value;
 	}
@@ -549,27 +555,34 @@ const fixtures = {
 		{
 			name: 'Custom type',
 			value: [instance, instance],
-			js: '(function(a){return [a,a]}(new Custom({answer:42})))',
-			json: '[[1,1],["Custom",2],{"answer":3},42]',
-			replacer: (value) => {
-				if (value instanceof Custom) {
-					return `new Custom(${uneval(value.value)})`;
+			js: '(function(a){return [a,a]}(new Foo({bar:new Bar({answer:42})})))',
+			json: '[[1,1],["Foo",2],{"bar":3},["Bar",4],{"answer":5},42]',
+			replacer: (value, uneval) => {
+				if (value instanceof Foo) {
+					return `new Foo(${uneval(value.value)})`;
+				}
+
+				if (value instanceof Bar) {
+					return `new Bar(${uneval(value.value)})`;
 				}
 			},
 			// test for https://github.com/Rich-Harris/devalue/pull/80
 			reducers: Object.assign(Object.create({ polluted: true }), {
-				Custom: (x) => x instanceof Custom && x.value
+				Foo: (x) => x instanceof Foo && x.value,
+				Bar: (x) => x instanceof Bar && x.value
 			}),
 			revivers: {
-				Custom: (x) => new Custom(x)
+				Foo: (x) => new Foo(x),
+				Bar: (x) => new Bar(x)
 			},
 			validate: ([obj1, obj2]) => {
 				assert.is(obj1, obj2);
-				assert.ok(obj1 instanceof Custom);
-				assert.equal(obj1.value.answer, 42);
+				assert.ok(obj1 instanceof Foo);
+				assert.ok(obj1.value.bar instanceof Bar);
+				assert.equal(obj1.value.bar.value.answer, 42);
 			}
 		}
-	])(new Custom({ answer: 42 }))
+	])(new Foo({ bar: new Bar({ answer: 42 }) }))
 };
 
 for (const [name, tests] of Object.entries(fixtures)) {
