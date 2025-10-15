@@ -1,5 +1,15 @@
 # devalue changelog
 
+## 5.4.0
+
+### Minor Changes
+
+- 9306d09: feat: pass `uneval` to replacer, for handling nested custom types
+
+### Patch Changes
+
+- b617c7c: perf: shrink `uneval` output with null-proto objects
+
 ## 5.3.2
 
 ### Patch Changes
