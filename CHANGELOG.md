@@ -1,5 +1,11 @@
 # devalue changelog
 
+## 5.4.1
+
+### Patch Changes
+
+- ca3c7b6: chore: Remove impossible `void` type from replacer's `uneval`
+
 ## 5.4.0
 
 ### Minor Changes
