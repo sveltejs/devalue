@@ -245,17 +245,18 @@ export function uneval(value, replacer) {
 				return `${type}.from(${stringify_string(thing.toString())})`;
 
 			default:
-				const obj = `{${Object.keys(thing)
+				const keys = Object.keys(thing);
+				const obj = keys
 					.map((key) => `${safe_key(key)}:${stringify(thing[key])}`)
-					.join(',')}}`;
+					.join(',');
 				const proto = Object.getPrototypeOf(thing);
 				if (proto === null) {
-					return Object.keys(thing).length > 0
-						? `Object.assign(Object.create(null),${obj})`
-						: `Object.create(null)`;
+					return keys.length > 0
+						? `{${obj},__proto__:null}`
+						: `{__proto__:null}`;
 				}
 
-				return obj;
+				return `{${obj}}`;
 		}
 	}
 
