@@ -11,7 +11,9 @@
 		"noImplicitThis": true,
 		"noEmitOnError": true,
 		"lib": ["es6", "es2020", "dom"],
-		"target": "es2020"
+		"target": "es2020",
+		"module": "nodenext",
+		"moduleResolution": "nodenext"
 	},
 	"module": "ES6",
 	"include": ["index.js", "src/*.js"],
