@@ -582,7 +582,27 @@ const fixtures = {
 				assert.equal(obj1.value.bar.value.answer, 42);
 			}
 		}
-	])(new Foo({ bar: new Bar({ answer: 42 }) }))
+	])(new Foo({ bar: new Bar({ answer: 42 }) })),
+
+	custom_fallback: ((date) => [
+		{
+			name: 'Custom fallback',
+			value: date,
+			js: "new Date('')",
+			json: '[["Date",""]]',
+			replacer: (value) => value instanceof Date && `new Date('')`,
+			reducers: {
+				Date: (value) => value instanceof Date && '',
+			},
+			revivers: {
+				Date: (value) => new Date(value)
+			},
+			validate: (obj) => {
+				assert.ok(obj instanceof Date);
+				assert.ok(isNaN(obj.getDate()));
+			}
+		}
+	])(new Date('invalid'))
 };
 
 for (const [name, tests] of Object.entries(fixtures)) {
