@@ -1,5 +1,11 @@
 # devalue changelog
 
+## 5.4.2
+
+### Patch Changes
+
+- 5c26c0d: fix: allow custom revivers to revive things serialized by builtin reducers
+
 ## 5.4.1
 
 ### Patch Changes
