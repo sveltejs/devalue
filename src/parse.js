@@ -60,7 +60,13 @@ export function unflatten(parsed, revivers) {
 
 				const reviver = revivers?.[type];
 				if (reviver) {
-					return (hydrated[index] = reviver(hydrate(value[1])));
+					let i = value[1];
+					if (typeof i !== 'number') {
+						// if it's not a number, it was serialized by a builtin reviver
+						// so we need to munge it into the format expected by a custom reviver
+						i = values.push(value[1]) - 1;
+					}
+					return (hydrated[index] = reviver(hydrate(i)));
 				}
 
 				switch (type) {
