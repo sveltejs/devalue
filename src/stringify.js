@@ -44,10 +44,6 @@ export function stringify(value, reducers) {
 
 	/** @param {any} thing */
 	function flatten(thing) {
-		if (typeof thing === 'function') {
-			throw new DevalueError(`Cannot stringify a function`, keys);
-		}
-
 		if (thing === undefined) return UNDEFINED;
 		if (Number.isNaN(thing)) return NAN;
 		if (thing === Infinity) return POSITIVE_INFINITY;
@@ -65,6 +61,10 @@ export function stringify(value, reducers) {
 				stringified[index] = `["${key}",${flatten(value)}]`;
 				return index;
 			}
+		}
+
+		if (typeof thing === 'function') {
+			throw new DevalueError(`Cannot stringify a function`, keys);
 		}
 
 		let str = '';

@@ -29,10 +29,6 @@ export function uneval(value, replacer) {
 
 	/** @param {any} thing */
 	function walk(thing) {
-		if (typeof thing === 'function') {
-			throw new DevalueError(`Cannot stringify a function`, keys);
-		}
-
 		if (!is_primitive(thing)) {
 			if (counts.has(thing)) {
 				counts.set(thing, counts.get(thing) + 1);
@@ -48,6 +44,10 @@ export function uneval(value, replacer) {
 					custom.set(thing, str);
 					return;
 				}
+			}
+
+			if (typeof thing === 'function') {
+				throw new DevalueError(`Cannot stringify a function`, keys);
 			}
 
 			const type = get_type(thing);

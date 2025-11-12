@@ -602,7 +602,83 @@ const fixtures = {
 				assert.ok(isNaN(obj.getDate()));
 			}
 		}
-	])(new Date('invalid'))
+	])(new Date('invalid')),
+
+	functions: (() => {
+		// Simple function wrapper class for testing
+		class FunctionRef {
+			constructor(fn) {
+				this.fn = fn;
+			}
+		}
+
+		const testFn = (x) => x * 2;
+
+		return [
+			{
+				name: 'Function wrapped in custom type',
+				value: new FunctionRef(testFn),
+				js: 'new FunctionRef((x) => x * 2)',
+				json: '[["FunctionRef",1],"(x) => x * 2"]',
+				replacer: (value, uneval) => {
+					if (value instanceof FunctionRef) {
+						// Serialize the function code directly as a string
+						return `new FunctionRef(${value.fn.toString()})`;
+					}
+				},
+				reducers: {
+					FunctionRef: (value) => {
+						if (value instanceof FunctionRef) {
+							// Serialize the function code as a string
+							return value.fn.toString();
+						}
+					}
+				},
+				revivers: {
+					FunctionRef: (code) => {
+						// Reconstruct the function from its string representation
+						const fn = new Function('return ' + code)();
+						return new FunctionRef(fn);
+					}
+				},
+				validate: (result) => {
+					assert.ok(result instanceof FunctionRef);
+					assert.ok(typeof result.fn === 'function');
+					// Test that the function works
+					assert.equal(result.fn(5), 10);
+				}
+			},
+			{
+				name: 'Function in nested structure',
+				value: { fn: testFn, nested: { data: 42 } },
+				js: '{fn:(x) => x * 2,nested:{data:42}}',
+				json: '[{"fn":1,"nested":3},["FunctionRef",2],"(x) => x * 2",{"data":4},42]',
+				replacer: (value, uneval) => {
+					if (typeof value === 'function') {
+						// Serialize the function code directly
+						return value.toString();
+					}
+				},
+				reducers: {
+					FunctionRef: (value) => {
+						if (typeof value === 'function') {
+							return value.toString();
+						}
+					}
+				},
+				revivers: {
+					FunctionRef: (code) => {
+						return new Function('return ' + code)();
+					}
+				},
+				validate: (result) => {
+					assert.ok(typeof result.fn === 'function');
+					assert.equal(result.nested.data, 42);
+					assert.equal(result.fn(3), 6);
+				}
+			}
+		];
+	})()
 };
 
 for (const [name, tests] of Object.entries(fixtures)) {
