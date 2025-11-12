@@ -1,5 +1,11 @@
 # devalue changelog
 
+## 5.5.0
+
+### Minor Changes
+
+- 828fa1c: Enable support for custom reducer/reviver for "function" values
+
 ## 5.4.2
 
 ### Patch Changes
