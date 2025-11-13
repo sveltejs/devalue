@@ -1,7 +1,7 @@
 import * as vm from 'vm';
 import * as assert from 'uvu/assert';
 import * as uvu from 'uvu';
-import { uneval, unflatten, parse, stringify } from '../index.js';
+import { uneval, unflatten, parse, stringify, DevalueError } from '../index.js';
 
 globalThis.Temporal ??= (await import('@js-temporal/polyfill')).Temporal;
 
@@ -875,6 +875,10 @@ uvu.test('does not create duplicate parameter names', () => {
 	const serialized = uneval([foo, ...bar]);
 
 	eval(serialized);
+});
+
+uvu.test('DevalueError is exported', () => {
+        assert.ok(DevalueError);
 });
 
 uvu.test.run();
