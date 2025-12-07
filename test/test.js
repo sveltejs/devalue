@@ -867,6 +867,67 @@ for (const fn of [uneval, stringify]) {
 			assert.equal(e.path, '.object.invalid');
 		}
 	});
+
+	uvu.test(`${fn.name} populates error.value with the problematic value`, () => {
+		const testFn = function invalid() {};
+		try {
+			fn({
+				foo: {
+					array: [testFn]
+				}
+			});
+		} catch (e) {
+			assert.equal(e.name, 'DevalueError');
+			assert.equal(e.message, 'Cannot stringify a function');
+			assert.equal(e.value, testFn);
+		}
+	});
+
+	uvu.test(`${fn.name} populates error.root with the root value`, () => {
+		const root = {
+			foo: {
+				array: [function invalid() {}]
+			}
+		};
+		try {
+			fn(root);
+		} catch (e) {
+			assert.equal(e.name, 'DevalueError');
+			assert.equal(e.message, 'Cannot stringify a function');
+			assert.equal(e.root, root);
+		}
+	});
+
+	uvu.test(`${fn.name} includes value and root on arbitrary non-POJOs error`, () => {
+		class Whatever {}
+		const problematicValue = new Whatever();
+		const root = {
+			foo: {
+				['string-key']: new Map([['key', problematicValue]])
+			}
+		};
+		try {
+			fn(root);
+		} catch (e) {
+			assert.equal(e.name, 'DevalueError');
+			assert.equal(e.message, 'Cannot stringify arbitrary non-POJOs');
+			assert.equal(e.value, problematicValue);
+			assert.equal(e.root, root);
+		}
+	});
+
+	uvu.test(`${fn.name} includes value and root on symbolic keys error`, () => {
+		const symbolKey = Symbol('key');
+		const root = { [symbolKey]: 'value' };
+		try {
+			fn(root);
+		} catch (e) {
+			assert.equal(e.name, 'DevalueError');
+			assert.equal(e.message, 'Cannot stringify POJOs with symbolic keys');
+			assert.equal(e.value, root);
+			assert.equal(e.root, root);
+		}
+	});
 }
 
 uvu.test('does not create duplicate parameter names', () => {
