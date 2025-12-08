@@ -2,4 +2,4 @@
 "devalue": minor
 ---
 
-Add `value` and `root` properties in `DevalueError` instances
+feat: add `value` and `root` properties in `DevalueError` instances
