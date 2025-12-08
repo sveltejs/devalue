@@ -1,5 +1,12 @@
 # devalue changelog
 
+## 5.6.0
+
+### Minor Changes
+
+- a3d09d4: feat: expose `DevalueError` for `instanceof` checks in `catch` clauses
+- a3d09d4: feat: add `value` and `root` properties in `DevalueError` instances
+
 ## 5.5.0
 
 ### Minor Changes
