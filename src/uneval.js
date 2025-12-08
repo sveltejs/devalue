@@ -47,7 +47,7 @@ export function uneval(value, replacer) {
 			}
 
 			if (typeof thing === 'function') {
-				throw new DevalueError(`Cannot stringify a function`, keys);
+				throw new DevalueError(`Cannot stringify a function`, keys, thing, value);
 			}
 
 			const type = get_type(thing);
@@ -116,14 +116,18 @@ export function uneval(value, replacer) {
 					if (!is_plain_object(thing)) {
 						throw new DevalueError(
 							`Cannot stringify arbitrary non-POJOs`,
-							keys
+							keys,
+							thing,
+							value
 						);
 					}
 
 					if (enumerable_symbols(thing).length > 0) {
 						throw new DevalueError(
 							`Cannot stringify POJOs with symbolic keys`,
-							keys
+							keys,
+							thing,
+							value
 						);
 					}
 

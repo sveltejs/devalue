@@ -15,11 +15,15 @@ export class DevalueError extends Error {
 	/**
 	 * @param {string} message
 	 * @param {string[]} keys
+	 * @param {any} [value] - The value that failed to be serialized
+	 * @param {any} [root] - The root value being serialized
 	 */
-	constructor(message, keys) {
+	constructor(message, keys, value, root) {
 		super(message);
 		this.name = 'DevalueError';
 		this.path = keys.join('');
+		this.value = value;
+		this.root = root;
 	}
 }
 
