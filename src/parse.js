@@ -58,7 +58,11 @@ export function unflatten(parsed, revivers) {
 			if (typeof value[0] === 'string') {
 				const type = value[0];
 
-				const reviver = revivers?.[type];
+				const reviver =
+					revivers && Object.hasOwn(revivers, type)
+						? revivers[type]
+						: undefined;
+
 				if (reviver) {
 					let i = value[1];
 					if (typeof i !== 'number') {
