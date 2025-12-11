@@ -1,5 +1,11 @@
 # devalue changelog
 
+## 5.6.1
+
+### Patch Changes
+
+- 2161d44: fix: add hasOwn check before calling reviver
+
 ## 5.6.0
 
 ### Minor Changes
