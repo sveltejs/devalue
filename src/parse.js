@@ -34,6 +34,13 @@ export function unflatten(parsed, revivers) {
 	const hydrated = Array(values.length);
 
 	/**
+	 * A set of values currently being hydrated with custom revivers,
+	 * used to detect invalid cyclical dependencies
+	 * @type {Set<number> | null}
+	 */
+	let hydrating = null;
+
+	/**
 	 * @param {number} index
 	 * @returns {any}
 	 */
@@ -70,7 +77,18 @@ export function unflatten(parsed, revivers) {
 						// so we need to munge it into the format expected by a custom reviver
 						i = values.push(value[1]) - 1;
 					}
-					return (hydrated[index] = reviver(hydrate(i)));
+
+					hydrating ??= new Set();
+
+					if (hydrating.has(i)) {
+						throw new Error('Invalid circular reference');
+					}
+
+					hydrating.add(i);
+					hydrated[index] = reviver(hydrate(i));
+					hydrating.delete(i);
+
+					return hydrated[index];
 				}
 
 				switch (type) {
@@ -125,6 +143,12 @@ export function unflatten(parsed, revivers) {
 					case 'Float64Array':
 					case 'BigInt64Array':
 					case 'BigUint64Array': {
+						if (values[value[1]][0] !== 'ArrayBuffer') {
+							// without this, if we receive malformed input we could
+							// end up trying to hydrate in a circle
+							throw new Error('Invalid data');
+						}
+
 						const TypedArrayConstructor = globalThis[type];
 						const buffer = hydrate(value[1]);
 						if (!(buffer instanceof ArrayBuffer)) {
@@ -142,6 +166,9 @@ export function unflatten(parsed, revivers) {
 
 					case 'ArrayBuffer': {
 						const base64 = value[1];
+						if (typeof base64 !== 'string') {
+							throw new Error('Invalid ArrayBuffer encoding');
+						}
 						const arraybuffer = decode64(base64);
 						hydrated[index] = arraybuffer;
 						break;

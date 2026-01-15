@@ -746,6 +746,11 @@ const invalid = [
 		message: 'Invalid input, expected ArrayBuffer but got object'
 	},
 	{
+		name: 'ArrayBuffer with non-string value',
+		json: '[["ArrayBuffer", { "length": 100 }]]',
+		message: 'Invalid ArrayBuffer encoding'
+	},
+	{
 		name: 'empty string',
 		json: '',
 		message: 'Unexpected end of JSON input'
@@ -802,13 +807,29 @@ const invalid = [
 		name: 'bad index',
 		json: '[{"0":1,"toString":"push"},"hello"]',
 		message: 'Invalid input'
+	},
+	{
+		name: 'TypedArray self-reference',
+		json: '[["Uint8Array", 0]]',
+		message: 'Invalid data'
+	},
+	{
+		name: 'custom reviver self-reference',
+		json: '[["Custom", 0]]',
+		revivers: { Custom: (v) => v },
+		message: 'Invalid circular reference'
+	},
+	{
+		name: 'mutual TypedArray reference',
+		json: '[["Uint8Array", 1], ["Uint8Array", 0]]',
+		message: 'Invalid data'
 	}
 ];
 
-for (const { name, json, message } of invalid) {
+for (const { name, json, message, revivers } of invalid) {
 	uvu.test(`parse error: ${name}`, () => {
 		assert.throws(
-			() => parse(json),
+			() => parse(json, revivers),
 			(error) => {
 				const match = error.message === message;
 				if (!match) {
