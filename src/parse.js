@@ -126,7 +126,11 @@ export function unflatten(parsed, revivers) {
 					case 'BigInt64Array':
 					case 'BigUint64Array': {
 						const TypedArrayConstructor = globalThis[type];
-						const typedArray = new TypedArrayConstructor(hydrate(value[1]));
+						const buffer = hydrate(value[1]);
+						if (!(buffer instanceof ArrayBuffer)) {
+							throw new Error(`Invalid input, expected ArrayBuffer but got ${typeof buffer}`);
+						}
+						const typedArray = new TypedArrayConstructor(buffer);
 
 						hydrated[index] =
 							value[2] !== undefined

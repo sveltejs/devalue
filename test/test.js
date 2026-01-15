@@ -741,6 +741,11 @@ for (const [name, tests] of Object.entries(fixtures)) {
 
 const invalid = [
 	{
+		name: 'typed array with non-ArrayBuffer input',
+		json: '[["Int8Array", 1], { "length": 2 }, 1000000000]',
+		message: 'Invalid input, expected ArrayBuffer but got object'
+	},
+	{
 		name: 'empty string',
 		json: '',
 		message: 'Unexpected end of JSON input'
