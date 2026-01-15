@@ -145,15 +145,13 @@ export function unflatten(parsed, revivers) {
 					case 'BigUint64Array': {
 						if (values[value[1]][0] !== 'ArrayBuffer') {
 							// without this, if we receive malformed input we could
-							// end up trying to hydrate in a circle
+							// end up trying to hydrate in a circle or allocate
+							// huge amounts of memory when we call `new TypedArrayConstructor(buffer)`
 							throw new Error('Invalid data');
 						}
 
 						const TypedArrayConstructor = globalThis[type];
 						const buffer = hydrate(value[1]);
-						if (!(buffer instanceof ArrayBuffer)) {
-							throw new Error(`Invalid input, expected ArrayBuffer but got ${typeof buffer}`);
-						}
 						const typedArray = new TypedArrayConstructor(buffer);
 
 						hydrated[index] =
