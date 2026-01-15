@@ -181,13 +181,13 @@ const fixtures = {
 			name: 'Uint8Array',
 			value: new Uint8Array([1, 2, 3]),
 			js: 'new Uint8Array([1,2,3])',
-			json: '[["Uint8Array",1],["ArrayBuffer","AQID"]]'
+			json: '[["Uint8Array",1],["ArrayBuffer","0rJu"]]'
 		},
 		{
 			name: 'ArrayBuffer',
 			value: new Uint8Array([1, 2, 3]).buffer,
 			js: 'new Uint8Array([1,2,3]).buffer',
-			json: '[["ArrayBuffer","AQID"]]'
+			json: '[["ArrayBuffer","0rJu"]]'
 		},
 		{
 			name: 'URL',
@@ -207,7 +207,7 @@ const fixtures = {
 			name: 'Sliced typed array',
 			value: new Uint16Array([10, 20, 30, 40]).subarray(1, 3),
 			js: 'new Uint16Array([10,20,30,40]).subarray(1,3)',
-			json: '[["Uint16Array",1,1,3],["ArrayBuffer","CgAUAB4AKAA="]]'
+			json: '[["Uint16Array",1,1,3],["ArrayBuffer","3ig+u9SNO*"]]'
 		},
 		{
 			name: 'Temporal.Duration',
@@ -487,7 +487,7 @@ const fixtures = {
 				return [uint8, uint16];
 			})(),
 			js: '(function(a){return [new Uint8Array([a]),new Uint16Array([a])]}(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer))',
-			json: '[[1,3],["Uint8Array",2],["ArrayBuffer","AAECAwQFBgcICQ=="],["Uint16Array",2]]',
+			json: '[[1,3],["Uint8Array",2],["ArrayBuffer","009c61o!#m2NH"],["Uint16Array",2]]',
 			validate: ([uint8, uint16]) => {
 				return uint8.buffer === uint16.buffer;
 			}

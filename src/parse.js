@@ -1,4 +1,4 @@
-import { decode64 } from './base64.js';
+import { decode85 } from './z85.js';
 import {
 	HOLE,
 	NAN,
@@ -141,8 +141,7 @@ export function unflatten(parsed, revivers) {
 					}
 
 					case 'ArrayBuffer': {
-						const base64 = value[1];
-						const arraybuffer = decode64(base64);
+						const arraybuffer = decode85(value[1]);
 						hydrated[index] = arraybuffer;
 						break;
 					}
