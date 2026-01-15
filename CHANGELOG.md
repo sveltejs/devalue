@@ -1,5 +1,13 @@
 # devalue changelog
 
+## 5.6.2
+
+### Patch Changes
+
+- 1175584: fix: validate input for `ArrayBuffer` parsing
+- e46afa6: fix: validate input for typed arrays
+- 1175584: fix: more helpful errors for inputs causing stack overflows
+
 ## 5.6.1
 
 ### Patch Changes
