@@ -1,5 +1,12 @@
 # devalue changelog
 
+## 5.6.3
+
+### Patch Changes
+
+- 0f04d4d: fix: Properly handle `__proto__`
+- 819f1ac: fix: better encoding for sparse arrays
+
 ## 5.6.2
 
 ### Patch Changes
