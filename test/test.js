@@ -153,6 +153,39 @@ const fixtures = {
 			js: '[,"b",,]',
 			json: '[[-2,1,-2],"b"]'
 		},
+		((arr) => {
+			arr[1000000] = 'x';
+			return {
+				name: 'Array (very sparse)',
+				value: arr,
+				js: `Object.assign(Array(1000001),{1000000:"x"})`,
+				json: `[[-7,1000001,1000000,1],"x"]`,
+				validate: (value) => {
+					assert.is(value.length, 1000001);
+					assert.is(value[1000000], 'x');
+					assert.ok(!(0 in value));
+					assert.ok(!(999999 in value));
+				}
+			};
+		})([]),
+		((arr) => {
+			arr[10] = 'a';
+			arr[20] = 'b';
+			return {
+				name: 'Array (very sparse, multiple values)',
+				value: arr,
+				js: `[,,,,,,,,,,"a",,,,,,,,,,"b"]`,
+				json: `[[-7,21,10,1,20,2],"a","b"]`,
+				validate: (value) => {
+					assert.is(value.length, 21);
+					assert.is(value[10], 'a');
+					assert.is(value[20], 'b');
+					assert.ok(!(0 in value));
+					assert.ok(!(9 in value));
+					assert.ok(!(11 in value));
+				}
+			};
+		})([]),
 		{
 			name: 'Object',
 			value: { foo: 'bar', 'x-y': 'z' },
@@ -970,6 +1003,87 @@ for (const fn of [uneval, stringify]) {
 		}
 	});
 }
+
+uvu.test('handles very sparse arrays efficiently', () => {
+	const arr = [];
+	arr[1_000_000] = 'x';
+
+	// This should complete nearly instantly, not iterate 1M times
+	const start = performance.now();
+	const json = stringify(arr);
+	const elapsed = performance.now() - start;
+
+	assert.ok(elapsed < 100, `stringify took ${elapsed}ms, expected < 100ms`);
+
+	// Verify round-trip
+	const result = parse(json);
+	assert.is(result.length, 1_000_001);
+	assert.is(result[1_000_000], 'x');
+	assert.ok(!(0 in result));
+
+	// Verify uneval too
+	const start2 = performance.now();
+	const js = uneval(arr);
+	const elapsed2 = performance.now() - start2;
+	assert.ok(elapsed2 < 100, `uneval took ${elapsed2}ms, expected < 100ms`);
+});
+
+uvu.test('ignores non-numeric array properties in dense encoding', () => {
+	// Dense path (few holes — array literal / HOLE encoding wins)
+	const arr = [, 'a', , 'b'];
+	arr.foo = 'should be ignored';
+	arr.bar = 42;
+
+	// uneval — should produce the holey literal, no mention of "foo" or "bar"
+	const js = uneval(arr);
+	assert.ok(!js.includes('foo'), `uneval output should not contain "foo": ${js}`);
+	assert.ok(!js.includes('bar'), `uneval output should not contain "bar": ${js}`);
+	assert.ok(!js.includes('should be ignored'), `uneval output should not contain non-numeric value: ${js}`);
+	const evaled = (0, eval)(js);
+	assert.is(evaled.length, 4);
+	assert.is(evaled[1], 'a');
+	assert.is(evaled[3], 'b');
+	assert.ok(!(0 in evaled));
+
+	// stringify — should produce HOLE encoding, no mention of "foo" or "bar"
+	const json = stringify(arr);
+	assert.ok(!json.includes('foo'), `stringify output should not contain "foo": ${json}`);
+	assert.ok(!json.includes('bar'), `stringify output should not contain "bar": ${json}`);
+	const parsed = parse(json);
+	assert.is(parsed.length, 4);
+	assert.is(parsed[1], 'a');
+	assert.is(parsed[3], 'b');
+	assert.ok(!(0 in parsed));
+});
+
+uvu.test('ignores non-numeric array properties in sparse encoding', () => {
+	// Sparse path (very sparse — Object.assign / SPARSE encoding wins)
+	const arr = [];
+	arr[1_000_000] = 'x';
+	arr.foo = 'should be ignored';
+	arr.bar = 42;
+
+	// uneval — should produce Object.assign form, no mention of "foo" or "bar"
+	const js = uneval(arr);
+	assert.ok(!js.includes('foo'), `uneval output should not contain "foo": ${js}`);
+	assert.ok(!js.includes('bar'), `uneval output should not contain "bar": ${js}`);
+	assert.ok(!js.includes('should be ignored'), `uneval output should not contain non-numeric value: ${js}`);
+	assert.ok(js.includes('Object.assign'), `uneval should use Object.assign for very sparse arrays`);
+	const evaled = (0, eval)(js);
+	assert.is(evaled.length, 1_000_001);
+	assert.is(evaled[1_000_000], 'x');
+	assert.ok(!(0 in evaled));
+	assert.ok(!('foo' in evaled));
+
+	// stringify — should produce SPARSE encoding, no mention of "foo" or "bar"
+	const json = stringify(arr);
+	assert.ok(!json.includes('foo'), `stringify output should not contain "foo": ${json}`);
+	assert.ok(!json.includes('bar'), `stringify output should not contain "bar": ${json}`);
+	const parsed = parse(json);
+	assert.is(parsed.length, 1_000_001);
+	assert.is(parsed[1_000_000], 'x');
+	assert.ok(!(0 in parsed));
+});
 
 uvu.test('does not create duplicate parameter names', () => {
 	const foo = new Array(20000).fill(0).map((_, i) => i);

@@ -116,3 +116,33 @@ const is_identifier = /^[a-zA-Z_$][a-zA-Z_$0-9]*$/;
 export function stringify_key(key) {
 	return is_identifier.test(key) ? '.' + key : '[' + JSON.stringify(key) + ']';
 }
+
+/** @param {string} s */
+function is_valid_array_index(s) {
+	if (s.length === 0) return false;
+	if (s.length > 1 && s.charCodeAt(0) === 48) return false; // leading zero
+	for (let i = 0; i < s.length; i++) {
+		const c = s.charCodeAt(i);
+		if (c < 48 || c > 57) return false;
+	}
+	// by this point we know it's a string of digits, but it has to be within the range of valid array indices
+	const n = +s;
+	if (n >= 2 ** 32 - 1) return false;
+	if (n < 0) return false;
+	return true;
+}
+
+/**
+ * Finds the populated indices of an array.
+ * @param {unknown[]} array
+ */
+export function valid_array_indices(array) {
+	const keys = Object.keys(array);
+	for (var i = keys.length - 1; i >= 0; i--) {
+		if (is_valid_array_index(keys[i])) {
+			break;
+		}
+	}
+	keys.length = i + 1;
+	return keys;
+}

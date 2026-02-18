@@ -5,6 +5,7 @@ import {
 	NEGATIVE_INFINITY,
 	NEGATIVE_ZERO,
 	POSITIVE_INFINITY,
+	SPARSE,
 	UNDEFINED
 } from './constants.js';
 
@@ -200,6 +201,17 @@ export function unflatten(parsed, revivers) {
 
 					default:
 						throw new Error(`Unknown type ${type}`);
+				}
+			} else if (value[0] === SPARSE) {
+				// Sparse array encoding: [SPARSE, length, idx, val, idx, val, ...]
+				const len = value[1];
+
+				const array = new Array(len);
+				hydrated[index] = array;
+
+				for (let i = 2; i < value.length; i += 2) {
+					const idx = value[i];
+					array[idx] = hydrate(value[i + 1]);
 				}
 			} else {
 				const array = new Array(value.length);

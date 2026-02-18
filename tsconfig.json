@@ -15,5 +15,5 @@
 	},
 	"module": "ES6",
 	"include": ["index.js", "src/*.js"],
-	"exclude": ["node_modules"]
+	"exclude": ["node_modules", "src/*.test.js"]
 }

@@ -29,7 +29,7 @@
 		"changeset:version": "changeset version",
 		"changeset:publish": "changeset publish",
 		"build": "dts-buddy",
-		"test": "uvu test",
+		"test": "uvu",
 		"prepublishOnly": "npm test && npm run build && publint"
 	},
 	"license": "MIT",
