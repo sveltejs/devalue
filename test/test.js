@@ -548,7 +548,7 @@ const fixtures = {
 			})(),
 			js: '{x:1}',
 			json: '[{"x":1},1]'
-		}
+		},
 	],
 
 	custom: ((instance) => [
@@ -850,6 +850,21 @@ for (const fn of [uneval, stringify]) {
 
 	uvu.test(`${fn.name} throws for symbolic keys`, () => {
 		assert.throws(() => fn({ [Symbol()]: null }));
+	});
+
+	uvu.test(`${fn.name} throws for __proto__ keys`, () => {
+		const inner = JSON.parse('{"__proto__":1}');
+		const root = { foo: inner };
+		try {
+			fn(root);
+			assert.unreachable('should have thrown');
+		} catch (e) {
+			assert.equal(e.name, 'DevalueError');
+			assert.equal(e.message, 'Cannot stringify objects with __proto__ keys');
+			assert.equal(e.path, '.foo');
+			assert.equal(e.value, inner);
+			assert.equal(e.root, root);
+		}
 	});
 
 	uvu.test(`${fn.name} populates error.keys and error.path`, () => {

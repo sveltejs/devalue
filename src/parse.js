@@ -217,7 +217,7 @@ export function unflatten(parsed, revivers) {
 			const object = {};
 			hydrated[index] = object;
 
-			for (const key in value) {
+			for (const key of Object.keys(value)) {
 				if (key === '__proto__') {
 					throw new Error('Cannot parse an object with a `__proto__` property');
 				}

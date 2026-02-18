@@ -217,7 +217,16 @@ export function stringify(value, reducers) {
 
 					if (Object.getPrototypeOf(thing) === null) {
 						str = '["null"';
-						for (const key in thing) {
+						for (const key of Object.keys(thing)) {
+							if (key === '__proto__') {
+								throw new DevalueError(
+									`Cannot stringify objects with __proto__ keys`,
+									keys,
+									thing,
+									value
+								);
+							}
+
 							keys.push(stringify_key(key));
 							str += `,${stringify_string(key)},${flatten(thing[key])}`;
 							keys.pop();
@@ -226,7 +235,16 @@ export function stringify(value, reducers) {
 					} else {
 						str = '{';
 						let started = false;
-						for (const key in thing) {
+						for (const key of Object.keys(thing)) {
+							if (key === '__proto__') {
+								throw new DevalueError(
+									`Cannot stringify objects with __proto__ keys`,
+									keys,
+									thing,
+									value
+								);
+							}
+
 							if (started) str += ',';
 							started = true;
 							keys.push(stringify_key(key));
