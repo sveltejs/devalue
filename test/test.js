@@ -837,6 +837,26 @@ const invalid = [
 		message: 'Cannot parse an object with a `__proto__` property'
 	},
 	{
+		name: 'prototype pollution via null-prototype object',
+		json: '[["null","__proto__",1],{}]',
+		message: 'Cannot parse an object with a `__proto__` property'
+	},
+	{
+		name: 'nested prototype pollution via null-prototype object',
+		json: '[{"data":1},["null","__proto__",2],{"polluted":3},true]',
+		message: 'Cannot parse an object with a `__proto__` property'
+	},
+	{
+		name: 'prototype pollution via Object wrapper',
+		json: '[["Object",{"__proto__":1}],{}]',
+		message: 'Cannot parse an object with a `__proto__` property'
+	},
+	{
+		name: 'nested prototype pollution via Object wrapper',
+		json: '[{"wrapped":1},["Object",{"__proto__":2}],{}]',
+		message: 'Cannot parse an object with a `__proto__` property'
+	},
+	{
 		name: 'bad index',
 		json: '[{"0":1,"toString":"push"},"hello"]',
 		message: 'Invalid input'

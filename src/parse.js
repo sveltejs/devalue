@@ -118,7 +118,13 @@ export function unflatten(parsed, revivers) {
 						break;
 
 					case 'Object':
-						hydrated[index] = Object(value[1]);
+						const object = Object(value[1]);
+
+						if (Object.hasOwn(object, '__proto__')) {
+							throw new Error('Cannot parse an object with a `__proto__` property');
+						}
+
+						hydrated[index] = object;
 						break;
 
 					case 'BigInt':
@@ -129,6 +135,10 @@ export function unflatten(parsed, revivers) {
 						const obj = Object.create(null);
 						hydrated[index] = obj;
 						for (let i = 1; i < value.length; i += 2) {
+							if (value[i] === '__proto__') {
+								throw new Error('Cannot parse an object with a `__proto__` property');
+							}
+
 							obj[value[i]] = hydrate(value[i + 1]);
 						}
 						break;
