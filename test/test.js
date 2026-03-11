@@ -837,6 +837,46 @@ const invalid = [
 		message: 'Cannot parse an object with a `__proto__` property'
 	},
 	{
+		name: 'sparse array prototype pollution',
+		json: '[[-7,1,"__proto__",{}]]',
+		message: 'Invalid input'
+	},
+	{
+		name: 'sparse array non-integer index',
+		json: '[[-7,5,"foo",1]]',
+		message: 'Invalid input'
+	},
+	{
+		name: 'sparse array negative index',
+		json: '[[-7,5,-1,1]]',
+		message: 'Invalid input'
+	},
+	{
+		name: 'sparse array out-of-bounds index',
+		json: '[[-7,2,5,1]]',
+		message: 'Invalid input'
+	},
+	{
+		name: 'sparse array non-integer length',
+		json: '[[-7,"abc"]]',
+		message: 'Invalid input'
+	},
+	{
+		name: 'sparse array negative length',
+		json: '[[-7,-3]]',
+		message: 'Invalid input'
+	},
+	{
+		name: 'sparse array float length',
+		json: '[[-7,1.5]]',
+		message: 'Invalid input'
+	},
+	{
+		name: 'sparse array float index',
+		json: '[[-7,5,1.5,1]]',
+		message: 'Invalid input'
+  },
+  {
 		name: 'prototype pollution via null-prototype object',
 		json: '[["null","__proto__",1],{}]',
 		message: 'Cannot parse an object with a `__proto__` property'
@@ -1111,6 +1151,77 @@ uvu.test('does not create duplicate parameter names', () => {
 	const serialized = uneval([foo, ...bar]);
 
 	eval(serialized);
+});
+
+uvu.test('rejects sparse array __proto__ pollution via parse', () => {
+	// Attempt to set __proto__ on an array via the sparse array encoding
+	const payload = JSON.stringify([[-7, 1, '__proto__', { polluted: true }]]);
+	assert.throws(
+		() => parse(payload),
+		(error) => error.message === 'Invalid input'
+	);
+});
+
+uvu.test('rejects sparse array __proto__ pollution via unflatten', () => {
+	// Same attack via unflatten (which receives already-parsed data)
+	const payload = [[-7, 1, '__proto__', { polluted: true }]];
+	assert.throws(
+		() => unflatten(payload),
+		(error) => error.message === 'Invalid input'
+	);
+});
+
+uvu.test('sparse array CPU exhaustion payload is rejected', () => {
+	// Reproduction from reported vulnerability: builds deep __proto__ chains
+	// via sparse array encoding, causing expensive [[SetPrototypeOf]] calls.
+	const LAYERS = 49_000;
+	const data = [[-7, 0], 0, []];
+	for (let i = 3; i < 3 + LAYERS; i++) {
+		data.push([-7, 0, '__proto__', i - 1]);
+		data[0].push('__proto__', i);
+	}
+	const payload = JSON.stringify(data);
+
+	assert.throws(
+		() => parse(payload),
+		(error) => error.message === 'Invalid input'
+	);
+});
+
+uvu.test('sparse array type confusion via __proto__ is blocked', () => {
+	// Reproduction from reported vulnerability: uses sparse array encoding to
+	// set __proto__ on an array, overwriting the prototype and allowing an
+	// attacker to control property values (e.g. spoofing .magnitude on a Vector).
+	const payload = '[[-7,0,"x",1,"y",2,"magnitude",3,"__proto__",4],3,4,"nope",["Vector",5],[6,7],8,9]';
+
+	class Vector {
+		constructor(x, y) {
+			this.x = x;
+			this.y = y;
+		}
+		get magnitude() {
+			return (this.x ** 2 + this.y ** 2) ** 0.5;
+		}
+	}
+
+	assert.throws(
+		() => parse(payload, { Vector: ([x, y]) => new Vector(x, y) }),
+		(error) => error.message === 'Invalid input'
+	);
+});
+
+uvu.test('valid sparse array parses correctly', () => {
+	// Ensure the fix does not break legitimate sparse array round-tripping.
+	// devalue format: [root_entry, ...other_entries]
+	// [-7, 3, 0, 1, 2, 2] = sparse array of length 3, index 0 = entries[1], index 2 = entries[2]
+	const goodPayload = JSON.stringify([[-7, 3, 0, 1, 2, 2], 'a', 'c']);
+	const result = parse(goodPayload);
+	assert.instance(result, Array);
+	assert.is(result.length, 3);
+	assert.is(result[0], 'a');
+	assert.ok(!(1 in result));
+	assert.is(result[2], 'c');
+	assert.is(Object.getPrototypeOf(result), Array.prototype);
 });
 
 uvu.test.run();

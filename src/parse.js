@@ -216,11 +216,20 @@ export function unflatten(parsed, revivers) {
 				// Sparse array encoding: [SPARSE, length, idx, val, idx, val, ...]
 				const len = value[1];
 
+				if (!Number.isInteger(len) || len < 0) {
+					throw new Error('Invalid input');
+				}
+
 				const array = new Array(len);
 				hydrated[index] = array;
 
 				for (let i = 2; i < value.length; i += 2) {
 					const idx = value[i];
+
+					if (!Number.isInteger(idx) || idx < 0 || idx >= len) {
+						throw new Error('Invalid input');
+					}
+
 					array[idx] = hydrate(value[i + 1]);
 				}
 			} else {
