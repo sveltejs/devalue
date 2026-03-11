@@ -1,5 +1,18 @@
 # devalue changelog
 
+## 5.6.4
+
+### Patch Changes
+
+- 87c1f3c: fix: reject `__proto__` keys in malformed `Object` wrapper payloads
+
+  This validates the `"Object"` parse path and throws when the wrapped value has an own `__proto__` key.
+
+- 40f1db1: fix: ensure sparse array indices are integers
+- 87c1f3c: fix: disallow `__proto__` keys in null-prototype object parsing
+
+  This disallows `__proto__` keys in the `"null"` parse path so null-prototype object hydration cannot carry that key through parse/unflatten.
+
 ## 5.6.3
 
 ### Patch Changes
