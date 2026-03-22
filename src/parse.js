@@ -164,12 +164,10 @@ export function unflatten(parsed, revivers) {
 
 						const TypedArrayConstructor = globalThis[type];
 						const buffer = hydrate(value[1]);
-						const typedArray = new TypedArrayConstructor(buffer);
 
-						hydrated[index] =
-							value[2] !== undefined
-								? typedArray.subarray(value[2], value[3])
-								: typedArray;
+						hydrated[index] = value[2] !== undefined
+							? new TypedArrayConstructor(buffer, value[2], value[3])
+							: new TypedArrayConstructor(buffer);
 
 						break;
 					}

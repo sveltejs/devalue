@@ -306,13 +306,11 @@ export function uneval(value, replacer) {
 					str += `([${stringify(thing.buffer)}])`;
 				}
 
-				const a = thing.byteOffset;
-				const b = a + thing.byteLength;
-
 				// handle subarrays
-				if (a > 0 || b !== thing.buffer.byteLength) {
-					const m = +/(\d+)/.exec(type)[1] / 8;
-					str += `.subarray(${a / m},${b / m})`;
+				if (thing.byteLength !== thing.buffer.byteLength) {
+					const start = thing.byteOffset / thing.BYTES_PER_ELEMENT;
+					const end = start + thing.length;
+					str += `.subarray(${start},${end})`;
 				}
 
 				return str;
