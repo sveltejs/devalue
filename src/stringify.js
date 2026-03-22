@@ -52,7 +52,7 @@ export function stringify(value, reducers) {
 		if (thing === -Infinity) return NEGATIVE_INFINITY;
 		if (thing === 0 && 1 / thing < 0) return NEGATIVE_ZERO;
 
-		if (indexes.has(thing)) return indexes.get(thing);
+		if (indexes.has(thing)) return /** @type {number} */ (indexes.get(thing));
 
 		const index = p++;
 		indexes.set(thing, index);
