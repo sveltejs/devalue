@@ -205,9 +205,7 @@ export function stringify(value, reducers) {
 					str = '["Map"';
 
 					for (const [key, value] of thing) {
-						keys.push(
-							`.get(${is_primitive(key) ? stringify_primitive(key) : '...'})`
-						);
+						keys.push(`.get(${is_primitive(key) ? stringify_primitive(key) : '...'})`);
 						str += `,${flatten(key)},${flatten(value)}`;
 						keys.pop();
 					}
@@ -263,21 +261,11 @@ export function stringify(value, reducers) {
 
 				default:
 					if (!is_plain_object(thing)) {
-						throw new DevalueError(
-							`Cannot stringify arbitrary non-POJOs`,
-							keys,
-							thing,
-							value
-						);
+						throw new DevalueError(`Cannot stringify arbitrary non-POJOs`, keys, thing, value);
 					}
 
 					if (enumerable_symbols(thing).length > 0) {
-						throw new DevalueError(
-							`Cannot stringify POJOs with symbolic keys`,
-							keys,
-							thing,
-							value
-						);
+						throw new DevalueError(`Cannot stringify POJOs with symbolic keys`, keys, thing, value);
 					}
 
 					if (Object.getPrototypeOf(thing) === null) {

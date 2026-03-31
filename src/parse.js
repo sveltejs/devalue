@@ -66,10 +66,7 @@ export function unflatten(parsed, revivers) {
 			if (typeof value[0] === 'string') {
 				const type = value[0];
 
-				const reviver =
-					revivers && Object.hasOwn(revivers, type)
-						? revivers[type]
-						: undefined;
+				const reviver = revivers && Object.hasOwn(revivers, type) ? revivers[type] : undefined;
 
 				if (reviver) {
 					let i = value[1];
@@ -165,9 +162,10 @@ export function unflatten(parsed, revivers) {
 						const TypedArrayConstructor = globalThis[type];
 						const buffer = hydrate(value[1]);
 
-						hydrated[index] = value[2] !== undefined
-							? new TypedArrayConstructor(buffer, value[2], value[3])
-							: new TypedArrayConstructor(buffer);
+						hydrated[index] =
+							value[2] !== undefined
+								? new TypedArrayConstructor(buffer, value[2], value[3])
+								: new TypedArrayConstructor(buffer);
 
 						break;
 					}
