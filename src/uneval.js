@@ -361,6 +361,7 @@ export function uneval(value, replacer) {
 				case 'Number':
 				case 'String':
 				case 'Boolean':
+				case 'BigInt':
 					values.push(`Object(${stringify(thing.valueOf())})`);
 					break;
 
@@ -370,6 +371,14 @@ export function uneval(value, replacer) {
 
 				case 'Date':
 					values.push(`new Date(${thing.getTime()})`);
+					break;
+
+				case 'URL':
+					values.push(`new URL(${stringify_string(thing.toString())})`);
+					break;
+
+				case 'URLSearchParams':
+					values.push(`new URLSearchParams(${stringify_string(thing.toString())})`);
 					break;
 
 				case 'Array':
@@ -397,8 +406,41 @@ export function uneval(value, replacer) {
 					);
 					break;
 
+				case 'Int8Array':
+				case 'Uint8Array':
+				case 'Uint8ClampedArray':
+				case 'Int16Array':
+				case 'Uint16Array':
+				case 'Float16Array':
+				case 'Int32Array':
+				case 'Uint32Array':
+				case 'Float32Array':
+				case 'Float64Array':
+				case 'BigInt64Array':
+				case 'BigUint64Array': {
+					let str = `new ${type}`;
+
+					if (!names.has(thing.buffer)) {
+						const array = new thing.constructor(thing.buffer);
+						str += `([${array}])`;
+					} else {
+						str += `(${stringify(thing.buffer)})`;
+					}
+
+					// handle subarrays
+					if (thing.byteLength !== thing.buffer.byteLength) {
+						const start = thing.byteOffset / thing.BYTES_PER_ELEMENT;
+						const end = start + thing.length;
+						str += `.subarray(${start},${end})`;
+					}
+
+					values.push(`{}`);
+					statements.push(`${name}=${str}`);
+					break;
+				}
+
 				case 'ArrayBuffer':
-					values.push(`new Uint8Array([${new Uint8Array(thing).join(',')}]).buffer`);
+					values.push(`new Uint8Array([${new Uint8Array(thing)}]).buffer`);
 					break;
 
 				default:
