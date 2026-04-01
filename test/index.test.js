@@ -566,7 +566,7 @@ const fixtures = {
 
 	repetition: [
 		{
-			name: 'String (repetition)',
+			name: 'string (repetition)',
 			value: ['a string', 'a string'],
 			js: '["a string","a string"]',
 			json: '[[1,1],"a string"]'
@@ -579,14 +579,60 @@ const fixtures = {
 			json: '[[1,1],null]'
 		},
 
-		((object) => {
-			return {
-				name: 'Object (repetition)',
-				value: [object, object],
-				js: '(function(a){return [a,a]}({}))',
-				json: '[[1,1],{}]'
-			};
-		})({}),
+		{
+			name: 'number: NaN (repetition)',
+			value: [NaN, NaN],
+			js: '[NaN,NaN]',
+			json: `[[${consts.NAN},${consts.NAN}]]`
+		},
+
+		{
+			name: 'Number (repetition)',
+			value: ((number) => [number, number])(Object(42)),
+			js: '(function(a){return [a,a]}(Object(42)))',
+			json: '[[1,1],["Object",2],42]',
+			validate: ([a, b]) => assert.is(a, b)
+		},
+
+		{
+			name: 'BigInt (repetition)',
+			value: ((bigint) => [bigint, bigint])(Object(1n)),
+			js: '(function(a){return [a,a]}(Object(1n)))',
+			json: '[[1,1],["Object",2],["BigInt","1"]]',
+			validate: ([a, b]) => assert.is(a, b)
+		},
+
+		{
+			name: 'Number: NaN (repetition)',
+			value: ((nan) => [nan, nan])(Object(NaN)),
+			js: '(function(a){return [a,a]}(Object(NaN)))',
+			json: `[[1,1],["Object",${consts.NAN}]]`,
+			validate: ([a, b]) => assert.is(a, b)
+		},
+
+		{
+			name: 'Object (repetition)',
+			value: ((object) => [object, object])({}),
+			js: '(function(a){return [a,a]}({}))',
+			json: '[[1,1],{}]',
+			validate: ([a, b]) => assert.is(a, b)
+		},
+
+		{
+			name: 'RegExp (repetition)',
+			value: ((regexp) => [regexp, regexp])(/regexp/),
+			js: '(function(a){return [a,a]}(/regexp/))',
+			json: '[[1,1],["RegExp","regexp"]]',
+			validate: ([a, b]) => assert.is(a, b)
+		},
+
+		{
+			name: 'Date (repetition)',
+			value: ((date) => [date, date])(new Date(1e12)),
+			js: '(function(a){return [a,a]}(new Date(1000000000000)))',
+			json: '[[1,1],["Date","2001-09-09T01:46:40.000Z"]]',
+			validate: ([a, b]) => assert.is(a, b)
+		},
 
 		{
 			name: 'Array buffer (repetition)',
@@ -602,9 +648,28 @@ const fixtures = {
 			})(),
 			js: '(function(a){return [new Uint8Array(a),new Uint16Array(a)]}(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer))',
 			json: '[[1,3],["Uint8Array",2],["ArrayBuffer","AAECAwQFBgcICQ=="],["Uint16Array",2]]',
-			validate: ([uint8, uint16]) => {
-				return uint8.buffer === uint16.buffer;
-			}
+			validate: ([uint8, uint16]) => assert.is(uint8.buffer, uint16.buffer)
+		},
+
+		{
+			name: 'TypedArray (repetition)',
+			value: (() => {
+				const uint8 = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+				return [uint8, uint8];
+			})(),
+			js: '(function(a){a=new Uint8Array([0,1,2,3,4,5,6,7,8,9]);return [a,a]}({}))',
+			json: '[[1,1],["Uint8Array",2],["ArrayBuffer","AAECAwQFBgcICQ=="]]'
+		},
+
+		{
+			name: 'Array Buffer and TypedArray (repetition)',
+			value: (() => {
+				const uint8 = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+				const uint16 = new Uint16Array(uint8.buffer);
+				return [uint8, uint8, uint16];
+			})(),
+			js: '(function(a,b){a=new Uint8Array(b);return [a,a,new Uint16Array(b)]}({},new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer))',
+			json: '[[1,1,3],["Uint8Array",2],["ArrayBuffer","AAECAwQFBgcICQ=="],["Uint16Array",2]]'
 		}
 	],
 
