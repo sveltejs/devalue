@@ -1,6 +1,7 @@
 import * as vm from 'vm';
 import * as assert from 'uvu/assert';
 import * as uvu from 'uvu';
+import * as consts from '../src/constants.js';
 import { uneval, unflatten, parse, stringify } from '../index.js';
 
 globalThis.Temporal ??= (await import('@js-temporal/polyfill')).Temporal;
@@ -23,36 +24,63 @@ NullObject.prototype = Object.create(null);
 const node_version = +process.versions.node.split('.')[0];
 
 const fixtures = {
-	basics: [
+	primitives: [
 		{
-			name: 'number',
+			name: 'number: positive integer',
 			value: 42,
 			js: '42',
 			json: '[42]'
 		},
 		{
-			name: 'negative number',
-			value: -42,
-			js: '-42',
-			json: '[-42]'
+			name: 'number: negative integer',
+			value: -5,
+			js: '-5',
+			json: '[-5]'
 		},
 		{
-			name: 'negative zero',
-			value: -0,
-			js: '-0',
-			json: '-6'
-		},
-		{
-			name: 'positive decimal',
+			name: 'number: positive decimal',
 			value: 0.1,
 			js: '.1',
 			json: '[0.1]'
 		},
 		{
-			name: 'negative decimal',
+			name: 'number: negative decimal',
 			value: -0.1,
 			js: '-.1',
 			json: '[-0.1]'
+		},
+		{
+			name: 'number: NaN',
+			value: NaN,
+			js: 'NaN',
+			json: `${consts.NAN}`
+		},
+		{
+			name: 'number: +Infinity',
+			value: Infinity,
+			js: 'Infinity',
+			json: `${consts.POSITIVE_INFINITY}`
+		},
+		{
+			name: 'number: -Infinity',
+			value: -Infinity,
+			js: '-Infinity',
+			json: `${consts.NEGATIVE_INFINITY}`
+		},
+		{
+			name: 'number: zero',
+			value: 0,
+			js: '0',
+			json: '[0]'
+		},
+		{
+			name: 'number: negative zero',
+			value: -0,
+			js: '-0',
+			json: `${consts.NEGATIVE_ZERO}`,
+			validate(value) {
+				assert.ok(Object.is(value, -0));
+			}
 		},
 		{
 			name: 'string',
@@ -67,47 +95,106 @@ const fixtures = {
 			json: '[true]'
 		},
 		{
-			name: 'Number',
-			value: new Number(42),
-			js: 'Object(42)',
-			json: '[["Object",42]]'
-		},
-		{
-			name: 'String',
-			value: new String('yar'),
-			js: 'Object("yar")',
-			json: '[["Object","yar"]]'
-		},
-		{
-			name: 'Boolean',
-			value: new Boolean(false),
-			js: 'Object(false)',
-			json: '[["Object",false]]'
+			name: 'bigint',
+			value: 1n,
+			js: '1n',
+			json: '[["BigInt","1"]]'
 		},
 		{
 			name: 'undefined',
 			value: undefined,
 			js: 'void 0',
-			json: '-1'
+			json: `${consts.UNDEFINED}`
 		},
 		{
 			name: 'null',
 			value: null,
 			js: 'null',
 			json: '[null]'
+		}
+	],
+
+	boxed_primitives: [
+		{
+			name: 'Number: positive integer',
+			value: new Number(42),
+			js: 'Object(42)',
+			json: '[["Object",42]]'
 		},
 		{
-			name: 'NaN',
-			value: NaN,
-			js: 'NaN',
-			json: '-3'
+			name: 'Number: negative integer',
+			value: new Number(-2),
+			js: 'Object(-2)',
+			json: '[["Object",-2]]'
 		},
 		{
-			name: 'Infinity',
-			value: Infinity,
-			js: 'Infinity',
-			json: '-4'
+			name: 'Number: positive decimal',
+			value: new Number(0.1),
+			js: 'Object(.1)',
+			json: '[["Object",0.1]]'
 		},
+		{
+			name: 'Number: negative decimal',
+			value: new Number(-0.1),
+			js: 'Object(-.1)',
+			json: '[["Object",-0.1]]'
+		},
+		{
+			name: 'Number: NaN',
+			value: new Number(NaN),
+			js: 'Object(NaN)',
+			json: `[["Object",NaN]]`
+		},
+		{
+			name: 'Number: +Infinity',
+			value: new Number(Infinity),
+			js: 'Object(Infinity)',
+			json: `[["Object",Infinity]]`
+		},
+		{
+			name: 'Number: -Infinity',
+			value: new Number(-Infinity),
+			js: 'Object(-Infinity)',
+			json: `[["Object",-Infinity]]`
+		},
+		{
+			name: 'Number: zero',
+			value: new Number(0),
+			js: 'Object(0)',
+			json: '[["Object",0]]'
+		},
+		{
+			name: 'Number: negative zero',
+			value: new Number(-0),
+			js: 'Object(-0)',
+			json: `[["Object",-0]]`,
+			validate(value) {
+				assert.type(value, 'object');
+				assert.ok(Object.is(value.valueOf(), -0));
+			}
+		},
+		{
+			name: 'String',
+			value: new String('woo!!!'),
+			js: 'Object("woo!!!")',
+			json: '[["Object","woo!!!"]]'
+		},
+		{
+			name: 'Boolean',
+			value: new Boolean(true),
+			js: 'Object(true)',
+			json: '[["Object",true]]'
+		},
+		{
+			name: 'BigInt',
+			value: Object(1n),
+			js: 'Object(1n)',
+			json: '[["Object",["BigInt","1"]]]'
+		}
+		// it's not possible to box undefined or null
+	],
+
+	basics: [
 		{
 			name: 'RegExp',
 			value: /regexp/gim,
@@ -139,7 +226,7 @@ const fixtures = {
 			name: 'Array where negative zero appears after normal zero',
 			value: [0, -0],
 			js: '[0,-0]',
-			json: '[[1,-6],0]'
+			json: `[[1,${consts.NEGATIVE_ZERO}],0]`
 		},
 		{
 			name: 'Array (empty)',
@@ -151,7 +238,7 @@ const fixtures = {
 			name: 'Array (sparse)',
 			value: [, 'b', ,],
 			js: '[,"b",,]',
-			json: '[[-2,1,-2],"b"]'
+			json: `[[${consts.HOLE},1,${consts.HOLE}],"b"]`
 		},
 		((arr) => {
 			arr[1000000] = 'x';
@@ -159,7 +246,7 @@ const fixtures = {
 				name: 'Array (very sparse)',
 				value: arr,
 				js: `Object.assign(Array(1000001),{1000000:"x"})`,
-				json: `[[-7,1000001,1000000,1],"x"]`,
+				json: `[[${consts.SPARSE},1000001,1000000,1],"x"]`,
 				validate: (value) => {
 					assert.is(value.length, 1000001);
 					assert.is(value[1000000], 'x');
@@ -175,7 +262,7 @@ const fixtures = {
 				name: 'Array (very sparse, multiple values)',
 				value: arr,
 				js: `[,,,,,,,,,,"a",,,,,,,,,,"b"]`,
-				json: `[[-7,21,10,1,20,2],"a","b"]`,
+				json: `[[${consts.SPARSE},21,10,1,20,2],"a","b"]`,
 				validate: (value) => {
 					assert.is(value.length, 21);
 					assert.is(value[10], 'a');
@@ -203,12 +290,6 @@ const fixtures = {
 			value: new Map([['a', 'b']]),
 			js: 'new Map([["a","b"]])',
 			json: '[["Map",1,2],"a","b"]'
-		},
-		{
-			name: 'BigInt',
-			value: BigInt('1'),
-			js: '1n',
-			json: '[["BigInt","1"]]'
 		},
 		{
 			name: 'Uint8Array',
@@ -796,7 +877,7 @@ const invalid = [
 	},
 	{
 		name: 'hole',
-		json: '-2',
+		json: `${consts.HOLE}`,
 		message: 'Invalid input'
 	},
 	{
@@ -836,42 +917,42 @@ const invalid = [
 	},
 	{
 		name: 'sparse array prototype pollution',
-		json: '[[-7,1,"__proto__",{}]]',
+		json: `[[${consts.SPARSE},1,"__proto__",{}]]`,
 		message: 'Invalid input'
 	},
 	{
 		name: 'sparse array non-integer index',
-		json: '[[-7,5,"foo",1]]',
+		json: `[[${consts.SPARSE},5,"foo",1]]`,
 		message: 'Invalid input'
 	},
 	{
 		name: 'sparse array negative index',
-		json: '[[-7,5,-1,1]]',
+		json: `[[${consts.SPARSE},5,-1,1]]`,
 		message: 'Invalid input'
 	},
 	{
 		name: 'sparse array out-of-bounds index',
-		json: '[[-7,2,5,1]]',
+		json: `[[${consts.SPARSE},2,5,1]]`,
 		message: 'Invalid input'
 	},
 	{
 		name: 'sparse array non-integer length',
-		json: '[[-7,"abc"]]',
+		json: `[[${consts.SPARSE},"abc"]]`,
 		message: 'Invalid input'
 	},
 	{
 		name: 'sparse array negative length',
-		json: '[[-7,-3]]',
+		json: `[[${consts.SPARSE},-3]]`,
 		message: 'Invalid input'
 	},
 	{
 		name: 'sparse array float length',
-		json: '[[-7,1.5]]',
+		json: `[[${consts.SPARSE},1.5]]`,
 		message: 'Invalid input'
 	},
 	{
 		name: 'sparse array float index',
-		json: '[[-7,5,1.5,1]]',
+		json: `[[${consts.SPARSE},5,1.5,1]]`,
 		message: 'Invalid input'
 	},
 	{
@@ -1159,7 +1240,7 @@ uvu.test('does not create duplicate parameter names', () => {
 
 uvu.test('rejects sparse array __proto__ pollution via parse', () => {
 	// Attempt to set __proto__ on an array via the sparse array encoding
-	const payload = JSON.stringify([[-7, 1, '__proto__', { polluted: true }]]);
+	const payload = JSON.stringify([[consts.SPARSE, 1, '__proto__', { polluted: true }]]);
 	assert.throws(
 		() => parse(payload),
 		(error) => error.message === 'Invalid input'
@@ -1168,7 +1249,7 @@ uvu.test('rejects sparse array __proto__ pollution via parse', () => {
 
 uvu.test('rejects sparse array __proto__ pollution via unflatten', () => {
 	// Same attack via unflatten (which receives already-parsed data)
-	const payload = [[-7, 1, '__proto__', { polluted: true }]];
+	const payload = [[consts.SPARSE, 1, '__proto__', { polluted: true }]];
 	assert.throws(
 		() => unflatten(payload),
 		(error) => error.message === 'Invalid input'
@@ -1179,9 +1260,9 @@ uvu.test('sparse array CPU exhaustion payload is rejected', () => {
 	// Reproduction from reported vulnerability: builds deep __proto__ chains
 	// via sparse array encoding, causing expensive [[SetPrototypeOf]] calls.
 	const LAYERS = 49_000;
-	const data = [[-7, 0], 0, []];
+	const data = [[consts.SPARSE, 0], 0, []];
 	for (let i = 3; i < 3 + LAYERS; i++) {
-		data.push([-7, 0, '__proto__', i - 1]);
+		data.push([consts.SPARSE, 0, '__proto__', i - 1]);
 		data[0].push('__proto__', i);
 	}
 	const payload = JSON.stringify(data);
@@ -1196,8 +1277,7 @@ uvu.test('sparse array type confusion via __proto__ is blocked', () => {
 	// Reproduction from reported vulnerability: uses sparse array encoding to
 	// set __proto__ on an array, overwriting the prototype and allowing an
 	// attacker to control property values (e.g. spoofing .magnitude on a Vector).
-	const payload =
-		'[[-7,0,"x",1,"y",2,"magnitude",3,"__proto__",4],3,4,"nope",["Vector",5],[6,7],8,9]';
+	const payload = `[[${consts.SPARSE},0,"x",1,"y",2,"magnitude",3,"__proto__",4],3,4,"nope",["Vector",5],[6,7],8,9]`;
 
 	class Vector {
 		constructor(x, y) {
@@ -1219,7 +1299,7 @@ uvu.test('valid sparse array parses correctly', () => {
 	// Ensure the fix does not break legitimate sparse array round-tripping.
 	// devalue format: [root_entry, ...other_entries]
 	// [-7, 3, 0, 1, 2, 2] = sparse array of length 3, index 0 = entries[1], index 2 = entries[2]
-	const goodPayload = JSON.stringify([[-7, 3, 0, 1, 2, 2], 'a', 'c']);
+	const goodPayload = JSON.stringify([[consts.SPARSE, 3, 0, 1, 2, 2], 'a', 'c']);
 	const result = parse(goodPayload);
 	assert.instance(result, Array);
 	assert.is(result.length, 3);
