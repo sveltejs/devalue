@@ -119,55 +119,55 @@ const fixtures = {
 			name: 'Number: positive integer',
 			value: new Number(42),
 			js: 'Object(42)',
-			json: '[["Object",42]]'
+			json: '[["Object",1],42]'
 		},
 		{
 			name: 'Number: negative integer',
 			value: new Number(-2),
 			js: 'Object(-2)',
-			json: '[["Object",-2]]'
+			json: '[["Object",1],-2]'
 		},
 		{
 			name: 'Number: positive decimal',
 			value: new Number(0.1),
 			js: 'Object(.1)',
-			json: '[["Object",0.1]]'
+			json: '[["Object",1],0.1]'
 		},
 		{
 			name: 'Number: negative decimal',
 			value: new Number(-0.1),
 			js: 'Object(-.1)',
-			json: '[["Object",-0.1]]'
+			json: '[["Object",1],-0.1]'
 		},
 		{
 			name: 'Number: NaN',
 			value: new Number(NaN),
 			js: 'Object(NaN)',
-			json: `[["Object",NaN]]`
+			json: `[["Object",${consts.NAN}]]`
 		},
 		{
 			name: 'Number: +Infinity',
 			value: new Number(Infinity),
 			js: 'Object(Infinity)',
-			json: `[["Object",Infinity]]`
+			json: `[["Object",${consts.POSITIVE_INFINITY}]]`
 		},
 		{
 			name: 'Number: -Infinity',
 			value: new Number(-Infinity),
 			js: 'Object(-Infinity)',
-			json: `[["Object",-Infinity]]`
+			json: `[["Object",${consts.NEGATIVE_INFINITY}]]`
 		},
 		{
 			name: 'Number: zero',
 			value: new Number(0),
 			js: 'Object(0)',
-			json: '[["Object",0]]'
+			json: '[["Object",1],0]'
 		},
 		{
 			name: 'Number: negative zero',
 			value: new Number(-0),
 			js: 'Object(-0)',
-			json: `[["Object",-0]]`,
+			json: `[["Object",${consts.NEGATIVE_ZERO}]]`,
 			validate(value) {
 				assert.type(value, 'object');
 				assert.ok(Object.is(value.valueOf(), -0));
@@ -177,19 +177,19 @@ const fixtures = {
 			name: 'String',
 			value: new String('woo!!!'),
 			js: 'Object("woo!!!")',
-			json: '[["Object","woo!!!"]]'
+			json: '[["Object",1],"woo!!!"]'
 		},
 		{
 			name: 'Boolean',
 			value: new Boolean(true),
 			js: 'Object(true)',
-			json: '[["Object",true]]'
+			json: '[["Object",1],true]'
 		},
 		{
 			name: 'BigInt',
 			value: Object(1n),
 			js: 'Object(1n)',
-			json: '[["Object",["BigInt","1"]]]'
+			json: '[["Object",1],["BigInt","1"]]'
 		}
 		// it's not possible to box undefined or null
 	],
@@ -968,12 +968,12 @@ const invalid = [
 	{
 		name: 'prototype pollution via Object wrapper',
 		json: '[["Object",{"__proto__":1}],{}]',
-		message: 'Cannot parse an object with a `__proto__` property'
+		message: 'Invalid input'
 	},
 	{
 		name: 'nested prototype pollution via Object wrapper',
 		json: '[{"wrapped":1},["Object",{"__proto__":2}],{}]',
-		message: 'Cannot parse an object with a `__proto__` property'
+		message: 'Invalid input'
 	},
 	{
 		name: 'bad index',

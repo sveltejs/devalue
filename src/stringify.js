@@ -80,11 +80,8 @@ export function stringify(value, reducers) {
 				case 'Number':
 				case 'String':
 				case 'Boolean':
-					str = `["Object",${stringify_primitive(thing)}]`;
-					break;
-
 				case 'BigInt':
-					str = `["BigInt",${thing}]`;
+					str = `["Object",${flatten(thing.valueOf())}]`;
 					break;
 
 				case 'Date':
@@ -328,7 +325,6 @@ export function stringify(value, reducers) {
 function stringify_primitive(thing) {
 	const type = typeof thing;
 	if (type === 'string') return stringify_string(thing);
-	if (thing instanceof String) return stringify_string(thing.toString());
 	if (thing === void 0) return UNDEFINED.toString();
 	if (thing === 0 && 1 / thing < 0) return NEGATIVE_ZERO.toString();
 	if (type === 'bigint') return `["BigInt","${thing}"]`;
