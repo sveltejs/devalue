@@ -136,6 +136,8 @@ export function uneval(value, replacer) {
 						keys.pop();
 					}
 			}
+		} else if (typeof thing === 'symbol') {
+			throw new DevalueError(`Cannot stringify a Symbol primitive`, keys, thing, value);
 		}
 	}
 

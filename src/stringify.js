@@ -67,6 +67,8 @@ export function stringify(value, reducers) {
 
 		if (typeof thing === 'function') {
 			throw new DevalueError(`Cannot stringify a function`, keys, thing, value);
+		} else if (typeof thing === 'symbol') {
+			throw new DevalueError(`Cannot stringify a Symbol primitive`, keys, thing, value);
 		}
 
 		let str = '';

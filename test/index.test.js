@@ -112,6 +112,7 @@ const fixtures = {
 			js: 'null',
 			json: '[null]'
 		}
+		// symbols are not supported; see further tests
 	],
 
 	boxed_primitives: [
@@ -192,6 +193,7 @@ const fixtures = {
 			json: '[["Object",1],["BigInt","1"]]'
 		}
 		// it's not possible to box undefined or null
+		// boxed symbols are not supported; see further tests
 	],
 
 	basics: [
@@ -1018,6 +1020,14 @@ for (const fn of [uneval, stringify]) {
 		class Foo {}
 		const foo = new Foo();
 		assert.throws(() => fn(foo));
+	});
+
+	uvu.test(`${fn.name} throws for Symbols`, () => {
+		assert.throws(() => fn(Symbol('foo')));
+	});
+
+	uvu.test(`${fn.name} throws for boxed Symbols`, () => {
+		assert.throws(() => fn(Object(Symbol('foo'))));
 	});
 
 	uvu.test(`${fn.name} throws for symbolic keys`, () => {
