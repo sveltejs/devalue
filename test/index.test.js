@@ -224,9 +224,7 @@ const fixtures = {
 		},
 		{
 			name: 'URL',
-			value: new URL(
-				'https://user:password@example.com/<script>/path?foo=bar#hash'
-			),
+			value: new URL('https://user:password@example.com/<script>/path?foo=bar#hash'),
 			js: 'new URL("https://user:password@example.com/%3Cscript%3E/path?foo=bar#hash")',
 			json: '[["URL","https://user:password@example.com/%3Cscript%3E/path?foo=bar#hash"]]'
 		},
@@ -581,7 +579,7 @@ const fixtures = {
 			})(),
 			js: '{x:1}',
 			json: '[{"x":1},1]'
-		},
+		}
 	],
 
 	custom: ((instance) => [
@@ -625,7 +623,7 @@ const fixtures = {
 			json: '[["Date",""]]',
 			replacer: (value) => value instanceof Date && `new Date('')`,
 			reducers: {
-				Date: (value) => value instanceof Date && '',
+				Date: (value) => value instanceof Date && ''
 			},
 			revivers: {
 				Date: (value) => new Date(value)
@@ -875,8 +873,8 @@ const invalid = [
 		name: 'sparse array float index',
 		json: '[[-7,5,1.5,1]]',
 		message: 'Invalid input'
-  },
-  {
+	},
+	{
 		name: 'prototype pollution via null-prototype object',
 		json: '[["null","__proto__",1],{}]',
 		message: 'Cannot parse an object with a `__proto__` property'
@@ -1098,7 +1096,10 @@ uvu.test('ignores non-numeric array properties in dense encoding', () => {
 	const js = uneval(arr);
 	assert.ok(!js.includes('foo'), `uneval output should not contain "foo": ${js}`);
 	assert.ok(!js.includes('bar'), `uneval output should not contain "bar": ${js}`);
-	assert.ok(!js.includes('should be ignored'), `uneval output should not contain non-numeric value: ${js}`);
+	assert.ok(
+		!js.includes('should be ignored'),
+		`uneval output should not contain non-numeric value: ${js}`
+	);
 	const evaled = (0, eval)(js);
 	assert.is(evaled.length, 4);
 	assert.is(evaled[1], 'a');
@@ -1127,7 +1128,10 @@ uvu.test('ignores non-numeric array properties in sparse encoding', () => {
 	const js = uneval(arr);
 	assert.ok(!js.includes('foo'), `uneval output should not contain "foo": ${js}`);
 	assert.ok(!js.includes('bar'), `uneval output should not contain "bar": ${js}`);
-	assert.ok(!js.includes('should be ignored'), `uneval output should not contain non-numeric value: ${js}`);
+	assert.ok(
+		!js.includes('should be ignored'),
+		`uneval output should not contain non-numeric value: ${js}`
+	);
 	assert.ok(js.includes('Object.assign'), `uneval should use Object.assign for very sparse arrays`);
 	const evaled = (0, eval)(js);
 	assert.is(evaled.length, 1_000_001);
@@ -1192,7 +1196,8 @@ uvu.test('sparse array type confusion via __proto__ is blocked', () => {
 	// Reproduction from reported vulnerability: uses sparse array encoding to
 	// set __proto__ on an array, overwriting the prototype and allowing an
 	// attacker to control property values (e.g. spoofing .magnitude on a Vector).
-	const payload = '[[-7,0,"x",1,"y",2,"magnitude",3,"__proto__",4],3,4,"nope",["Vector",5],[6,7],8,9]';
+	const payload =
+		'[[-7,0,"x",1,"y",2,"magnitude",3,"__proto__",4],3,4,"nope",["Vector",5],[6,7],8,9]';
 
 	class Vector {
 		constructor(x, y) {

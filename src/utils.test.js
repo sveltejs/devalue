@@ -56,8 +56,8 @@ test('handles a single-element array with non-numeric property', () => {
 test('handles array properties pretending to be indices', () => {
 	const arr = ['a', 'b'];
 	arr[-1] = 'negative index';
-	arr[2**32 - 1] = 'too large index';
+	arr[2 ** 32 - 1] = 'too large index';
 	assert.equal(valid_array_indices(arr), ['0', '1']);
-})
+});
 
 test.run();

@@ -54,16 +54,7 @@ export function decode_legacy(base64) {
 }
 
 const native = typeof Uint8Array.fromBase64 === 'function';
-const buffer =
-	typeof process === 'object' && process.versions?.node !== undefined;
+const buffer = typeof process === 'object' && process.versions?.node !== undefined;
 
-export const encode64 = native
-	? encode_native
-	: buffer
-	? encode_buffer
-	: encode_legacy;
-export const decode64 = native
-	? decode_native
-	: buffer
-	? decode_buffer
-	: decode_legacy;
+export const encode64 = native ? encode_native : buffer ? encode_buffer : encode_legacy;
+export const decode64 = native ? decode_native : buffer ? decode_buffer : decode_legacy;

@@ -26,7 +26,7 @@ export default [
 					stringify(value);
 				}
 			});
-		},
+		}
 	},
 
 	{
@@ -44,7 +44,7 @@ export default [
 					stringify(value);
 				}
 			});
-		},
+		}
 	},
 
 	{
@@ -62,7 +62,7 @@ export default [
 					stringify(value);
 				}
 			});
-		},
+		}
 	},
 
 	{
@@ -80,7 +80,7 @@ export default [
 					parse(string);
 				}
 			});
-		},
+		}
 	},
 
 	{
@@ -98,7 +98,7 @@ export default [
 					parse(string);
 				}
 			});
-		},
+		}
 	},
 
 	{
@@ -116,6 +116,6 @@ export default [
 					parse(string);
 				}
 			});
-		},
-	},
+		}
+	}
 ];

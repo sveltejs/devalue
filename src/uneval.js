@@ -78,9 +78,7 @@ export function uneval(value, replacer) {
 
 				case 'Map':
 					for (const [key, value] of thing) {
-						keys.push(
-							`.get(${is_primitive(key) ? stringify_primitive(key) : '...'})`
-						);
+						keys.push(`.get(${is_primitive(key) ? stringify_primitive(key) : '...'})`);
 						walk(value);
 						keys.pop();
 					}
@@ -116,21 +114,11 @@ export function uneval(value, replacer) {
 
 				default:
 					if (!is_plain_object(thing)) {
-						throw new DevalueError(
-							`Cannot stringify arbitrary non-POJOs`,
-							keys,
-							thing,
-							value
-						);
+						throw new DevalueError(`Cannot stringify arbitrary non-POJOs`, keys, thing, value);
 					}
 
 					if (enumerable_symbols(thing).length > 0) {
-						throw new DevalueError(
-							`Cannot stringify POJOs with symbolic keys`,
-							keys,
-							thing,
-							value
-						);
+						throw new DevalueError(`Cannot stringify POJOs with symbolic keys`, keys, thing, value);
 					}
 
 					for (const key of Object.keys(thing)) {
@@ -188,9 +176,7 @@ export function uneval(value, replacer) {
 				return `Object(${stringify(thing.valueOf())})`;
 
 			case 'RegExp':
-				return `new RegExp(${stringify_string(thing.source)}, "${
-					thing.flags
-				}")`;
+				return `new RegExp(${stringify_string(thing.source)}, "${thing.flags}")`;
 
 			case 'Date':
 				return `new Date(${thing.getTime()})`;
@@ -260,12 +246,10 @@ export function uneval(value, replacer) {
 						const d = String(thing.length).length;
 
 						const hole_cost = thing.length + 2;
-						const sparse_cost = (25 + d) + population * (d + 2);
+						const sparse_cost = 25 + d + population * (d + 2);
 
 						if (hole_cost > sparse_cost) {
-							const entries = populated_keys
-								.map((k) => `${k}:${stringify(thing[k])}`)
-								.join(',');
+							const entries = populated_keys.map((k) => `${k}:${stringify(thing[k])}`).join(',');
 							return `Object.assign(Array(${thing.length}),{${entries}})`;
 						}
 
@@ -333,14 +317,10 @@ export function uneval(value, replacer) {
 
 			default:
 				const keys = Object.keys(thing);
-				const obj = keys
-					.map((key) => `${safe_key(key)}:${stringify(thing[key])}`)
-					.join(',');
+				const obj = keys.map((key) => `${safe_key(key)}:${stringify(thing[key])}`).join(',');
 				const proto = Object.getPrototypeOf(thing);
 				if (proto === null) {
-					return keys.length > 0
-						? `{${obj},__proto__:null}`
-						: `{__proto__:null}`;
+					return keys.length > 0 ? `{${obj},__proto__:null}` : `{__proto__:null}`;
 				}
 
 				return `{${obj}}`;
@@ -415,28 +395,20 @@ export function uneval(value, replacer) {
 					break;
 
 				case 'ArrayBuffer':
-					values.push(
-						`new Uint8Array([${new Uint8Array(thing).join(',')}]).buffer`
-					);
+					values.push(`new Uint8Array([${new Uint8Array(thing).join(',')}]).buffer`);
 					break;
 
 				default:
-					values.push(
-						Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}'
-					);
+					values.push(Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}');
 					Object.keys(thing).forEach((key) => {
-						statements.push(
-							`${name}${safe_prop(key)}=${stringify(thing[key])}`
-						);
+						statements.push(`${name}${safe_prop(key)}=${stringify(thing[key])}`);
 					});
 			}
 		});
 
 		statements.push(`return ${str}`);
 
-		return `(function(${params.join(',')}){${statements.join(
-			';'
-		)}}(${values.join(',')}))`;
+		return `(function(${params.join(',')}){${statements.join(';')}}(${values.join(',')}))`;
 	} else {
 		return str;
 	}
@@ -466,9 +438,7 @@ function escape_unsafe_chars(str) {
 
 /** @param {string} key */
 function safe_key(key) {
-	return /^[_$a-zA-Z][_$a-zA-Z0-9]*$/.test(key)
-		? key
-		: escape_unsafe_chars(JSON.stringify(key));
+	return /^[_$a-zA-Z][_$a-zA-Z0-9]*$/.test(key) ? key : escape_unsafe_chars(JSON.stringify(key));
 }
 
 /** @param {string} key */

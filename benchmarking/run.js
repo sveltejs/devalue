@@ -9,8 +9,8 @@ const filter_fn = filters.length ? (b) => filters.some((f) => b.label.includes(f
 const suites = [
 	{
 		name: 'TypedArray benchmarks',
-		benchmarks: typed_array_benchmarks.filter(filter_fn),
-	},
+		benchmarks: typed_array_benchmarks.filter(filter_fn)
+	}
 ].filter((suite) => suite.benchmarks.length > 0);
 
 if (suites.length === 0) {
@@ -39,7 +39,7 @@ try {
 		console.log(
 			pad_right('Benchmark', COLUMN_WIDTHS[0]) +
 				pad_left('Time', COLUMN_WIDTHS[1]) +
-				pad_left('GC time', COLUMN_WIDTHS[2]),
+				pad_left('GC time', COLUMN_WIDTHS[2])
 		);
 		console.log('='.repeat(TOTAL_WIDTH));
 
@@ -48,7 +48,7 @@ try {
 			console.log(
 				pad_right(benchmark.label, COLUMN_WIDTHS[0]) +
 					pad_left(results.time.toFixed(2), COLUMN_WIDTHS[1]) +
-					pad_left(results.gc_time.toFixed(2), COLUMN_WIDTHS[2]),
+					pad_left(results.gc_time.toFixed(2), COLUMN_WIDTHS[2])
 			);
 			total_time += results.time;
 			total_gc_time += results.gc_time;
@@ -60,7 +60,7 @@ try {
 		console.log(
 			pad_right('suite', COLUMN_WIDTHS[0]) +
 				pad_left(suite_time.toFixed(2), COLUMN_WIDTHS[1]) +
-				pad_left(suite_gc_time.toFixed(2), COLUMN_WIDTHS[2]),
+				pad_left(suite_gc_time.toFixed(2), COLUMN_WIDTHS[2])
 		);
 		console.log('='.repeat(TOTAL_WIDTH));
 	}
@@ -74,5 +74,5 @@ console.log('');
 console.log(
 	pad_right('total', COLUMN_WIDTHS[0]) +
 		pad_left(total_time.toFixed(2), COLUMN_WIDTHS[1]) +
-		pad_left(total_gc_time.toFixed(2), COLUMN_WIDTHS[2]),
+		pad_left(total_gc_time.toFixed(2), COLUMN_WIDTHS[2])
 );

@@ -10,7 +10,7 @@ const is_jj = execSync('git for-each-ref --count=1 refs/jj/').length > 0;
 const current_ref = exec(
 	is_jj
 		? 'jj show --no-patch --template change_id'
-		: 'git symbolic-ref --short -q HEAD || git rev-parse --short HEAD',
+		: 'git symbolic-ref --short -q HEAD || git rev-parse --short HEAD'
 );
 
 /** @type {(branch: string) => void} */
@@ -95,9 +95,7 @@ for (let i = 0; i < results[0].length; i += 1) {
 				const SIZE = 20;
 				const n = Math.round(SIZE * (time / max));
 
-				console.log(
-					`${char(b)}: ${'◼'.repeat(n)}${' '.repeat(SIZE - n)} ${time.toFixed(2)}ms`,
-				);
+				console.log(`${char(b)}: ${'◼'.repeat(n)}${' '.repeat(SIZE - n)} ${time.toFixed(2)}ms`);
 			});
 			console.groupEnd();
 		}

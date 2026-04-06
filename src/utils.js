@@ -29,12 +29,10 @@ export class DevalueError extends Error {
 
 /** @param {any} thing */
 export function is_primitive(thing) {
-	return Object(thing) !== thing;
+	return thing === null || (typeof thing !== 'object' && typeof thing !== 'function');
 }
 
-const object_proto_names = /* @__PURE__ */ Object.getOwnPropertyNames(
-	Object.prototype
-)
+const object_proto_names = /* @__PURE__ */ Object.getOwnPropertyNames(Object.prototype)
 	.sort()
 	.join('\0');
 
@@ -79,9 +77,7 @@ function get_escaped_char(char) {
 		case '\u2029':
 			return '\\u2029';
 		default:
-			return char < ' '
-				? `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`
-				: '';
+			return char < ' ' ? `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}` : '';
 	}
 }
 
