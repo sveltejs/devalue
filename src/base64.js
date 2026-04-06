@@ -1,31 +1,31 @@
 /* Baseline 2025 runtimes */
 
 /**	@type {(array_buffer: ArrayBuffer) => string} */
-function encode_native(array_buffer) {
+export function encode_native(array_buffer) {
 	return new Uint8Array(array_buffer).toBase64();
 }
 
 /**	@type {(base64: string) => ArrayBuffer} */
-function decode_native(base64) {
+export function decode_native(base64) {
 	return Uint8Array.fromBase64(base64).buffer;
 }
 
 /* Node-compatible runtimes */
 
 /** @type {(array_buffer: ArrayBuffer) => string} */
-function encode_buffer(array_buffer) {
+export function encode_buffer(array_buffer) {
 	return Buffer.from(array_buffer).toString('base64');
 }
 
 /**	@type {(base64: string) => ArrayBuffer} */
-function decode_buffer(base64) {
+export function decode_buffer(base64) {
 	return Uint8Array.from(Buffer.from(base64, 'base64')).buffer;
 }
 
 /* Legacy runtimes */
 
 /** @type {(array_buffer: ArrayBuffer) => string} */
-function encode_legacy(array_buffer) {
+export function encode_legacy(array_buffer) {
 	const array = new Uint8Array(array_buffer);
 	let binary = '';
 
@@ -41,7 +41,7 @@ function encode_legacy(array_buffer) {
 }
 
 /**	@type {(base64: string) => ArrayBuffer} */
-function decode_legacy(base64) {
+export function decode_legacy(base64) {
 	const binary_string = atob(base64);
 	const len = binary_string.length;
 	const array = new Uint8Array(len);
@@ -54,7 +54,16 @@ function decode_legacy(base64) {
 }
 
 const native = typeof Uint8Array.fromBase64 === 'function';
-const buffer = typeof process === 'object' && process.versions?.node !== undefined;
+const buffer =
+	typeof process === 'object' && process.versions?.node !== undefined;
 
-export const encode64 = native ? encode_native : buffer ? encode_buffer : encode_legacy;
-export const decode64 = native ? decode_native : buffer ? decode_buffer : decode_legacy;
+export const encode64 = native
+	? encode_native
+	: buffer
+	? encode_buffer
+	: encode_legacy;
+export const decode64 = native
+	? decode_native
+	: buffer
+	? decode_buffer
+	: decode_legacy;
