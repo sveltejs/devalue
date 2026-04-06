@@ -1,110 +1,69 @@
-/**
- * Base64 Encodes an arraybuffer
- * @param {ArrayBuffer} arraybuffer
- * @returns {string}
- */
-export function encode64(arraybuffer) {
-  const dv = new DataView(arraybuffer);
-  let binaryString = "";
+/* Baseline 2025 runtimes */
 
-  for (let i = 0; i < arraybuffer.byteLength; i++) {
-    binaryString += String.fromCharCode(dv.getUint8(i));
-  }
-
-  return binaryToAscii(binaryString);
+/**	@type {(array_buffer: ArrayBuffer) => string} */
+export function encode_native(array_buffer) {
+	return new Uint8Array(array_buffer).toBase64();
 }
 
-/**
- * Decodes a base64 string into an arraybuffer
- * @param {string} string
- * @returns {ArrayBuffer}
- */
-export function decode64(string) {
-  const binaryString = asciiToBinary(string);
-  const arraybuffer = new ArrayBuffer(binaryString.length);
-  const dv = new DataView(arraybuffer);
-
-  for (let i = 0; i < arraybuffer.byteLength; i++) {
-    dv.setUint8(i, binaryString.charCodeAt(i));
-  }
-
-  return arraybuffer;
+/**	@type {(base64: string) => ArrayBuffer} */
+export function decode_native(base64) {
+	return Uint8Array.fromBase64(base64).buffer;
 }
 
-const KEY_STRING =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+/* Node-compatible runtimes */
 
-/**
- * Substitute for atob since it's deprecated in node.
- * Does not do any input validation.
- *
- * @see https://github.com/jsdom/abab/blob/master/lib/atob.js
- *
- * @param {string} data
- * @returns {string}
- */
-function asciiToBinary(data) {
-  if (data.length % 4 === 0) {
-    data = data.replace(/==?$/, "");
-  }
-
-  let output = "";
-  let buffer = 0;
-  let accumulatedBits = 0;
-
-  for (let i = 0; i < data.length; i++) {
-    buffer <<= 6;
-    buffer |= KEY_STRING.indexOf(data[i]);
-    accumulatedBits += 6;
-    if (accumulatedBits === 24) {
-      output += String.fromCharCode((buffer & 0xff0000) >> 16);
-      output += String.fromCharCode((buffer & 0xff00) >> 8);
-      output += String.fromCharCode(buffer & 0xff);
-      buffer = accumulatedBits = 0;
-    }
-  }
-  if (accumulatedBits === 12) {
-    buffer >>= 4;
-    output += String.fromCharCode(buffer);
-  } else if (accumulatedBits === 18) {
-    buffer >>= 2;
-    output += String.fromCharCode((buffer & 0xff00) >> 8);
-    output += String.fromCharCode(buffer & 0xff);
-  }
-  return output;
+/** @type {(array_buffer: ArrayBuffer) => string} */
+export function encode_buffer(array_buffer) {
+	return Buffer.from(array_buffer).toString('base64');
 }
 
-/**
- * Substitute for btoa since it's deprecated in node.
- * Does not do any input validation.
- *
- * @see https://github.com/jsdom/abab/blob/master/lib/btoa.js
- *
- * @param {string} str
- * @returns {string}
- */
-function binaryToAscii(str) {
-  let out = "";
-  for (let i = 0; i < str.length; i += 3) {
-    /** @type {[number, number, number, number]} */
-    const groupsOfSix = [undefined, undefined, undefined, undefined];
-    groupsOfSix[0] = str.charCodeAt(i) >> 2;
-    groupsOfSix[1] = (str.charCodeAt(i) & 0x03) << 4;
-    if (str.length > i + 1) {
-      groupsOfSix[1] |= str.charCodeAt(i + 1) >> 4;
-      groupsOfSix[2] = (str.charCodeAt(i + 1) & 0x0f) << 2;
-    }
-    if (str.length > i + 2) {
-      groupsOfSix[2] |= str.charCodeAt(i + 2) >> 6;
-      groupsOfSix[3] = str.charCodeAt(i + 2) & 0x3f;
-    }
-    for (let j = 0; j < groupsOfSix.length; j++) {
-      if (typeof groupsOfSix[j] === "undefined") {
-        out += "=";
-      } else {
-        out += KEY_STRING[groupsOfSix[j]];
-      }
-    }
-  }
-  return out;
+/**	@type {(base64: string) => ArrayBuffer} */
+export function decode_buffer(base64) {
+	return Uint8Array.from(Buffer.from(base64, 'base64')).buffer;
 }
+
+/* Legacy runtimes */
+
+/** @type {(array_buffer: ArrayBuffer) => string} */
+export function encode_legacy(array_buffer) {
+	const array = new Uint8Array(array_buffer);
+	let binary = '';
+
+	// the maximum number of arguments to String.fromCharCode.apply
+	// should be around 0xFFFF in modern engines
+	const chunk_size = 0x8000;
+	for (let i = 0; i < array.length; i += chunk_size) {
+		const chunk = array.subarray(i, i + chunk_size);
+		binary += String.fromCharCode.apply(null, chunk);
+	}
+
+	return btoa(binary);
+}
+
+/**	@type {(base64: string) => ArrayBuffer} */
+export function decode_legacy(base64) {
+	const binary_string = atob(base64);
+	const len = binary_string.length;
+	const array = new Uint8Array(len);
+
+	for (let i = 0; i < len; i++) {
+		array[i] = binary_string.charCodeAt(i);
+	}
+
+	return array.buffer;
+}
+
+const native = typeof Uint8Array.fromBase64 === 'function';
+const buffer =
+	typeof process === 'object' && process.versions?.node !== undefined;
+
+export const encode64 = native
+	? encode_native
+	: buffer
+	? encode_buffer
+	: encode_legacy;
+export const decode64 = native
+	? decode_native
+	: buffer
+	? decode_buffer
+	: decode_legacy;

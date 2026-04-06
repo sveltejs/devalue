@@ -240,7 +240,7 @@ const fixtures = {
 			name: 'Sliced typed array',
 			value: new Uint16Array([10, 20, 30, 40]).subarray(1, 3),
 			js: 'new Uint16Array([10,20,30,40]).subarray(1,3)',
-			json: '[["Uint16Array",1,1,3],["ArrayBuffer","CgAUAB4AKAA="]]'
+			json: '[["Uint16Array",1,2,2],["ArrayBuffer","CgAUAB4AKAA="]]'
 		},
 		{
 			name: 'Temporal.Duration',
