@@ -286,11 +286,11 @@ export function uneval(value, replacer) {
 			case 'BigUint64Array': {
 				let str = `new ${type}`;
 
-				if (counts.get(thing.buffer) === 1) {
+				if (!names.has(thing.buffer)) {
 					const array = new thing.constructor(thing.buffer);
 					str += `([${array}])`;
 				} else {
-					str += `([${stringify(thing.buffer)}])`;
+					str += `(${stringify(thing.buffer)})`;
 				}
 
 				// handle subarrays

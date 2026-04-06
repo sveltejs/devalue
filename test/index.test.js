@@ -600,7 +600,7 @@ const fixtures = {
 
 				return [uint8, uint16];
 			})(),
-			js: '(function(a){return [new Uint8Array([a]),new Uint16Array([a])]}(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer))',
+			js: '(function(a){return [new Uint8Array(a),new Uint16Array(a)]}(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer))',
 			json: '[[1,3],["Uint8Array",2],["ArrayBuffer","AAECAwQFBgcICQ=="],["Uint16Array",2]]',
 			validate: ([uint8, uint16]) => {
 				return uint8.buffer === uint16.buffer;
