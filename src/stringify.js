@@ -223,7 +223,8 @@ export function stringify(value, reducers) {
 				case 'Float32Array':
 				case 'Float64Array':
 				case 'BigInt64Array':
-				case 'BigUint64Array': {
+				case 'BigUint64Array':
+				case 'DataView': {
 					/** @type {import("./types.js").TypedArray} */
 					const typedArray = thing;
 					str = '["' + type + '",' + flatten(typedArray.buffer);
