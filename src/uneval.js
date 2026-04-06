@@ -96,6 +96,7 @@ export function uneval(value, replacer) {
 				case 'Float64Array':
 				case 'BigInt64Array':
 				case 'BigUint64Array':
+				case 'DataView':
 					walk(thing.buffer);
 					return;
 
@@ -303,6 +304,23 @@ export function uneval(value, replacer) {
 				return str;
 			}
 
+			case 'DataView': {
+				let str = `new DataView`;
+
+				if (!names.has(thing.buffer)) {
+					str += `(new Uint8Array([${new Uint8Array(thing.buffer)}]).buffer`;
+				} else {
+					str += `(${stringify(thing.buffer)}`;
+				}
+
+				// handle subviews
+				if (thing.byteLength !== thing.buffer.byteLength) {
+					str += `,${thing.startOffset},${thing.byteLength}`;
+				}
+
+				return str + ')';
+			}
+
 			case 'ArrayBuffer': {
 				const ui8 = new Uint8Array(thing);
 				return `new Uint8Array([${ui8.toString()}]).buffer`;
@@ -433,6 +451,27 @@ export function uneval(value, replacer) {
 						const end = start + thing.length;
 						str += `.subarray(${start},${end})`;
 					}
+
+					values.push(`{}`);
+					statements.push(`${name}=${str}`);
+					break;
+				}
+
+				case 'DataView': {
+					let str = `new DataView`;
+
+					if (!names.has(thing.buffer)) {
+						str += `(new Uint8Array([${new Uint8Array(thing.buffer)}]).buffer`;
+					} else {
+						str += `(${stringify(thing.buffer)}`;
+					}
+
+					// handle subviews
+					if (thing.byteLength !== thing.buffer.byteLength) {
+						str += `,${thing.byteOffset},${thing.byteLength}`;
+					}
+
+					str += ')';
 
 					values.push(`{}`);
 					statements.push(`${name}=${str}`);

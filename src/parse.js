@@ -156,7 +156,8 @@ export function unflatten(parsed, revivers) {
 					case 'Float32Array':
 					case 'Float64Array':
 					case 'BigInt64Array':
-					case 'BigUint64Array': {
+					case 'BigUint64Array':
+					case 'DataView': {
 						if (values[value[1]][0] !== 'ArrayBuffer') {
 							// without this, if we receive malformed input we could
 							// end up trying to hydrate in a circle or allocate
