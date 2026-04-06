@@ -148,6 +148,7 @@ export function unflatten(parsed, revivers) {
 					case 'Uint8ClampedArray':
 					case 'Int16Array':
 					case 'Uint16Array':
+					case 'Float16Array':
 					case 'Int32Array':
 					case 'Uint32Array':
 					case 'Float32Array':
