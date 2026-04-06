@@ -1,5 +1,18 @@
 # devalue changelog
 
+## 5.7.0
+### Minor Changes
+
+- df2e284: feat: use native alternatives to encode/decode base64
+- 498656e: feat: add `DataView` support
+- a210130: feat: whitelist `Float16Array`
+- df2e284: feat: simplify TypedArray slices
+
+### Patch Changes
+
+- 5590634: fix: get `uneval` type handling up to parity with `stringify`
+- 57f73fc: fix: correctly support boxed bigints and sentinel values
+
 ## 5.6.4
 
 ### Patch Changes
