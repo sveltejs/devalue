@@ -173,6 +173,7 @@ export function uneval(value, replacer) {
 			case 'Number':
 			case 'String':
 			case 'Boolean':
+			case 'BigInt':
 				return `Object(${stringify(thing.valueOf())})`;
 
 			case 'RegExp':
@@ -450,11 +451,12 @@ function safe_prop(key) {
 
 /** @param {any} thing */
 function stringify_primitive(thing) {
-	if (typeof thing === 'string') return stringify_string(thing);
+	const type = typeof thing;
+	if (type === 'string') return stringify_string(thing);
 	if (thing === void 0) return 'void 0';
 	if (thing === 0 && 1 / thing < 0) return '-0';
 	const str = String(thing);
-	if (typeof thing === 'number') return str.replace(/^(-)?0\./, '$1.');
-	if (typeof thing === 'bigint') return thing + 'n';
+	if (type === 'number') return str.replace(/^(-)?0\./, '$1.');
+	if (type === 'bigint') return thing + 'n';
 	return str;
 }

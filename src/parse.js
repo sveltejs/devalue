@@ -114,15 +114,20 @@ export function unflatten(parsed, revivers) {
 						hydrated[index] = new RegExp(value[1], value[2]);
 						break;
 
-					case 'Object':
-						const object = Object(value[1]);
+					case 'Object': {
+						const wrapped_index = value[1];
 
-						if (Object.hasOwn(object, '__proto__')) {
-							throw new Error('Cannot parse an object with a `__proto__` property');
+						if (
+							typeof values[wrapped_index] === 'object' &&
+							values[wrapped_index][0] !== 'BigInt'
+						) {
+							// avoid infinite recusion in case of malformed input
+							throw new Error('Invalid input');
 						}
 
-						hydrated[index] = object;
+						hydrated[index] = Object(hydrate(wrapped_index));
 						break;
+					}
 
 					case 'BigInt':
 						hydrated[index] = BigInt(value[1]);
