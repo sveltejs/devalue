@@ -200,7 +200,7 @@ const fixtures = {
 		{
 			name: 'RegExp',
 			value: /regexp/gim,
-			js: 'new RegExp("regexp", "gim")',
+			js: 'new RegExp("regexp","gim")',
 			json: '[["RegExp","regexp","gim"]]'
 		},
 		{
@@ -627,7 +627,7 @@ const fixtures = {
 		{
 			name: 'RegExp (repetition)',
 			value: ((regexp) => [regexp, regexp])(/regexp/),
-			js: '(function(a){return [a,a]}(/regexp/))',
+			js: '(function(a){return [a,a]}(new RegExp("regexp")))',
 			json: '[[1,1],["RegExp","regexp"]]',
 			validate: ([a, b]) => assert.is(a, b)
 		},
@@ -717,8 +717,17 @@ const fixtures = {
 		{
 			name: 'Dangerous regex',
 			value: /[</script><script>alert('xss')//]/,
-			js: `new RegExp("[\\u003C/script>\\u003Cscript>alert('xss')//]", "")`,
+			js: `new RegExp("[\\u003C/script>\\u003Cscript>alert('xss')//]")`,
 			json: `[["RegExp","[\\u003C/script>\\u003Cscript>alert('xss')//]"]]`
+		},
+		{
+			name: 'Dangerous regex',
+			value: (() => {
+				const regex = /[</script><script>alert('xss')//]/;
+				return [regex, regex];
+			})(),
+			js: `(function(a){return [a,a]}(new RegExp("[\\u003C/script>\\u003Cscript>alert('xss')//]")))`,
+			json: `[[1,1],["RegExp","[\\u003C/script>\\u003Cscript>alert('xss')//]"]]`
 		}
 	],
 

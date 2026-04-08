@@ -180,7 +180,10 @@ export function uneval(value, replacer) {
 				return `Object(${stringify(thing.valueOf())})`;
 
 			case 'RegExp':
-				return `new RegExp(${stringify_string(thing.source)}, "${thing.flags}")`;
+				const { source, flags } = thing;
+				return flags
+					? `new RegExp(${stringify_string(source)},"${flags}")`
+					: `new RegExp(${stringify_string(source)})`;
 
 			case 'Date':
 				return `new Date(${thing.getTime()})`;
@@ -384,7 +387,11 @@ export function uneval(value, replacer) {
 					break;
 
 				case 'RegExp':
-					values.push(thing.toString());
+					const { source, flags } = thing;
+					const regexp = flags
+						? `new RegExp(${stringify_string(source)},"${flags}")`
+						: `new RegExp(${stringify_string(source)})`
+					values.push(regexp);
 					break;
 
 				case 'Date':
