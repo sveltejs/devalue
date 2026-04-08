@@ -1,5 +1,10 @@
 # devalue changelog
 
+## 5.7.1
+### Patch Changes
+
+- 8becc7c: fix: handle regexes consistently in uneval's value and reference formats
+
 ## 5.7.0
 ### Minor Changes
 
