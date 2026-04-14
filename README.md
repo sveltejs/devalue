@@ -26,6 +26,7 @@ Try it out [here](https://svelte.dev/repl/138d70def7a748ce9eda736ef1c71239?versi
 
 - Human-readable output
 - Stringifying functions
+- Stability of serialization mechanisms between versions (i.e. if you `devalue.stringify` with one version and `devalue.parse` with another, things may break)
 
 ## Usage
 
