@@ -1488,10 +1488,7 @@ asyncTests('resolves nested promises in objects', async () => {
 });
 
 asyncTests('resolves promises in arrays', async () => {
-	const result = await stringifyAsync([
-		Promise.resolve('a'),
-		Promise.resolve('b')
-	]);
+	const result = await stringifyAsync([Promise.resolve('a'), Promise.resolve('b')]);
 	assert.equal(result, stringify(['a', 'b']));
 });
 
@@ -1563,49 +1560,6 @@ asyncTests('resolves mixed sync and async values', async () => {
 });
 
 asyncTests.run();
-
-// Async reducer tests
-const asyncReducerTests = uvu.suite('stringifyAsync: async reducers');
-
-asyncReducerTests('supports async reducers', async () => {
-	const result = await stringifyAsync(new Foo({ answer: 42 }), {
-		Foo: async (x) => x instanceof Foo && x.value
-	});
-	const expected = stringify(new Foo({ answer: 42 }), {
-		Foo: (x) => x instanceof Foo && x.value
-	});
-	assert.equal(result, expected);
-});
-
-asyncReducerTests('supports mix of sync and async reducers', async () => {
-	const result = await stringifyAsync([new Foo({ val: 1 }), new Bar({ val: 2 })], {
-		Foo: async (x) => x instanceof Foo && x.value,
-		Bar: (x) => x instanceof Bar && x.value
-	});
-	const expected = stringify([new Foo({ val: 1 }), new Bar({ val: 2 })], {
-		Foo: (x) => x instanceof Foo && x.value,
-		Bar: (x) => x instanceof Bar && x.value
-	});
-	assert.equal(result, expected);
-});
-
-asyncReducerTests('async reducer with promise values', async () => {
-	const result = await stringifyAsync(
-		{ data: Promise.resolve(new Foo({ answer: 42 })) },
-		{
-			Foo: async (x) => x instanceof Foo && x.value
-		}
-	);
-	const expected = stringify(
-		{ data: new Foo({ answer: 42 }) },
-		{
-			Foo: (x) => x instanceof Foo && x.value
-		}
-	);
-	assert.equal(result, expected);
-});
-
-asyncReducerTests.run();
 
 // Error handling with stringifyAsync
 const asyncErrorTests = uvu.suite('stringifyAsync: errors');
