@@ -149,6 +149,11 @@ function run(value, reducers) {
 
 		if (is_primitive(thing)) {
 			str = stringify_primitive(thing);
+		} else if (typeof thing.then === 'function') {
+			str = Promise.resolve(thing).then((value) => {
+				const i = flatten(value, index);
+				if (i < 0) stringified[index] = i;
+			});
 		} else {
 			const type = get_type(thing);
 
@@ -331,14 +336,6 @@ function run(value, reducers) {
 				case 'Temporal.PlainYearMonth':
 				case 'Temporal.ZonedDateTime':
 					str = `["${type}",${stringify_string(thing.toString())}]`;
-					break;
-
-				case 'Promise':
-					str = /** @type {Promise<any>} */ (thing).then((value) => {
-						const i = flatten(value, index);
-						if (i < 0) stringified[index] = i;
-					});
-
 					break;
 
 				default:
