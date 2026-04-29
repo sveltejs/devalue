@@ -72,6 +72,10 @@ export async function stringifyAsync(value, reducers) {
 		if (typeof value !== 'string') {
 			await value;
 			value = stringified[i];
+
+			if (i === 0 && value < 0) {
+				return `${value}`;
+			}
 		}
 
 		out += value;
@@ -331,7 +335,8 @@ function run(value, reducers) {
 
 				case 'Promise':
 					str = /** @type {Promise<any>} */ (thing).then((value) => {
-						flatten(value, index);
+						const i = flatten(value, index);
+						if (i < 0) stringified[index] = i;
 					});
 
 					break;
