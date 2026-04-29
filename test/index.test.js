@@ -2,7 +2,7 @@ import * as vm from 'vm';
 import * as assert from 'uvu/assert';
 import * as uvu from 'uvu';
 import * as consts from '../src/constants.js';
-import { uneval, unflatten, parse, stringify } from '../index.js';
+import { uneval, unflatten, parse, stringify, stringifyAsync } from '../index.js';
 
 globalThis.Temporal ??= (await import('@js-temporal/polyfill')).Temporal;
 
@@ -1422,3 +1422,232 @@ uvu.test('valid sparse array parses correctly', () => {
 });
 
 uvu.test.run();
+
+// --- stringifyAsync tests ---
+
+// Verify that stringifyAsync produces identical output to stringify for all fixtures
+for (const [name, tests] of Object.entries(fixtures)) {
+	const test = uvu.suite(`stringifyAsync: ${name}`);
+	for (const t of tests) {
+		test(t.name, async () => {
+			const actual = await stringifyAsync(t.value, t.reducers);
+			const expected = t.json;
+			assert.equal(actual, expected);
+		});
+	}
+	test.run();
+}
+
+// Verify round-trip: stringifyAsync output can be parsed back
+for (const [name, tests] of Object.entries(fixtures)) {
+	const test = uvu.suite(`stringifyAsync round-trip: ${name}`);
+	for (const t of tests) {
+		test(t.name, async () => {
+			const json = await stringifyAsync(t.value, t.reducers);
+			const actual = parse(json, t.revivers);
+
+			if (t.validate) {
+				t.validate(actual);
+			} else {
+				assert.equal(actual, t.value);
+			}
+		});
+	}
+	test.run();
+}
+
+// Async-specific tests
+const asyncTests = uvu.suite('stringifyAsync: promises');
+
+asyncTests('resolves top-level promise', async () => {
+	const result = await stringifyAsync(Promise.resolve(42));
+	assert.equal(result, stringify(42));
+});
+
+asyncTests('resolves promise to undefined', async () => {
+	const result = await stringifyAsync(Promise.resolve(undefined));
+	assert.equal(result, stringify(undefined));
+});
+
+asyncTests('resolves promise to null', async () => {
+	const result = await stringifyAsync(Promise.resolve(null));
+	assert.equal(result, stringify(null));
+});
+
+asyncTests('resolves promise to NaN', async () => {
+	const result = await stringifyAsync(Promise.resolve(NaN));
+	assert.equal(result, stringify(NaN));
+});
+
+asyncTests('resolves nested promises in objects', async () => {
+	const result = await stringifyAsync({
+		a: Promise.resolve(1),
+		b: Promise.resolve('hello')
+	});
+	assert.equal(result, stringify({ a: 1, b: 'hello' }));
+});
+
+asyncTests('resolves promises in arrays', async () => {
+	const result = await stringifyAsync([
+		Promise.resolve('a'),
+		Promise.resolve('b')
+	]);
+	assert.equal(result, stringify(['a', 'b']));
+});
+
+asyncTests('resolves promises in Sets', async () => {
+	const result = await stringifyAsync(new Set([Promise.resolve(1), Promise.resolve(2)]));
+	assert.equal(result, stringify(new Set([1, 2])));
+});
+
+asyncTests('resolves promises in Map values', async () => {
+	const result = await stringifyAsync(new Map([['key', Promise.resolve('value')]]));
+	assert.equal(result, stringify(new Map([['key', 'value']])));
+});
+
+asyncTests('resolves deeply nested promises', async () => {
+	const result = await stringifyAsync({
+		a: { b: { c: Promise.resolve(42) } }
+	});
+	assert.equal(result, stringify({ a: { b: { c: 42 } } }));
+});
+
+asyncTests('deduplicates resolved values by identity', async () => {
+	const obj = { x: 1 };
+	const promise = Promise.resolve(obj);
+	const result = await stringifyAsync([promise, promise]);
+	assert.equal(result, stringify([obj, obj]));
+});
+
+asyncTests('handles thenables', async () => {
+	const thenable = { then: (resolve) => resolve(42) };
+	const result = await stringifyAsync(thenable);
+	assert.equal(result, stringify(42));
+});
+
+asyncTests('propagates rejected promises', async () => {
+	try {
+		await stringifyAsync(Promise.reject(new Error('fail')));
+		assert.unreachable('should have thrown');
+	} catch (e) {
+		assert.equal(e.message, 'fail');
+	}
+});
+
+asyncTests('resolves promise to complex value', async () => {
+	const complex = { date: new Date(1e12), set: new Set([1, 2]), arr: [3, 4] };
+	const result = await stringifyAsync(Promise.resolve(complex));
+	assert.equal(result, stringify(complex));
+});
+
+asyncTests('resolves mixed sync and async values', async () => {
+	const result = await stringifyAsync({
+		sync: 'hello',
+		async: Promise.resolve('world'),
+		nested: {
+			sync: 42,
+			async: Promise.resolve([1, 2, 3])
+		}
+	});
+	assert.equal(
+		result,
+		stringify({
+			sync: 'hello',
+			async: 'world',
+			nested: {
+				sync: 42,
+				async: [1, 2, 3]
+			}
+		})
+	);
+});
+
+asyncTests.run();
+
+// Async reducer tests
+const asyncReducerTests = uvu.suite('stringifyAsync: async reducers');
+
+asyncReducerTests('supports async reducers', async () => {
+	const result = await stringifyAsync(new Foo({ answer: 42 }), {
+		Foo: async (x) => x instanceof Foo && x.value
+	});
+	const expected = stringify(new Foo({ answer: 42 }), {
+		Foo: (x) => x instanceof Foo && x.value
+	});
+	assert.equal(result, expected);
+});
+
+asyncReducerTests('supports mix of sync and async reducers', async () => {
+	const result = await stringifyAsync([new Foo({ val: 1 }), new Bar({ val: 2 })], {
+		Foo: async (x) => x instanceof Foo && x.value,
+		Bar: (x) => x instanceof Bar && x.value
+	});
+	const expected = stringify([new Foo({ val: 1 }), new Bar({ val: 2 })], {
+		Foo: (x) => x instanceof Foo && x.value,
+		Bar: (x) => x instanceof Bar && x.value
+	});
+	assert.equal(result, expected);
+});
+
+asyncReducerTests('async reducer with promise values', async () => {
+	const result = await stringifyAsync(
+		{ data: Promise.resolve(new Foo({ answer: 42 })) },
+		{
+			Foo: async (x) => x instanceof Foo && x.value
+		}
+	);
+	const expected = stringify(
+		{ data: new Foo({ answer: 42 }) },
+		{
+			Foo: (x) => x instanceof Foo && x.value
+		}
+	);
+	assert.equal(result, expected);
+});
+
+asyncReducerTests.run();
+
+// Error handling with stringifyAsync
+const asyncErrorTests = uvu.suite('stringifyAsync: errors');
+
+asyncErrorTests('throws for functions', async () => {
+	try {
+		await stringifyAsync(function invalid() {});
+		assert.unreachable('should have thrown');
+	} catch (e) {
+		assert.equal(e.name, 'DevalueError');
+		assert.equal(e.message, 'Cannot stringify a function');
+	}
+});
+
+asyncErrorTests('throws for Symbols', async () => {
+	try {
+		await stringifyAsync(Symbol('foo'));
+		assert.unreachable('should have thrown');
+	} catch (e) {
+		assert.equal(e.name, 'DevalueError');
+	}
+});
+
+asyncErrorTests('throws for non-POJOs without reducer', async () => {
+	class Whatever {}
+	try {
+		await stringifyAsync(new Whatever());
+		assert.unreachable('should have thrown');
+	} catch (e) {
+		assert.equal(e.name, 'DevalueError');
+		assert.equal(e.message, 'Cannot stringify arbitrary non-POJOs');
+	}
+});
+
+asyncErrorTests('throws for promise resolving to function', async () => {
+	try {
+		await stringifyAsync(Promise.resolve(function invalid() {}));
+		assert.unreachable('should have thrown');
+	} catch (e) {
+		assert.equal(e.name, 'DevalueError');
+		assert.equal(e.message, 'Cannot stringify a function');
+	}
+});
+
+asyncErrorTests.run();
