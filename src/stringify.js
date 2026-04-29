@@ -25,31 +25,8 @@ import { encode64 } from './base64.js';
  * @param {Record<string, (value: any) => any>} [reducers]
  */
 export function stringify(value, reducers) {
-	const stringified = run(value, reducers);
-
-	if (typeof stringified === 'string') {
-		return stringified;
-	}
-
-	let out = '[';
-
-	for (let i = 0; i < stringified.length; i += 1) {
-		const value = stringified[i];
-
-		if (typeof value !== 'string') {
-			throw new Error('TODO');
-		}
-
-		out += value;
-
-		if (i < stringified.length - 1) {
-			out += ',';
-		}
-	}
-
-	out += ']';
-
-	return out;
+	const stringified = run(false, value, reducers);
+	return typeof stringified === 'string' ? stringified : `[${stringified.join(',')}]`;
 }
 
 /**
@@ -58,7 +35,7 @@ export function stringify(value, reducers) {
  * @param {Record<string, (value: any) => any>} [reducers]
  */
 export async function stringifyAsync(value, reducers) {
-	const stringified = run(value, reducers);
+	const stringified = run(true, value, reducers);
 
 	if (typeof stringified === 'string') {
 		return stringified;
@@ -91,10 +68,11 @@ export async function stringifyAsync(value, reducers) {
 }
 
 /**
+ * @param {boolean} async
  * @param {any} value
  * @param {Record<string, (value: any) => any>} [reducers]
  */
-function run(value, reducers) {
+function run(async, value, reducers) {
 	/** @type {any[]} */
 	const stringified = [];
 
@@ -150,6 +128,15 @@ function run(value, reducers) {
 		if (is_primitive(thing)) {
 			str = stringify_primitive(thing);
 		} else if (typeof thing.then === 'function') {
+			if (!async) {
+				throw new DevalueError(
+					`Cannot stringify a Promise or thenable — use stringifyAsync instead`,
+					keys,
+					thing,
+					value
+				);
+			}
+
 			str = Promise.resolve(thing).then((value) => {
 				const i = flatten(value, index);
 				if (i < 0) stringified[index] = i;
