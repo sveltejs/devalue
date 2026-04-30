@@ -25,6 +25,54 @@ import { encode64 } from './base64.js';
  * @param {Record<string, (value: any) => any>} [reducers]
  */
 export function stringify(value, reducers) {
+	const stringified = run(false, value, reducers);
+	return typeof stringified === 'string' ? stringified : `[${stringified.join(',')}]`;
+}
+
+/**
+ * Turn a value into a JSON string that can be parsed with `devalue.parse`
+ * @param {any} value
+ * @param {Record<string, (value: any) => any>} [reducers]
+ */
+export async function stringifyAsync(value, reducers) {
+	const stringified = run(true, value, reducers);
+
+	if (typeof stringified === 'string') {
+		return stringified;
+	}
+
+	let out = '[';
+
+	for (let i = 0; i < stringified.length; i += 1) {
+		let value = stringified[i];
+
+		if (typeof value !== 'string') {
+			await value;
+			value = stringified[i];
+
+			if (i === 0 && value < 0) {
+				return `${value}`;
+			}
+		}
+
+		out += value;
+
+		if (i < stringified.length - 1) {
+			out += ',';
+		}
+	}
+
+	out += ']';
+
+	return out;
+}
+
+/**
+ * @param {boolean} async
+ * @param {any} value
+ * @param {Record<string, (value: any) => any>} [reducers]
+ */
+function run(async, value, reducers) {
 	/** @type {any[]} */
 	const stringified = [];
 
@@ -44,8 +92,11 @@ export function stringify(value, reducers) {
 
 	let p = 0;
 
-	/** @param {any} thing */
-	function flatten(thing) {
+	/**
+	 * @param {any} thing
+	 * @param {number} [index]
+	 */
+	function flatten(thing, index) {
 		if (thing === undefined) return UNDEFINED;
 		if (Number.isNaN(thing)) return NAN;
 		if (thing === Infinity) return POSITIVE_INFINITY;
@@ -54,7 +105,7 @@ export function stringify(value, reducers) {
 
 		if (indexes.has(thing)) return /** @type {number} */ (indexes.get(thing));
 
-		const index = p++;
+		index ??= p++;
 		indexes.set(thing, index);
 
 		for (const { key, fn } of custom) {
@@ -71,10 +122,25 @@ export function stringify(value, reducers) {
 			throw new DevalueError(`Cannot stringify a Symbol primitive`, keys, thing, value);
 		}
 
+		/** @type {string | Promise<any>} */
 		let str = '';
 
 		if (is_primitive(thing)) {
 			str = stringify_primitive(thing);
+		} else if (typeof thing.then === 'function') {
+			if (!async) {
+				throw new DevalueError(
+					`Cannot stringify a Promise or thenable — use stringifyAsync instead`,
+					keys,
+					thing,
+					value
+				);
+			}
+
+			str = Promise.resolve(thing).then((value) => {
+				const i = flatten(value, index);
+				if (i < 0) stringified[index] = i;
+			});
 		} else {
 			const type = get_type(thing);
 
@@ -318,7 +384,7 @@ export function stringify(value, reducers) {
 	// special case — value is represented as a negative index
 	if (index < 0) return `${index}`;
 
-	return `[${stringified.join(',')}]`;
+	return stringified;
 }
 
 /**

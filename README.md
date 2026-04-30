@@ -13,6 +13,7 @@ Like `JSON.stringify`, but handles
 - `URL` and `URLSearchParams`
 - `Temporal`
 - custom types via replacers, reducers and revivers
+- promises (via `stringifyAsync`)
 
 Try it out [here](https://svelte.dev/repl/138d70def7a748ce9eda736ef1c71239?version=3.49.0).
 
@@ -67,6 +68,24 @@ devalue.parse(stringified); // { message: 'hello', self: [Circular] }
 ```
 
 Use `stringify` and `parse` when evaluating JavaScript isn't an option.
+
+### `stringifyAsync`
+
+`stringifyAsync` is an async version of `stringify` that can handle promises:
+
+```js
+import * as devalue from 'devalue';
+
+let obj = {
+	quick: 'data',
+	slow: fetch('/api/slow').then((r) => r.json())
+};
+
+let stringified = await devalue.stringifyAsync(obj);
+devalue.parse(stringified); // { quick: 'data', slow: { ... } }
+```
+
+Promises are awaited and their resolved values are serialized. The output format is identical to `stringify`, so `parse` and `unflatten` work unchanged.
 
 ### `unflatten`
 
