@@ -1,5 +1,10 @@
 # devalue changelog
 
+## 5.8.0
+### Minor Changes
+
+- c5115b0: feat: add `stringifyAsync` for async serialization
+
 ## 5.7.1
 ### Patch Changes
 
