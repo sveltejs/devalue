@@ -78,6 +78,10 @@ export function unflatten(parsed, revivers) {
 						i = values.push(value[1]) - 1;
 					}
 
+					if (i in hydrated) {
+						return (hydrated[index] = reviver(hydrated[i]));
+					}
+
 					hydrating ??= new Set();
 
 					if (hydrating.has(i)) {
