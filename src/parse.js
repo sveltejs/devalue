@@ -1,6 +1,7 @@
 import { decode64 } from './base64.js';
 import {
 	HOLE,
+	MAX_ARRAY_INDEX,
 	NAN,
 	NEGATIVE_INFINITY,
 	NEGATIVE_ZERO,
@@ -8,6 +9,7 @@ import {
 	SPARSE,
 	UNDEFINED
 } from './constants.js';
+import { is_valid_array_index, is_valid_array_len } from './utils.js';
 
 /**
  * Revive a value serialized with `devalue.stringify`
@@ -219,22 +221,35 @@ export function unflatten(parsed, revivers) {
 				// Sparse array encoding: [SPARSE, length, idx, val, idx, val, ...]
 				const len = value[1];
 
-				if (!Number.isInteger(len) || len < 0) {
+				if (!is_valid_array_len(len)) {
 					throw new Error('Invalid input');
 				}
 
-				const array = new Array(len);
+				/** @type {any[]} */
+				const array = [];
 				hydrated[index] = array;
+
+				// Setting `array.length = len` (or equivalently calling `new Array(len)`)
+				// on an untrusted `len` is a DoS vector: V8 eagerly allocates a
+				// contiguous backing store for array lengths below ~10^8, so a
+				// small payload with a huge declared length can force arbitrary
+				// memory allocation. Touching the largest-possible index first
+				// forces V8 into dictionary-elements mode, where `length` is
+				// just a number and no contiguous allocation occurs.
+				array[MAX_ARRAY_INDEX] = undefined;
+				delete array[MAX_ARRAY_INDEX];
 
 				for (let i = 2; i < value.length; i += 2) {
 					const idx = value[i];
 
-					if (!Number.isInteger(idx) || idx < 0 || idx >= len) {
+					if (!is_valid_array_index(idx) || idx >= len) {
 						throw new Error('Invalid input');
 					}
 
 					array[idx] = hydrate(value[i + 1]);
 				}
+
+				array.length = len;
 			} else {
 				const array = new Array(value.length);
 				hydrated[index] = array;

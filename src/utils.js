@@ -1,3 +1,5 @@
+import { MAX_ARRAY_INDEX, MAX_ARRAY_LEN } from './constants.js';
+
 /** @type {Record<string, string>} */
 export const escaped = {
 	'<': '\\u003C',
@@ -113,19 +115,33 @@ export function stringify_key(key) {
 	return is_identifier.test(key) ? '.' + key : '[' + JSON.stringify(key) + ']';
 }
 
+/** @param {number} n */
+export function is_valid_array_index(n) {
+	if (!Number.isInteger(n)) return false;
+	if (n < 0) return false;
+	if (n > MAX_ARRAY_INDEX) return false;
+	return true;
+}
+
+/** @param {number} n */
+export function is_valid_array_len(n) {
+	if (!Number.isInteger(n)) return false;
+	if (n < 0) return false;
+	if (n > MAX_ARRAY_LEN) return false;
+	return true;
+}
+
 /** @param {string} s */
-function is_valid_array_index(s) {
+function is_valid_array_index_string(s) {
 	if (s.length === 0) return false;
 	if (s.length > 1 && s.charCodeAt(0) === 48) return false; // leading zero
 	for (let i = 0; i < s.length; i++) {
 		const c = s.charCodeAt(i);
 		if (c < 48 || c > 57) return false;
 	}
-	// by this point we know it's a string of digits, but it has to be within the range of valid array indices
-	const n = +s;
-	if (n >= 2 ** 32 - 1) return false;
-	if (n < 0) return false;
-	return true;
+	// by this point we know it's a string of digits, but it has to be within
+	// the range of valid array indices
+	return is_valid_array_index(+s);
 }
 
 /**
@@ -135,7 +151,7 @@ function is_valid_array_index(s) {
 export function valid_array_indices(array) {
 	const keys = Object.keys(array);
 	for (var i = keys.length - 1; i >= 0; i--) {
-		if (is_valid_array_index(keys[i])) {
+		if (is_valid_array_index_string(keys[i])) {
 			break;
 		}
 	}

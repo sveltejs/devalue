@@ -1421,6 +1421,83 @@ uvu.test('valid sparse array parses correctly', () => {
 	assert.is(Object.getPrototypeOf(result), Array.prototype);
 });
 
+// Regression test for a DoS vulnerability in sparse array parsing.
+// The SPARSE encoding is `[-7, length, idx, val, ...]`. Previously, `parse`
+// handled this by calling `new Array(length)`, which V8 eagerly allocates
+// a backing store for. A malicious payload containing many such arrays
+// — each claiming a huge length but carrying no actual data — could force
+// the parser to allocate arbitrarily large amounts of memory and crash
+// the host process.
+//
+// Each case below crafts a payload whose combined implied allocation is
+// ~20GB. With a correct fix (lazy allocation / deferred length), every
+// case finishes near-instantly. Without it, the test process dies.
+
+/**
+ * Builds a payload shaped like:
+ *   [ {k0:1, k1:2, ..., k(count-1):count},   // root object, references each sparse array
+ *     [-7, perArrayLen, 0, count+1],         // sparse array #0: length = perArrayLen, index 0 -> values[count+1]
+ *     [-7, perArrayLen, 0, count+1],         // sparse array #1
+ *     ...
+ *     42 ]                                   // values[count+1], placed at index 0 of each sparse array
+ *
+ * Hydrating the root object forces every sparse array to be hydrated,
+ * which (without the fix) triggers `new Array(perArrayLen)` `count` times.
+ *
+ * @param {number} count
+ * @param {number} perArrayLen
+ */
+function buildSparseDoSPayload(count, perArrayLen) {
+	let payload = '[{';
+
+	for (let i = 0; i < count; i += 1) {
+		if (i > 0) payload += ',';
+		payload += `"k${i}":${i + 1}`;
+	}
+
+	payload += '}';
+
+	for (let i = 0; i < count; i += 1) {
+		payload += `,[${consts.SPARSE},${perArrayLen},0,${count + 1}]`;
+	}
+
+	payload += ',42]';
+	return payload;
+}
+
+// Matrix of (perArrayLen, count) pairs — each row allocates ~2.5e9 slots
+// (~20GB assuming 8-byte pointers) if the parser eagerly materializes
+// sparse arrays.
+const sparseDoSCases = [
+	{ perArrayLen: 10_000, count: 250_000 },
+	{ perArrayLen: 100_000, count: 25_000 },
+	{ perArrayLen: 1_000_000, count: 2_500 },
+	{ perArrayLen: 10_000_000, count: 250 },
+	{ perArrayLen: 100_000_000, count: 25 }
+];
+
+for (const { perArrayLen, count } of sparseDoSCases) {
+	uvu.test(`does not eagerly allocate sparse arrays (len=${perArrayLen}, count=${count})`, () => {
+		const payload = buildSparseDoSPayload(count, perArrayLen);
+		const result = parse(payload);
+
+		// The root is the object whose keys reference every sparse array;
+		// accessing them forces hydration of all `count` arrays.
+		assert.is(typeof result, 'object');
+		assert.ok(result !== null);
+
+		// Spot-check the first and last sparse arrays.
+		const first = result.k0;
+		const last = result[`k${count - 1}`];
+		assert.ok(Array.isArray(first));
+		assert.ok(Array.isArray(last));
+		assert.is(first.length, perArrayLen);
+		assert.is(last.length, perArrayLen);
+		assert.is(first[0], 42);
+		assert.is(last[0], 42);
+	});
+}
+
 uvu.test.run();
 
 // --- stringifyAsync tests ---
