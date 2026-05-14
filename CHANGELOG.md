@@ -1,5 +1,10 @@
 # devalue changelog
 
+## 5.8.1
+### Patch Changes
+
+- 206ca67: fix: force sparse arrays to allocate sparsely
+
 ## 5.8.0
 ### Minor Changes
 
