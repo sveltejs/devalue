@@ -1682,3 +1682,81 @@ asyncErrorTests('throws for promise resolving to function', async () => {
 });
 
 asyncErrorTests.run();
+
+const circularCustomTypes = uvu.suite('circular references through custom types');
+
+circularCustomTypes('resolves circular reference through two custom types', () => {
+	const foo = new Foo({ name: 'outer' });
+	const bar = new Bar({ name: 'inner', ref: foo });
+	foo.value.ref = bar;
+
+	const reducers = {
+		Foo: (x) => x instanceof Foo && x.value,
+		Bar: (x) => x instanceof Bar && x.value
+	};
+	const fooCache = new WeakMap();
+	const barCache = new WeakMap();
+	const revivers = {
+		Foo: (x) => {
+			let inst = fooCache.get(x);
+			if (!inst) {
+				inst = Object.create(Foo.prototype);
+				fooCache.set(x, inst);
+			}
+			inst.value = x;
+			return inst;
+		},
+		Bar: (x) => {
+			let inst = barCache.get(x);
+			if (!inst) {
+				inst = Object.create(Bar.prototype);
+				barCache.set(x, inst);
+			}
+			inst.value = x;
+			return inst;
+		}
+	};
+
+	const json = stringify(foo, reducers);
+	const result = parse(json, revivers);
+
+	assert.ok(result instanceof Foo);
+	assert.ok(result.value.ref instanceof Bar);
+	assert.is(result.value.ref.value.ref, result);
+});
+
+circularCustomTypes('resolves self-referencing custom type', () => {
+	const foo = new Foo({ name: 'self' });
+	foo.value.ref = foo;
+
+	const reducers = {
+		Foo: (x) => x instanceof Foo && x.value
+	};
+	const fooCache = new WeakMap();
+	const revivers = {
+		Foo: (x) => {
+			let inst = fooCache.get(x);
+			if (!inst) {
+				inst = Object.create(Foo.prototype);
+				fooCache.set(x, inst);
+			}
+			inst.value = x;
+			return inst;
+		}
+	};
+
+	const json = stringify(foo, reducers);
+	const result = parse(json, revivers);
+
+	assert.ok(result instanceof Foo);
+	assert.is(result.value.ref, result);
+});
+
+circularCustomTypes('still rejects genuinely invalid circular reference', () => {
+	assert.throws(
+		() => parse('[["Custom", 0]]', { Custom: (v) => v }),
+		(error) => error.message === 'Invalid circular reference'
+	);
+});
+
+circularCustomTypes.run();
