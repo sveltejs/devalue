@@ -1,0 +1,7 @@
+minimumReleaseAge: 1440
+minimumReleaseAgeExclude:
+  - '@sveltejs/*'
+  - svelte
+  - esrap
+  - devalue
+blockExoticSubdeps: true
