@@ -1350,6 +1350,23 @@ uvu.test('does not create duplicate parameter names', () => {
 	eval(serialized);
 });
 
+uvu.test('replacer callback preserves shared references', () => {
+	const shared = { answer: 42 };
+	const value = [new Foo(shared), shared];
+
+	const serialized = uneval(value, (value, uneval) => {
+		if (value instanceof Foo) {
+			return `new Foo(${uneval(value.value)})`;
+		}
+	});
+
+	const roundtripped = eval(serialized);
+
+	assert.ok(roundtripped[0] instanceof Foo);
+	assert.is(roundtripped[0].value, roundtripped[1]);
+	assert.is(roundtripped[1].answer, 42);
+});
+
 uvu.test('rejects sparse array __proto__ pollution via parse', () => {
 	// Attempt to set __proto__ on an array via the sparse array encoding
 	const payload = JSON.stringify([[consts.SPARSE, 1, '__proto__', { polluted: true }]]);

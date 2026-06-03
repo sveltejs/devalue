@@ -26,6 +26,7 @@ export function uneval(value, replacer) {
 	/** @type {string[]} */
 	const keys = [];
 
+	/** @type {Map<any, string | undefined>} */
 	const custom = new Map();
 
 	/** @param {any} thing */
@@ -39,10 +40,18 @@ export function uneval(value, replacer) {
 			counts.set(thing, 1);
 
 			if (replacer) {
-				const str = replacer(thing, (value) => uneval(value, replacer));
+				let calledWalk = false;
+				const str = replacer(thing, (value) => {
+					calledWalk = true;
+					walk(value);
+					return '<placeholder>';
+				});
 
 				if (typeof str === 'string') {
-					custom.set(thing, str);
+					// If the replacer called walk, then we need to handle the possiblilty that inner values
+					// are seen multiple times, and may need to be deduped with a name. In that case run the
+					// replacer again during stringify.
+					custom.set(thing, calledWalk ? undefined : str);
 					return;
 				}
 			}
@@ -167,7 +176,18 @@ export function uneval(value, replacer) {
 		}
 
 		if (custom.has(thing)) {
-			return custom.get(thing);
+			const str = custom.get(thing);
+			if (str !== undefined) {
+				return str;
+			}
+			const finalStr = replacer(thing, (value) => stringify(value));
+			if (typeof finalStr === 'string') {
+				custom.set(thing, finalStr);
+				return finalStr;
+			}
+			throw new TypeError(
+				'Replacer must return a string when called on a value it previously returned a string for'
+			);
 		}
 
 		const type = get_type(thing);
@@ -367,8 +387,19 @@ export function uneval(value, replacer) {
 			params.push(name);
 
 			if (custom.has(thing)) {
-				values.push(/** @type {string} */ (custom.get(thing)));
-				return;
+				const str = custom.get(thing);
+				if (str !== undefined) {
+					values.push(str);
+					return;
+				}
+				const finalStr = replacer(thing, (value) => stringify(value));
+				if (typeof finalStr === 'string') {
+					values.push(finalStr);
+					return;
+				}
+				throw new TypeError(
+					'Replacer must return a string when called on a value it previously returned a string for'
+				);
 			}
 
 			if (is_primitive(thing)) {
