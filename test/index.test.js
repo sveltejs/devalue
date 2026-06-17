@@ -312,6 +312,12 @@ const fixtures = {
 			json: '[["DataView",1],["ArrayBuffer","AQID"]]'
 		},
 		{
+			name: 'DataView with byteOffset',
+			value: new DataView(new Uint8Array([1, 2, 3, 4]).buffer, 1, 2),
+			js: 'new DataView(new Uint8Array([1,2,3,4]).buffer,1,2)',
+			json: '[["DataView",1,1,2],["ArrayBuffer","AQIDBA=="]]'
+		},
+		{
 			name: 'URL',
 			value: new URL('https://user:password@example.com/<script>/path?foo=bar#hash'),
 			js: 'new URL("https://user:password@example.com/%3Cscript%3E/path?foo=bar#hash")',

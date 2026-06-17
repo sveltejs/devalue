@@ -297,8 +297,11 @@ function run(async, value, reducers) {
 
 					// handle subarrays
 					if (typedArray.byteLength !== typedArray.buffer.byteLength) {
-						// to be used with `new TypedArray(buffer, byteOffset, length)`
-						str += `,${typedArray.byteOffset},${typedArray.length}`;
+						// to be used with `new TypedArray(buffer, byteOffset, length)`,
+						// or `new DataView(buffer, byteOffset, byteLength)` — a DataView
+						// has no `length`, so its third argument is its `byteLength`
+						const length = type === 'DataView' ? typedArray.byteLength : typedArray.length;
+						str += `,${typedArray.byteOffset},${length}`;
 					}
 
 					str += ']';
