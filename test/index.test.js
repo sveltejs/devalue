@@ -1310,6 +1310,17 @@ uvu.test('ignores non-numeric array properties in dense encoding', () => {
 	assert.ok(!(0 in parsed));
 });
 
+uvu.test('uneval round-trips sparse arrays whose first hole is not at index 0', () => {
+	for (const arr of [[1, , 3], [1, ,], [1, , , 4], [1, 2, , 4]]) {
+		const evaled = (0, eval)(uneval(arr));
+		assert.is(evaled.length, arr.length, `length for keys ${Object.keys(arr).join(',')}`);
+		assert.equal(Object.keys(evaled), Object.keys(arr));
+		for (const k of Object.keys(arr)) {
+			assert.is(evaled[k], arr[k]);
+		}
+	}
+});
+
 uvu.test('ignores non-numeric array properties in sparse encoding', () => {
 	// Sparse path (very sparse — Object.assign / SPARSE encoding wins)
 	const arr = [];

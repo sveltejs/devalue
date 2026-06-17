@@ -260,9 +260,11 @@ export function uneval(value, replacer) {
 							return `Object.assign(Array(${thing.length}),{${entries}})`;
 						}
 
-						// Re-process this index as a hole in the array literal
+						// Switch to hole mode. The comma separator emitted at the
+						// top of this iteration already represents this first hole,
+						// so we must not re-process the index (doing so would emit a
+						// second comma and grow the array by one slot).
 						has_holes = true;
-						i -= 1;
 					}
 					// else: already decided on array literal, hole is just an empty slot
 					// (the comma separator is all we need — no content for this position)
