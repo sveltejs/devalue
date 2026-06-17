@@ -415,20 +415,24 @@ export function uneval(value, replacer) {
 
 				case 'Set':
 					values.push(`new Set`);
-					statements.push(
-						`${name}.${Array.from(thing)
-							.map((v) => `add(${stringify(v)})`)
-							.join('.')}`
-					);
+					if (thing.size > 0) {
+						statements.push(
+							`${name}.${Array.from(thing)
+								.map((v) => `add(${stringify(v)})`)
+								.join('.')}`
+						);
+					}
 					break;
 
 				case 'Map':
 					values.push(`new Map`);
-					statements.push(
-						`${name}.${Array.from(thing)
-							.map(([k, v]) => `set(${stringify(k)}, ${stringify(v)})`)
-							.join('.')}`
-					);
+					if (thing.size > 0) {
+						statements.push(
+							`${name}.${Array.from(thing)
+								.map(([k, v]) => `set(${stringify(k)}, ${stringify(v)})`)
+								.join('.')}`
+						);
+					}
 					break;
 
 				case 'Int8Array':
