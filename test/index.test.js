@@ -727,6 +727,7 @@ const fixtures = {
 			js: '(function(a,b){a=new DataView(b);return [a,a,b]}({},new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer))',
 			json: '[[1,1,2],["DataView",2],["ArrayBuffer","AAECAwQFBgcICQ=="]]'
 		},
+
 		{
 			name: 'DataView subview (repetition)',
 			value: (() => {
@@ -748,6 +749,62 @@ const fixtures = {
 			validate: ([a, b]) => {
 				assert.is(a, b);
 				assert.ok(a instanceof Temporal.Instant);
+			}
+		},
+
+		{
+			name: 'Map key (repetition)',
+			value: (() => {
+				const shared = { id: 1 };
+				return [shared, new Map([[shared, 'v']])];
+			})(),
+			js: '(function(a){a.id=1;return [a,new Map([[a,"v"]])]}({}))',
+			json: '[[1,3],{"id":2},1,["Map",1,4],"v"]',
+			validate: ([obj, map]) => assert.is([...map.keys()][0], obj)
+		},
+
+		{
+			name: 'Map keys (interlinked)',
+			value: (() => {
+				const node1 = { id: 1 };
+				const node2 = { id: 2 };
+				const node3 = { id: 3 };
+				return new Map([
+					[
+						node1,
+						new Map([
+							[node2, 1],
+							[node3, 1]
+						])
+					],
+					[
+						node2,
+						new Map([
+							[node1, 1],
+							[node3, 1]
+						])
+					],
+					[
+						node3,
+						new Map([
+							[node1, 1],
+							[node2, 1]
+						])
+					]
+				]);
+			})(),
+			js: '(function(a,b,c){a.id=1;b.id=2;c.id=3;return new Map([[a,new Map([[b,1],[c,1]])],[b,new Map([[a,1],[c,1]])],[c,new Map([[a,1],[b,1]])]])}({},{},{}))',
+			json: '[["Map",1,3,4,8,6,9],{"id":2},1,["Map",4,2,6,2],{"id":5},2,{"id":7},3,["Map",1,2,6,2],["Map",1,2,4,2]]',
+			validate: (map) => {
+				const [node1, node2, node3] = [...map.keys()];
+				// each node appears as a key in the two sibling sub-maps;
+				// the same object identity must be preserved everywhere
+				assert.is([...map.get(node2).keys()][0], node1);
+				assert.is([...map.get(node3).keys()][0], node1);
+				assert.is([...map.get(node1).keys()][0], node2);
+				assert.is([...map.get(node3).keys()][1], node2);
+				assert.is([...map.get(node1).keys()][1], node3);
+				assert.is([...map.get(node2).keys()][1], node3);
 			}
 		}
 	],
