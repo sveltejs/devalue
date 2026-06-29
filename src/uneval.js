@@ -489,6 +489,17 @@ export function uneval(value, replacer) {
 					values.push(`new Uint8Array([${new Uint8Array(thing)}]).buffer`);
 					break;
 
+				case 'Temporal.Duration':
+				case 'Temporal.Instant':
+				case 'Temporal.PlainDate':
+				case 'Temporal.PlainTime':
+				case 'Temporal.PlainDateTime':
+				case 'Temporal.PlainMonthDay':
+				case 'Temporal.PlainYearMonth':
+				case 'Temporal.ZonedDateTime':
+					values.push(`${type}.from(${stringify_string(thing.toString())})`);
+					break;
+
 				default:
 					values.push(Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}');
 					Object.keys(thing).forEach((key) => {
