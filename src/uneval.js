@@ -318,7 +318,7 @@ export function uneval(value, replacer) {
 
 				// handle subviews
 				if (thing.byteLength !== thing.buffer.byteLength) {
-					str += `,${thing.startOffset},${thing.byteLength}`;
+					str += `,${thing.byteOffset},${thing.byteLength}`;
 				}
 
 				return str + ')';
