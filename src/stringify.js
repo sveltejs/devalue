@@ -289,16 +289,27 @@ function run(async, value, reducers) {
 				case 'Float32Array':
 				case 'Float64Array':
 				case 'BigInt64Array':
-				case 'BigUint64Array':
-				case 'DataView': {
+				case 'BigUint64Array': {
 					/** @type {import("./types.js").TypedArray} */
 					const typedArray = thing;
 					str = '["' + type + '",' + flatten(typedArray.buffer);
 
 					// handle subarrays
 					if (typedArray.byteLength !== typedArray.buffer.byteLength) {
-						// to be used with `new TypedArray(buffer, byteOffset, length)`
 						str += `,${typedArray.byteOffset},${typedArray.length}`;
+					}
+
+					str += ']';
+					break;
+				}
+
+				case 'DataView': {
+					/** @type {DataView} */
+					const view = thing;
+					str = '["' + type + '",' + flatten(view.buffer);
+
+					if (view.byteLength !== view.buffer.byteLength) {
+						str += `,${view.byteOffset},${view.byteLength}`;
 					}
 
 					str += ']';

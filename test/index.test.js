@@ -312,6 +312,12 @@ const fixtures = {
 			json: '[["DataView",1],["ArrayBuffer","AQID"]]'
 		},
 		{
+			name: 'DataView subview',
+			value: new DataView(new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]).buffer, 2, 4),
+			js: 'new DataView(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer,2,4)',
+			json: '[["DataView",1,2,4],["ArrayBuffer","AAECAwQFBgcICQ=="]]'
+		},
+		{
 			name: 'URL',
 			value: new URL('https://user:password@example.com/<script>/path?foo=bar#hash'),
 			js: 'new URL("https://user:password@example.com/%3Cscript%3E/path?foo=bar#hash")',
@@ -698,6 +704,16 @@ const fixtures = {
 			})(),
 			js: '(function(a,b){a=new DataView(b);return [a,a,b]}({},new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer))',
 			json: '[[1,1,2],["DataView",2],["ArrayBuffer","AAECAwQFBgcICQ=="]]'
+		},
+		{
+			name: 'DataView subview (repetition)',
+			value: (() => {
+				const uint8 = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+				const dv = new DataView(uint8.buffer, 2, 4);
+				return [dv, dv];
+			})(),
+			js: '(function(a){a=new DataView(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer,2,4);return [a,a]}({}))',
+			json: '[[1,1],["DataView",2,2,4],["ArrayBuffer","AAECAwQFBgcICQ=="]]'
 		}
 	],
 
