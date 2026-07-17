@@ -796,15 +796,19 @@ const fixtures = {
 			js: '(function(a,b,c){a.id=1;b.id=2;c.id=3;return new Map([[a,new Map([[b,1],[c,1]])],[b,new Map([[a,1],[c,1]])],[c,new Map([[a,1],[b,1]])]])}({},{},{}))',
 			json: '[["Map",1,3,4,8,6,9],{"id":2},1,["Map",4,2,6,2],{"id":5},2,{"id":7},3,["Map",1,2,6,2],["Map",1,2,4,2]]',
 			validate: (map) => {
-				const [node1, node2, node3] = [...map.keys()];
+				const [node1, node2, node3] = map.keys();
+				const from1 = [...map.get(node1).keys()];
+				const from2 = [...map.get(node2).keys()];
+				const from3 = [...map.get(node3).keys()];
+
 				// each node appears as a key in the two sibling sub-maps;
 				// the same object identity must be preserved everywhere
-				assert.is([...map.get(node2).keys()][0], node1);
-				assert.is([...map.get(node3).keys()][0], node1);
-				assert.is([...map.get(node1).keys()][0], node2);
-				assert.is([...map.get(node3).keys()][1], node2);
-				assert.is([...map.get(node1).keys()][1], node3);
-				assert.is([...map.get(node2).keys()][1], node3);
+				assert.is(from2[0], node1);
+				assert.is(from3[0], node1);
+				assert.is(from1[0], node2);
+				assert.is(from3[1], node2);
+				assert.is(from1[1], node3);
+				assert.is(from2[1], node3);
 			}
 		}
 	],
