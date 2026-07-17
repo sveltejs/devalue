@@ -79,6 +79,7 @@ export function uneval(value, replacer) {
 				case 'Map':
 					for (const [key, value] of thing) {
 						keys.push(`.get(${is_primitive(key) ? stringify_primitive(key) : '...'})`);
+						walk(key);
 						walk(value);
 						keys.pop();
 					}
