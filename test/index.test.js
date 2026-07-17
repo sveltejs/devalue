@@ -736,6 +736,19 @@ const fixtures = {
 			})(),
 			js: '(function(a){a=new DataView(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer,2,4);return [a,a]}({}))',
 			json: '[[1,1],["DataView",2,2,4],["ArrayBuffer","AAECAwQFBgcICQ=="]]'
+		},
+
+		{
+			name: 'Temporal.Instant (repetition)',
+			value: ((instant) => [instant, instant])(
+				Temporal.Instant.from('1999-09-29T05:30:00Z')
+			),
+			js: '(function(a){return [a,a]}(Temporal.Instant.from("1999-09-29T05:30:00Z")))',
+			json: '[[1,1],["Temporal.Instant","1999-09-29T05:30:00Z"]]',
+			validate: ([a, b]) => {
+				assert.is(a, b);
+				assert.ok(a instanceof Temporal.Instant);
+			}
 		}
 	],
 
