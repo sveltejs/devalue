@@ -261,9 +261,7 @@ export function uneval(value, replacer) {
 							return `Object.assign(Array(${thing.length}),{${entries}})`;
 						}
 
-						// Re-process this index as a hole in the array literal
 						has_holes = true;
-						i -= 1;
 					}
 					// else: already decided on array literal, hole is just an empty slot
 					// (the comma separator is all we need — no content for this position)
