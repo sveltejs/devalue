@@ -413,23 +413,23 @@ export function uneval(value, replacer) {
 					});
 					break;
 
-				case 'Set':
+				case 'Set': {
 					values.push(`new Set`);
-					statements.push(
-						`${name}.${Array.from(thing)
-							.map((v) => `add(${stringify(v)})`)
-							.join('.')}`
-					);
+					const adds = Array.from(thing).map((v) => `.add(${stringify(v)})`);
+					// An empty Set is fully built by `new Set`; a chained statement would
+					// otherwise be a dangling `name.`.
+					if (adds.length > 0) statements.push(name + adds.join(''));
 					break;
+				}
 
-				case 'Map':
+				case 'Map': {
 					values.push(`new Map`);
-					statements.push(
-						`${name}.${Array.from(thing)
-							.map(([k, v]) => `set(${stringify(k)}, ${stringify(v)})`)
-							.join('.')}`
+					const sets = Array.from(thing).map(
+						([k, v]) => `.set(${stringify(k)}, ${stringify(v)})`
 					);
+					if (sets.length > 0) statements.push(name + sets.join(''));
 					break;
+				}
 
 				case 'Int8Array':
 				case 'Uint8Array':

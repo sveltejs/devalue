@@ -631,6 +631,28 @@ const fixtures = {
 		},
 
 		{
+			name: 'empty Map (repetition)',
+			value: ((map) => [map, map])(new Map()),
+			js: '(function(a){return [a,a]}(new Map))',
+			json: '[[1,1],["Map"]]',
+			validate: ([a, b]) => {
+				assert.is(a, b);
+				assert.is(a.size, 0);
+			}
+		},
+
+		{
+			name: 'empty Set (repetition)',
+			value: ((set) => [set, set])(new Set()),
+			js: '(function(a){return [a,a]}(new Set))',
+			json: '[[1,1],["Set"]]',
+			validate: ([a, b]) => {
+				assert.is(a, b);
+				assert.is(a.size, 0);
+			}
+		},
+
+		{
 			name: 'RegExp (repetition)',
 			value: ((regexp) => [regexp, regexp])(/regexp/),
 			js: '(function(a){return [a,a]}(new RegExp("regexp")))',
