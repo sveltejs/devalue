@@ -415,19 +415,19 @@ export function uneval(value, replacer) {
 
 				case 'Set': {
 					values.push(`new Set`);
-					const adds = Array.from(thing).map((v) => `add(${stringify(v)})`);
+					const adds = Array.from(thing).map((v) => `.add(${stringify(v)})`);
 					// An empty Set is fully built by `new Set`; a chained statement would
 					// otherwise be a dangling `name.`.
-					if (adds.length > 0) statements.push(`${name}.${adds.join('.')}`);
+					if (adds.length > 0) statements.push(name + adds.join(''));
 					break;
 				}
 
 				case 'Map': {
 					values.push(`new Map`);
 					const sets = Array.from(thing).map(
-						([k, v]) => `set(${stringify(k)}, ${stringify(v)})`
+						([k, v]) => `.set(${stringify(k)}, ${stringify(v)})`
 					);
-					if (sets.length > 0) statements.push(`${name}.${sets.join('.')}`);
+					if (sets.length > 0) statements.push(name + sets.join(''));
 					break;
 				}
 
