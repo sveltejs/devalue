@@ -78,7 +78,13 @@ export function unflatten(parsed, revivers) {
 						i = values.push(value[1]) - 1;
 					}
 
-					if (i in hydrated) {
+					// If the payload is already hydrated, its recursion has already
+					// terminated (e.g. a self-referential object cached itself before
+					// following its own back-reference), so revive it directly. Falling
+					// through to the `hydrating` guard here would wrongly reject a valid
+					// cycle. An actually infinite payload (e.g. `[["Custom", 0]]`) is never
+					// cached, so it still hits the guard below.
+					if (Object.hasOwn(hydrated, i)) {
 						return (hydrated[index] = reviver(hydrated[i]));
 					}
 
