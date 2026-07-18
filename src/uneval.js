@@ -459,7 +459,10 @@ export function uneval(value, replacer) {
 					}
 
 					values.push(`{}`);
-					statements.push(`${name}=${str}`);
+					// Reconstructions reassign the placeholder param and depend only on
+					// IIFE arguments, never on other statements. They must run before the
+					// mutations that reference the param, so emit them at the front.
+					statements.unshift(`${name}=${str}`);
 					break;
 				}
 
@@ -480,7 +483,8 @@ export function uneval(value, replacer) {
 					str += ')';
 
 					values.push(`{}`);
-					statements.push(`${name}=${str}`);
+					// See the typed-array case above: reconstructions must run first.
+					statements.unshift(`${name}=${str}`);
 					break;
 				}
 

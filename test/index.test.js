@@ -1473,6 +1473,33 @@ uvu.test('does not create duplicate parameter names', () => {
 	eval(serialized);
 });
 
+uvu.test('reconstructs a referenced typed array before it is used in a cycle', () => {
+	const view = new Uint8Array([1, 2, 3]);
+	const obj = { a: view, b: view };
+	obj.self = obj;
+
+	const result = (0, eval)(uneval(obj));
+
+	assert.is(result.self, result);
+	assert.ok(result.a instanceof Uint8Array);
+	assert.is(result.a, result.b);
+	assert.equal(Array.from(result.a), [1, 2, 3]);
+});
+
+uvu.test('reconstructs a referenced DataView before it is used in a cycle', () => {
+	const view = new DataView(new Uint8Array([1, 2, 3, 4]).buffer, 1, 2);
+	const obj = { a: view, b: view };
+	obj.self = obj;
+
+	const result = (0, eval)(uneval(obj));
+
+	assert.is(result.self, result);
+	assert.ok(result.a instanceof DataView);
+	assert.is(result.a, result.b);
+	assert.is(result.a.byteLength, 2);
+	assert.equal(Array.from(new Uint8Array(result.a.buffer, result.a.byteOffset, 2)), [2, 3]);
+});
+
 uvu.test('rejects sparse array __proto__ pollution via parse', () => {
 	// Attempt to set __proto__ on an array via the sparse array encoding
 	const payload = JSON.stringify([[consts.SPARSE, 1, '__proto__', { polluted: true }]]);
