@@ -300,6 +300,18 @@ const fixtures = {
 			json: '[["Uint8Array",1],["ArrayBuffer","AQID"]]'
 		},
 		{
+			name: 'BigInt64Array',
+			value: new BigInt64Array([1n, -2n, 3n]),
+			js: 'new BigInt64Array([1n,-2n,3n])',
+			json: '[["BigInt64Array",1],["ArrayBuffer","AQAAAAAAAAD+/////////wMAAAAAAAAA"]]'
+		},
+		{
+			name: 'BigUint64Array',
+			value: new BigUint64Array([1n, 2n, 3n]),
+			js: 'new BigUint64Array([1n,2n,3n])',
+			json: '[["BigUint64Array",1],["ArrayBuffer","AQAAAAAAAAACAAAAAAAAAAMAAAAAAAAA"]]'
+		},
+		{
 			name: 'ArrayBuffer',
 			value: new Uint8Array([1, 2, 3]).buffer,
 			js: 'new Uint8Array([1,2,3]).buffer',
@@ -737,6 +749,14 @@ const fixtures = {
 			})(),
 			js: '(function(a){a=new DataView(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer,2,4);return [a,a]}({}))',
 			json: '[[1,1],["DataView",2,2,4],["ArrayBuffer","AAECAwQFBgcICQ=="]]'
+		},
+
+		{
+			name: 'BigInt64Array (repetition)',
+			value: ((array) => [array, array])(new BigInt64Array([1n, 2n, 3n])),
+			js: '(function(a){a=new BigInt64Array([1n,2n,3n]);return [a,a]}({}))',
+			json: '[[1,1],["BigInt64Array",2],["ArrayBuffer","AQAAAAAAAAACAAAAAAAAAAMAAAAAAAAA"]]',
+			validate: ([a, b]) => assert.is(a, b)
 		},
 
 		{
