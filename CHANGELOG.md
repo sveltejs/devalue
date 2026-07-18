@@ -1,5 +1,17 @@
 # devalue changelog
 
+## 5.8.2
+### Patch Changes
+
+- 48cc81f: fix: serialize DataView subviews with the correct byte offset and length
+- cd6da94: fix: resolve circular references through custom revivers when payload is already hydrated
+- 29a3382: fix: `uneval` now produces valid output for a repeated empty `Map` or `Set`
+- 8c0db06: fix: serialize Temporal values referenced more than once in `uneval`
+- 3770846: fix: emit valid JS for `BigInt64Array` and `BigUint64Array` in `uneval`
+- 756265a: fix: preserve shared-reference identity for Map keys in `uneval`
+- faa8a05: fix: emit uneval reconstructions before the statements that reference them
+- 06129ad: fix: do not grow sparse arrays by one slot in uneval
+
 ## 5.8.1
 ### Patch Changes
 
