@@ -290,8 +290,7 @@ export function uneval(value, replacer) {
 				let str = `new ${type}`;
 
 				if (!names.has(thing.buffer)) {
-					const array = new thing.constructor(thing.buffer);
-					str += `([${array}])`;
+					str += `([${stringify_typed_array_elements(new thing.constructor(thing.buffer))}])`;
 				} else {
 					str += `(${stringify(thing.buffer)})`;
 				}
@@ -445,8 +444,7 @@ export function uneval(value, replacer) {
 					let str = `new ${type}`;
 
 					if (!names.has(thing.buffer)) {
-						const array = new thing.constructor(thing.buffer);
-						str += `([${array}])`;
+						str += `([${stringify_typed_array_elements(new thing.constructor(thing.buffer))}])`;
 					} else {
 						str += `(${stringify(thing.buffer)})`;
 					}
@@ -513,6 +511,20 @@ export function uneval(value, replacer) {
 	} else {
 		return str;
 	}
+}
+
+/**
+ * Serialize the elements of a typed array as a comma-separated list.
+ * `BigInt64Array`/`BigUint64Array` elements are bigints and must be written
+ * with an `n` suffix, otherwise the emitted `new BigInt64Array([...])` throws.
+ * @param {import('./types.js').TypedArray} array
+ */
+function stringify_typed_array_elements(array) {
+	if (array instanceof BigInt64Array || array instanceof BigUint64Array) {
+		return Array.from(array, (element) => `${element}n`).join(',');
+	}
+
+	return array.toString();
 }
 
 /** @param {number} num */
