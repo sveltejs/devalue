@@ -361,6 +361,13 @@ export function uneval(value, replacer) {
 		/** @type {string[]} */
 		const values = [];
 
+		// Reconstructions (e.g. `b = new Uint8Array(...)`) reassign a placeholder
+		// parameter. They must run before the `statements` that reference them,
+		// otherwise those statements capture the placeholder. They only depend on
+		// IIFE arguments (never on each other), so emitting them first is safe.
+		/** @type {string[]} */
+		const reconstructions = [];
+
 		names.forEach((name, thing) => {
 			params.push(name);
 
@@ -457,7 +464,7 @@ export function uneval(value, replacer) {
 					}
 
 					values.push(`{}`);
-					statements.push(`${name}=${str}`);
+					reconstructions.push(`${name}=${str}`);
 					break;
 				}
 
@@ -478,7 +485,7 @@ export function uneval(value, replacer) {
 					str += ')';
 
 					values.push(`{}`);
-					statements.push(`${name}=${str}`);
+					reconstructions.push(`${name}=${str}`);
 					break;
 				}
 
@@ -507,7 +514,8 @@ export function uneval(value, replacer) {
 
 		statements.push(`return ${str}`);
 
-		return `(function(${params.join(',')}){${statements.join(';')}}(${values.join(',')}))`;
+		const body = [...reconstructions, ...statements].join(';');
+		return `(function(${params.join(',')}){${body}}(${values.join(',')}))`;
 	} else {
 		return str;
 	}
