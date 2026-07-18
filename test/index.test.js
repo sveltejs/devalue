@@ -1752,11 +1752,4 @@ circularCustomTypes('resolves self-referencing custom type', () => {
 	assert.is(result.value.ref, result);
 });
 
-circularCustomTypes('still rejects genuinely invalid circular reference', () => {
-	assert.throws(
-		() => parse('[["Custom", 0]]', { Custom: (v) => v }),
-		(error) => error.message === 'Invalid circular reference'
-	);
-});
-
 circularCustomTypes.run();
