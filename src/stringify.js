@@ -1,13 +1,4 @@
-import {
-	DevalueError,
-	enumerable_symbols,
-	get_type,
-	is_plain_object,
-	is_primitive,
-	stringify_key,
-	stringify_string,
-	valid_array_indices
-} from './utils.js';
+import { DevalueError, stringify_key, stringify_string } from './utils.js';
 import {
 	HOLE,
 	NAN,
@@ -18,14 +9,16 @@ import {
 	UNDEFINED
 } from './constants.js';
 import { encode64 } from './base64.js';
+import { default_operations } from './operations.js';
 
 /**
  * Turn a value into a JSON string that can be parsed with `devalue.parse`
  * @param {any} value
  * @param {Record<string, (value: any) => any>} [reducers]
+ * @param {import('./types.js').StringifyOptions} [options]
  */
-export function stringify(value, reducers) {
-	const stringified = run(false, value, reducers);
+export function stringify(value, reducers, options) {
+	const stringified = run(false, value, reducers, options);
 	return typeof stringified === 'string' ? stringified : `[${stringified.join(',')}]`;
 }
 
@@ -33,9 +26,10 @@ export function stringify(value, reducers) {
  * Turn a value into a JSON string that can be parsed with `devalue.parse`
  * @param {any} value
  * @param {Record<string, (value: any) => any>} [reducers]
+ * @param {import('./types.js').StringifyOptions} [options]
  */
-export async function stringifyAsync(value, reducers) {
-	const stringified = run(true, value, reducers);
+export async function stringifyAsync(value, reducers, options) {
+	const stringified = run(true, value, reducers, options);
 
 	if (typeof stringified === 'string') {
 		return stringified;
@@ -71,8 +65,14 @@ export async function stringifyAsync(value, reducers) {
  * @param {boolean} async
  * @param {any} value
  * @param {Record<string, (value: any) => any>} [reducers]
+ * @param {import('./types.js').StringifyOptions} [options]
  */
-function run(async, value, reducers) {
+function run(async, value, reducers, options) {
+	/** @type {import('./types.js').StringifyOperations} */
+	const ops = options?.operations
+		? { ...default_operations, ...options.operations }
+		: default_operations;
+
 	/** @type {any[]} */
 	const stringified = [];
 
@@ -97,16 +97,27 @@ function run(async, value, reducers) {
 	 * @param {number} [index]
 	 */
 	function flatten(thing, index) {
-		if (thing === undefined) return UNDEFINED;
-		if (Number.isNaN(thing)) return NAN;
-		if (thing === Infinity) return POSITIVE_INFINITY;
-		if (thing === -Infinity) return NEGATIVE_INFINITY;
-		if (thing === 0 && 1 / thing < 0) return NEGATIVE_ZERO;
+		const type = ops.typeOf(thing);
 
-		if (indexes.has(thing)) return /** @type {number} */ (indexes.get(thing));
+		if (type === 'undefined') return UNDEFINED;
+
+		/** @type {number | undefined} */
+		let number;
+
+		if (type === 'number') {
+			number = /** @type {number} */ (ops.primitive(thing));
+			if (Number.isNaN(number)) return NAN;
+			if (number === Infinity) return POSITIVE_INFINITY;
+			if (number === -Infinity) return NEGATIVE_INFINITY;
+			if (number === 0 && 1 / number < 0) return NEGATIVE_ZERO;
+		}
+
+		const id = ops.identify(thing);
+
+		if (indexes.has(id)) return /** @type {number} */ (indexes.get(id));
 
 		index ??= p++;
-		indexes.set(thing, index);
+		indexes.set(id, index);
 
 		for (const { key, fn } of custom) {
 			const value = fn(thing);
@@ -116,18 +127,19 @@ function run(async, value, reducers) {
 			}
 		}
 
-		if (typeof thing === 'function') {
+		if (type === 'function') {
 			throw new DevalueError(`Cannot stringify a function`, keys, thing, value);
-		} else if (typeof thing === 'symbol') {
+		} else if (type === 'symbol') {
 			throw new DevalueError(`Cannot stringify a Symbol primitive`, keys, thing, value);
 		}
 
 		/** @type {string | Promise<any>} */
 		let str = '';
 
-		if (is_primitive(thing)) {
-			str = stringify_primitive(thing);
-		} else if (typeof thing.then === 'function') {
+		if (type !== 'object') {
+			// 'null' | 'boolean' | 'number' | 'bigint' | 'string'
+			str = stringify_primitive(type === 'number' ? number : ops.primitive(thing));
+		} else if (ops.isThenable(thing)) {
 			if (!async) {
 				throw new DevalueError(
 					`Cannot stringify a Promise or thenable — use stringifyAsync instead`,
@@ -137,36 +149,35 @@ function run(async, value, reducers) {
 				);
 			}
 
-			str = Promise.resolve(thing).then((value) => {
+			str = Promise.resolve(ops.resolveThenable(thing)).then((value) => {
 				const i = flatten(value, index);
 				if (i < 0) stringified[index] = i;
 			});
 		} else {
-			const type = get_type(thing);
+			const tag = ops.tag(thing);
 
-			switch (type) {
+			switch (tag) {
 				case 'Number':
 				case 'String':
 				case 'Boolean':
 				case 'BigInt':
-					str = `["Object",${flatten(thing.valueOf())}]`;
+					str = `["Object",${flatten(ops.unbox(thing))}]`;
 					break;
 
 				case 'Date':
-					const valid = !isNaN(thing.getDate());
-					str = `["Date","${valid ? thing.toISOString() : ''}"]`;
+					str = `["Date","${ops.dateISO(thing)}"]`;
 					break;
 
 				case 'URL':
-					str = `["URL",${stringify_string(thing.toString())}]`;
+					str = `["URL",${stringify_string(ops.toStringValue(thing))}]`;
 					break;
 
 				case 'URLSearchParams':
-					str = `["URLSearchParams",${stringify_string(thing.toString())}]`;
+					str = `["URLSearchParams",${stringify_string(ops.toStringValue(thing))}]`;
 					break;
 
 				case 'RegExp':
-					const { source, flags } = thing;
+					const { source, flags } = ops.regExp(thing);
 					str = flags
 						? `["RegExp",${stringify_string(source)},"${flags}"]`
 						: `["RegExp",${stringify_string(source)}]`;
@@ -182,14 +193,16 @@ function run(async, value, reducers) {
 					// is what protects against the DoS of e.g. `arr[1000000] = 1`.
 					let mostly_dense = false;
 
+					const length = ops.arrayLength(thing);
+
 					str = '[';
 
-					for (let i = 0; i < thing.length; i += 1) {
+					for (let i = 0; i < length; i += 1) {
 						if (i > 0) str += ',';
 
-						if (Object.hasOwn(thing, i)) {
+						if (ops.hasOwnIndex(thing, i)) {
 							keys.push(`[${i}]`);
-							str += flatten(thing[i]);
+							str += flatten(ops.get(thing, i));
 							keys.pop();
 						} else if (mostly_dense) {
 							// Use dense encoding. The heuristic guarantees the
@@ -228,19 +241,19 @@ function run(async, value, reducers) {
 							//
 							// Sparse encoding is cheaper when:
 							//   (4 + d) + P * (d + 1) < (L - P) * 3
-							const populated_keys = valid_array_indices(/** @type {any[]} */ (thing));
+							const populated_keys = ops.arrayIndices(thing);
 							const population = populated_keys.length;
-							const d = String(thing.length).length;
+							const d = String(length).length;
 
-							const hole_cost = (thing.length - population) * 3;
+							const hole_cost = (length - population) * 3;
 							const sparse_cost = 4 + d + population * (d + 1);
 
 							if (hole_cost > sparse_cost) {
-								str = '[' + SPARSE + ',' + thing.length;
+								str = '[' + SPARSE + ',' + length;
 								for (let j = 0; j < populated_keys.length; j++) {
 									const key = populated_keys[j];
 									keys.push(`[${key}]`);
-									str += ',' + key + ',' + flatten(thing[key]);
+									str += ',' + key + ',' + flatten(ops.get(thing, key));
 									keys.pop();
 								}
 								break;
@@ -259,7 +272,7 @@ function run(async, value, reducers) {
 				case 'Set':
 					str = '["Set"';
 
-					for (const value of thing) {
+					for (const value of ops.setValues(thing)) {
 						str += `,${flatten(value)}`;
 					}
 
@@ -269,8 +282,13 @@ function run(async, value, reducers) {
 				case 'Map':
 					str = '["Map"';
 
-					for (const [key, value] of thing) {
-						keys.push(`.get(${is_primitive(key) ? stringify_primitive(key) : '...'})`);
+					for (const [key, value] of ops.mapEntries(thing)) {
+						const key_type = ops.typeOf(key);
+						const key_is_primitive =
+							key_type !== 'object' && key_type !== 'function' && key_type !== 'symbol';
+						keys.push(
+							`.get(${key_is_primitive ? stringify_primitive(ops.primitive(key)) : '...'})`
+						);
 						str += `,${flatten(key)},${flatten(value)}`;
 						keys.pop();
 					}
@@ -290,13 +308,12 @@ function run(async, value, reducers) {
 				case 'Float64Array':
 				case 'BigInt64Array':
 				case 'BigUint64Array': {
-					/** @type {import("./types.js").TypedArray} */
-					const typedArray = thing;
-					str = '["' + type + '",' + flatten(typedArray.buffer);
+					const info = ops.viewInfo(thing);
+					str = '["' + tag + '",' + flatten(info.buffer);
 
 					// handle subarrays
-					if (typedArray.byteLength !== typedArray.buffer.byteLength) {
-						str += `,${typedArray.byteOffset},${typedArray.length}`;
+					if (info.byteLength !== info.bufferByteLength) {
+						str += `,${info.byteOffset},${info.length}`;
 					}
 
 					str += ']';
@@ -304,12 +321,11 @@ function run(async, value, reducers) {
 				}
 
 				case 'DataView': {
-					/** @type {DataView} */
-					const view = thing;
-					str = '["' + type + '",' + flatten(view.buffer);
+					const info = ops.viewInfo(thing);
+					str = '["' + tag + '",' + flatten(info.buffer);
 
-					if (view.byteLength !== view.buffer.byteLength) {
-						str += `,${view.byteOffset},${view.byteLength}`;
+					if (info.byteLength !== info.bufferByteLength) {
+						str += `,${info.byteOffset},${info.byteLength}`;
 					}
 
 					str += ']';
@@ -317,9 +333,7 @@ function run(async, value, reducers) {
 				}
 
 				case 'ArrayBuffer': {
-					/** @type {ArrayBuffer} */
-					const arraybuffer = thing;
-					const base64 = encode64(arraybuffer);
+					const base64 = encode64(ops.arrayBuffer(thing));
 
 					str = `["ArrayBuffer","${base64}"]`;
 					break;
@@ -333,21 +347,23 @@ function run(async, value, reducers) {
 				case 'Temporal.PlainMonthDay':
 				case 'Temporal.PlainYearMonth':
 				case 'Temporal.ZonedDateTime':
-					str = `["${type}",${stringify_string(thing.toString())}]`;
+					str = `["${tag}",${stringify_string(ops.toStringValue(thing))}]`;
 					break;
 
-				default:
-					if (!is_plain_object(thing)) {
+				default: {
+					const shape = ops.objectShape(thing);
+
+					if (shape.kind === 'not-plain') {
 						throw new DevalueError(`Cannot stringify arbitrary non-POJOs`, keys, thing, value);
 					}
 
-					if (enumerable_symbols(thing).length > 0) {
+					if (shape.kind === 'symbol-keys') {
 						throw new DevalueError(`Cannot stringify POJOs with symbolic keys`, keys, thing, value);
 					}
 
-					if (Object.getPrototypeOf(thing) === null) {
+					if (shape.kind === 'null-proto') {
 						str = '["null"';
-						for (const key of Object.keys(thing)) {
+						for (const key of shape.keys) {
 							if (key === '__proto__') {
 								throw new DevalueError(
 									`Cannot stringify objects with __proto__ keys`,
@@ -358,14 +374,14 @@ function run(async, value, reducers) {
 							}
 
 							keys.push(stringify_key(key));
-							str += `,${stringify_string(key)},${flatten(thing[key])}`;
+							str += `,${stringify_string(key)},${flatten(ops.get(thing, key))}`;
 							keys.pop();
 						}
 						str += ']';
 					} else {
 						str = '{';
 						let started = false;
-						for (const key of Object.keys(thing)) {
+						for (const key of shape.keys) {
 							if (key === '__proto__') {
 								throw new DevalueError(
 									`Cannot stringify objects with __proto__ keys`,
@@ -378,11 +394,12 @@ function run(async, value, reducers) {
 							if (started) str += ',';
 							started = true;
 							keys.push(stringify_key(key));
-							str += `${stringify_string(key)}:${flatten(thing[key])}`;
+							str += `${stringify_string(key)}:${flatten(ops.get(thing, key))}`;
 							keys.pop();
 						}
 						str += '}';
 					}
+				}
 			}
 		}
 
