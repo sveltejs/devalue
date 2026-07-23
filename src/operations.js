@@ -13,8 +13,8 @@ const SYMBOL_KEYS = Object.freeze({ kind: 'symbol-keys' });
 
 /**
  * The default implementations of every introspection/extraction operation
- * `stringify` performs on the value being serialized. Each one matches the
- * behavior devalue has always had (native property access, iteration, etc).
+ * `stringify` performs on the value being serialized. Each one uses native
+ * JavaScript semantics (property access, iteration, prototype methods, etc).
  *
  * Pass overrides via the `operations` option of `stringify`/`stringifyAsync`
  * to customize how values are inspected — e.g. to serialize values without
