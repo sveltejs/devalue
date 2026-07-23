@@ -6,10 +6,10 @@ import {
 } from './utils.js';
 
 /** @type {{ kind: 'not-plain' }} */
-const NOT_PLAIN = { kind: 'not-plain' };
+const NOT_PLAIN = Object.freeze({ kind: 'not-plain' });
 
 /** @type {{ kind: 'symbol-keys' }} */
-const SYMBOL_KEYS = { kind: 'symbol-keys' };
+const SYMBOL_KEYS = Object.freeze({ kind: 'symbol-keys' });
 
 /**
  * The default implementations of every introspection/extraction operation
@@ -22,9 +22,12 @@ const SYMBOL_KEYS = { kind: 'symbol-keys' };
  * serialize values that live in a different JavaScript runtime (a `node:vm`
  * context, a WASM-hosted engine, a remote process) through handle objects.
  *
+ * The object is frozen — it is shared by every `stringify` call that does
+ * not override a given operation.
+ *
  * @type {import('./types.js').StringifyOperations}
  */
-export const default_operations = {
+export const default_operations = Object.freeze({
 	identify: (value) => value,
 
 	typeOf: (value) => (value === null ? 'null' : typeof value),
@@ -76,4 +79,4 @@ export const default_operations = {
 	},
 
 	get: (value, key) => value[key]
-};
+});

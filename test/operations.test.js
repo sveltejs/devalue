@@ -40,6 +40,31 @@ suite('operations option', (test) => {
 		assert.equal(calls, 4);
 	});
 
+	test('explicitly-undefined overrides fall back to defaults', () => {
+		// programmatically-built override objects often carry undefined members
+		const result = stringify(
+			{ a: 1, date: new Date(1700000000000) },
+			undefined,
+			{
+				operations: {
+					get: undefined,
+					dateISO: undefined,
+					tag: (value) => defaultOperations.tag(value)
+				}
+			}
+		);
+
+		assert.equal(result, stringify({ a: 1, date: new Date(1700000000000) }));
+	});
+
+	test('defaultOperations and objectShape sentinels are frozen', () => {
+		assert.ok(Object.isFrozen(defaultOperations));
+		assert.ok(Object.isFrozen(defaultOperations.objectShape(new Map())));
+		assert.ok(
+			Object.isFrozen(defaultOperations.objectShape({ [Symbol('key')]: 1 }))
+		);
+	});
+
 	test('defaultOperations is exported and delegable', () => {
 		const result = stringify(new Map([['k', 'v']]), undefined, {
 			operations: {

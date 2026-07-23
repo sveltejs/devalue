@@ -69,9 +69,18 @@ export async function stringifyAsync(value, reducers, options) {
  */
 function run(async, value, reducers, options) {
 	/** @type {import('./types.js').StringifyOperations} */
-	const ops = options?.operations
-		? { ...default_operations, ...options.operations }
-		: default_operations;
+	let ops = default_operations;
+
+	if (options?.operations) {
+		ops = { ...default_operations };
+
+		// treat explicitly-`undefined` members like omitted members, so that
+		// programmatically-built overrides can't clobber a default with undefined
+		for (const key of /** @type {(keyof typeof ops)[]} */ (Object.keys(options.operations))) {
+			const fn = options.operations[key];
+			if (fn !== undefined) ops[key] = /** @type {any} */ (fn);
+		}
+	}
 
 	/** @type {any[]} */
 	const stringified = [];
