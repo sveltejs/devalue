@@ -145,6 +145,47 @@ devalue.uneval(vector, (value, uneval) => {
 
 Note that any variables referenced in the resulting JavaScript (like `Vector` in the example above) must be in scope when it runs.
 
+## Custom operations
+
+Every introspection `stringify` performs on the value being serialized — property reads, prototype method calls, iteration, type classification — goes through an operations interface that you can override via the `operations` option. Omitted members fall back to the defaults (exported as `defaultOperations`), which behave exactly as devalue always has.
+
+This is useful in two situations:
+
+**Side-effect-free serialization.** By default, serializing a value can execute user code: getters and proxy traps fire during property reads, `Object.prototype.toString` consults (potentially getter-defined) `Symbol.toStringTag`, and patched prototype methods like `Date.prototype.toISOString` or `Map.prototype[Symbol.iterator]` are invoked. Deterministic or sandboxed runtimes can replace these operations with implementations based on captured intrinsics and property descriptors:
+
+```js
+const originalToISOString = Date.prototype.toISOString;
+
+const stringified = devalue.stringify(value, undefined, {
+	operations: {
+		// use a captured intrinsic instead of a (possibly patched) prototype method
+		dateISO: (date) => originalToISOString.call(date),
+
+		// read through descriptors so getters are never invoked
+		get: (object, key) => {
+			const descriptor = Object.getOwnPropertyDescriptor(object, key);
+			if (descriptor?.get) throw new Error(`refusing to invoke getter for "${key}"`);
+			return descriptor?.value;
+		}
+	}
+});
+```
+
+**Foreign-runtime serialization.** The `stringify` algorithm never touches the value directly, so "value" can be an opaque handle to something living in another JavaScript runtime — a `node:vm` context, a WASM-hosted engine, a remote process — as long as the operations know how to inspect it. Implement `typeOf`/`tag` for classification, `primitive`/`get`/`mapEntries`/etc. for extraction, and `identify` to key deduplication and cycle detection on the underlying value's identity rather than the handle's:
+
+```js
+const stringified = devalue.stringify(rootHandle, undefined, {
+	operations: {
+		identify: (handle) => handle.pointer,
+		typeOf: (handle) => handle.typeOf(),
+		get: (handle, key) => handle.getProperty(key)
+		// ... see StringifyOperations for the full interface
+	}
+});
+```
+
+Reducers compose with custom operations: they receive the raw value/handle, and whatever they return is serialized through the same operations.
+
 ## Error handling
 
 If `uneval` or `stringify` encounters a function or a non-POJO that isn't handled by a custom replacer/reducer, it will throw an error. You can find where in the input data the offending value lives by inspecting `error.path`:
