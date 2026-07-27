@@ -213,3 +213,157 @@ export interface StringifyOptions {
 	 */
 	operations?: Partial<StringifyOperations>;
 }
+
+/**
+ * The construction operations `parse` and `unflatten` perform while reviving
+ * a value. Every value the algorithm creates — primitives, built-in
+ * instances, containers — and every mutation it performs to populate those
+ * containers goes through this interface, so overriding members lets you
+ * control exactly what gets built.
+ *
+ * Use cases:
+ * - **Cross-realm revival**: construct values from the intrinsics of a
+ *   different realm (e.g. a `node:vm` context) so that the result passes
+ *   `instanceof` checks inside that realm.
+ * - **Foreign-runtime revival**: build values inside another JavaScript
+ *   runtime (a WASM-hosted engine, a remote process) by implementing the
+ *   operations over handle objects. The algorithm never inspects the values
+ *   it creates — it only passes them back into other operations — so
+ *   "value" can be any opaque token.
+ *
+ * The naming follows the same scheme as `StringifyOperations`, with the
+ * host/value-space boundary running the other way:
+ *
+ * - `fromXxx` — conversions whose input is entirely host data and whose
+ *   result crosses into value space; each is the inverse of the
+ *   corresponding `toXxx` (`fromPrimitive` / `toPrimitive`,
+ *   `fromISOString` / `toISOString`, `fromStringValue` / `toStringValue`,
+ *   `fromArrayBuffer` / `toArrayBuffer`).
+ * - `fromXxxInfo` — construction from a multi-field descriptor, the inverse
+ *   of the corresponding `xxxInfo` (`fromRegExpInfo` / `regExpInfo`,
+ *   `fromViewInfo` / `viewInfo`).
+ * - `createXxx` — empty value-space containers, populated afterwards by the
+ *   mutators. That ordering is what makes cyclic values possible: the empty
+ *   container is cached before its contents are revived.
+ * - bare verbs — value-space operations whose operands and results stay in
+ *   value space (`box` inverts `unbox`, `set` inverts `get`, `addValue`
+ *   inverts `valuesOf`, `addEntry` inverts `entriesOf`).
+ *
+ * All members are optional when passed to `parse`/`unflatten` — omitted
+ * members fall back to the defaults (native behavior, exported as
+ * `defaultParseOperations`).
+ */
+export interface ParseOperations {
+	/**
+	 * Wraps a host primitive (`string`, `number`, `boolean`, `bigint`,
+	 * `null`, `undefined`, and the special values `NaN`, `±Infinity`, `-0`)
+	 * into the representation the other operations expect. The inverse of
+	 * `toPrimitive`. Default: the value itself.
+	 */
+	fromPrimitive(
+		value: string | number | boolean | bigint | null | undefined
+	): any;
+
+	/**
+	 * Creates a `Date` from an ISO string. The inverse of `toISOString`.
+	 * An empty string represents an invalid date (as produced for
+	 * `new Date(NaN)`).
+	 */
+	fromISOString(iso: string): any;
+
+	/**
+	 * Creates a `URL`, `URLSearchParams` or `Temporal.*` value from its
+	 * string form — the same tags `toStringValue` serializes, and its
+	 * inverse. `tag` distinguishes them (e.g. `'URL'`,
+	 * `'Temporal.Instant'`).
+	 */
+	fromStringValue(tag: string, text: string): any;
+
+	/**
+	 * Creates an `ArrayBuffer` from a host `ArrayBuffer` holding the decoded
+	 * bytes. The inverse of `toArrayBuffer`. Default: the buffer itself.
+	 * Foreign-runtime implementations should copy the bytes into the target
+	 * runtime.
+	 */
+	fromArrayBuffer(buffer: ArrayBuffer): any;
+
+	/**
+	 * Creates a `RegExp` from its source and flags. The inverse of
+	 * `regExpInfo`. `flags` is `undefined` when the pattern had no flags.
+	 */
+	fromRegExpInfo(source: string, flags: string | undefined): any;
+
+	/**
+	 * Creates a typed array or `DataView` over an already-revived buffer.
+	 * The inverse of `viewInfo`. `type` is the constructor name (e.g.
+	 * `'Uint8Array'`, `'DataView'`). `byteOffset` and `length` are
+	 * `undefined` when the view spans the whole buffer; otherwise `length`
+	 * is the element count for typed arrays and the byte length for
+	 * `DataView`, matching the constructor signatures.
+	 */
+	fromViewInfo(
+		type: string,
+		buffer: any,
+		byteOffset: number | undefined,
+		length: number | undefined
+	): any;
+
+	/**
+	 * Creates a boxed primitive object (`Number`, `String`, `Boolean`,
+	 * `BigInt` wrapper) around an already-revived inner primitive. The
+	 * inverse of `unbox`. Equivalent to `Object(value)`.
+	 */
+	box(value: any): any;
+
+	/**
+	 * Creates an array of the given length, to be populated with `set`.
+	 * The length is bounded by the size of the input, so it is safe to
+	 * allocate eagerly. Indices that are never set must remain holes.
+	 */
+	createArray(length: number): any;
+
+	/**
+	 * Creates a sparse array of the given length, to be populated with
+	 * `set`. Unlike `createArray`, the length comes from the input rather
+	 * than being bounded by it, so implementations must not allocate
+	 * storage proportional to it.
+	 */
+	createSparseArray(length: number): any;
+
+	/** Creates an empty object, to be populated with `set`. */
+	createObject(): any;
+
+	/**
+	 * Creates an empty null-prototype object, to be populated with `set`.
+	 * Equivalent to `Object.create(null)`.
+	 */
+	createNullPrototypeObject(): any;
+
+	/** Creates an empty `Set`, to be populated with `addValue`. */
+	createSet(): any;
+
+	/** Creates an empty `Map`, to be populated with `addEntry`. */
+	createMap(): any;
+
+	/**
+	 * Sets an element or property on a value created by `createArray`,
+	 * `createSparseArray`, `createObject` or `createNullPrototypeObject`.
+	 * The inverse of `get`, which likewise serves both arrays and objects.
+	 */
+	set(target: any, key: string | number, value: any): void;
+
+	/** Adds a value to a `Set` created by `createSet`. The inverse of `valuesOf`. */
+	addValue(set: any, value: any): void;
+
+	/** Adds an entry to a `Map` created by `createMap`. The inverse of `entriesOf`. */
+	addEntry(map: any, key: any, value: any): void;
+}
+
+/** Options for `parse` and `unflatten`. */
+export interface ParseOptions {
+	/**
+	 * Overrides for the construction operations used while reviving.
+	 * Omitted members fall back to `defaultParseOperations`.
+	 */
+	operations?: Partial<ParseOperations>;
+}

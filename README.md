@@ -186,6 +186,39 @@ const stringified = devalue.stringify(rootHandle, undefined, {
 
 Reducers compose with custom operations: they receive the raw value/handle, and whatever they return is serialized through the same operations.
 
+### Customizing `parse`
+
+The mirror image: `parse` and `unflatten` build every value through construction operations (`ParseOperations`, defaults exported as `defaultParseOperations`), so you can control what gets created. The members mirror `StringifyOperations` with the host/value-space boundary running the other way: each `fromXxx` inverts the corresponding `toXxx`, `fromXxxInfo` inverts `xxxInfo`, and the bare-verb mutators invert the bare-verb accessors (`set`/`get`, `addValue`/`valuesOf`, `addEntry`/`entriesOf`, `box`/`unbox`).
+
+**Cross-realm revival.** By default the revived value is built from the intrinsics of whichever realm devalue is running in, so `instanceof` checks fail elsewhere. Constructing from a target realm's intrinsics fixes that:
+
+```js
+const revived = devalue.parse(serialized, undefined, {
+	operations: {
+		fromISOString: (iso) => new sandbox.Date(iso),
+		createMap: () => new sandbox.Map(),
+		createObject: () => sandbox.makeObject()
+	}
+});
+```
+
+**Foreign-runtime revival.** `parse` never inspects the values it creates — it only passes them back into other operations — so the operations can build values inside another runtime and return opaque handles:
+
+```js
+const rootHandle = devalue.parse(serialized, undefined, {
+	operations: {
+		fromPrimitive: (value) => vm.toHandle(value),
+		createObject: () => vm.newObject(),
+		set: (handle, key, value) => handle.setProp(key, value)
+		// ... see ParseOperations for the full interface
+	}
+});
+```
+
+Containers are created empty and populated afterwards (`createMap` then `addEntry`, `createObject` then `set`, and so on) — that ordering is what allows cyclic values to be revived, since the empty container is cached before its contents are built.
+
+Revivers compose the same way reducers do: they receive whatever the operations built, and their return value is used as-is.
+
 ## Error handling
 
 If `uneval` or `stringify` encounters a function or a non-POJO that isn't handled by a custom replacer/reducer, it will throw an error. You can find where in the input data the offending value lives by inspecting `error.path`:
