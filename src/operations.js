@@ -38,7 +38,7 @@ export const default_operations = Object.freeze({
 
 	isThenable: (value) => typeof value.then === 'function',
 
-	resolveThenable: (value) => Promise.resolve(value),
+	toPromise: (value) => Promise.resolve(value),
 
 	unbox: (value) => value.valueOf(),
 
@@ -64,7 +64,7 @@ export const default_operations = Object.freeze({
 
 	arrayLength: (value) => value.length,
 
-	hasOwnIndex: (value, index) => Object.hasOwn(value, index),
+	hasOwn: (value, key) => Object.hasOwn(value, key),
 
 	arrayIndices: (value) => valid_array_indices(value),
 

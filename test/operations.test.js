@@ -57,6 +57,37 @@ suite('operations option', (test) => {
 		assert.equal(result, stringify({ a: 1, date: new Date(1700000000000) }));
 	});
 
+	test('nullish overrides fall back to defaults', () => {
+		const value = { a: 1, date: new Date(1700000000000) };
+
+		const result = stringify(value, undefined, {
+			operations: {
+				get: undefined,
+				// @ts-expect-error null is not a valid override, but coalesces
+				dateISO: null,
+				tag: (thing) => defaultOperations.tag(thing)
+			}
+		});
+
+		assert.equal(result, stringify(value));
+	});
+
+	test('inherited operation members are picked up', () => {
+		// an operations object need not own its members — e.g. a class instance
+		class Operations {
+			/** @param {any} value */
+			dateISO(value) {
+				return `custom:${value.getTime()}`;
+			}
+		}
+
+		const result = stringify(new Date(1700000000000), undefined, {
+			operations: new Operations()
+		});
+
+		assert.equal(result, '[["Date","custom:1700000000000"]]');
+	});
+
 	test('defaultOperations and objectShape sentinels are frozen', () => {
 		assert.ok(Object.isFrozen(defaultOperations));
 		assert.ok(Object.isFrozen(defaultOperations.objectShape(new Map())));
@@ -310,7 +341,7 @@ const handle_operations = {
 	primitive: (handle) => raw(handle),
 	tag: (handle) => defaultOperations.tag(raw(handle)),
 	isThenable: (handle) => typeof raw(handle).then === 'function',
-	resolveThenable: (handle) => Promise.resolve(raw(handle)).then(h),
+	toPromise: (handle) => Promise.resolve(raw(handle)).then(h),
 	unbox: (handle) => h(raw(handle).valueOf()),
 	dateISO: (handle) => defaultOperations.dateISO(raw(handle)),
 	toStringValue: (handle) => raw(handle).toString(),
@@ -323,7 +354,7 @@ const handle_operations = {
 	},
 	arrayBuffer: (handle) => raw(handle),
 	arrayLength: (handle) => raw(handle).length,
-	hasOwnIndex: (handle, index) => Object.hasOwn(raw(handle), index),
+	hasOwn: (handle, index) => Object.hasOwn(raw(handle), index),
 	arrayIndices: (handle) => defaultOperations.arrayIndices(raw(handle)),
 	objectShape: (handle) => defaultOperations.objectShape(raw(handle)),
 	get: (handle, key) => h(raw(handle)[key])
@@ -416,7 +447,7 @@ suite('handle-based operations', (test) => {
 		assert.equal(result, '[["Custom",1],"yes"]');
 	});
 
-	test('async: thenables resolve through resolveThenable', async () => {
+	test('async: thenables resolve through toPromise', async () => {
 		const value = { result: Promise.resolve({ deep: Promise.resolve(42) }) };
 
 		const [expected, actual] = await Promise.all([

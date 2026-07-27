@@ -41,6 +41,14 @@ export interface StringifyOperations {
 	 *
 	 * Override this when serializing through handles, where two distinct
 	 * handle objects may refer to the same underlying value.
+	 *
+	 * Keys are compared across *every* value in the payload, including
+	 * primitives, so an implementation that derives keys for objects must
+	 * make sure they cannot collide with a primitive that appears in the
+	 * same payload — returning e.g. the string `'42'` as an object's key
+	 * would alias it to the string `'42'` elsewhere in the payload and emit
+	 * a wrong back-reference. Prefer keys that are unforgeable, such as the
+	 * underlying object itself, a symbol, or a wrapper object.
 	 */
 	identify(value: any): unknown;
 
@@ -80,11 +88,12 @@ export interface StringifyOperations {
 	isThenable(value: any): boolean;
 
 	/**
-	 * Resolves a thenable to its settled value (which is then serialized).
-	 * Only called from `stringifyAsync` for values where `isThenable`
-	 * returned true.
+	 * Converts a thenable into a native promise, whose settled value is then
+	 * serialized. The returned promise may reject, in which case
+	 * `stringifyAsync` rejects. Only called from `stringifyAsync`, for values
+	 * where `isThenable` returned true.
 	 */
-	resolveThenable(value: any): Promise<any>;
+	toPromise(value: any): Promise<any>;
 
 	/**
 	 * Extracts the inner value of a boxed primitive (`Number`, `String`,
@@ -144,8 +153,11 @@ export interface StringifyOperations {
 	/** Returns the length of an `Array` value. */
 	arrayLength(value: any): number;
 
-	/** Returns true if an `Array` value has an own element at `index`. */
-	hasOwnIndex(value: any, index: number): boolean;
+	/**
+	 * Returns true if a value has an own property at `key`. Same contract as
+	 * `Object.hasOwn(value, key)`.
+	 */
+	hasOwn(value: any, key: string | number): boolean;
 
 	/**
 	 * Returns the populated indices of a (sparse) `Array` value as strings,

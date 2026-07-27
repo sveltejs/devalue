@@ -72,13 +72,15 @@ function run(async, value, reducers, options) {
 	let ops = default_operations;
 
 	if (options?.operations) {
-		ops = { ...default_operations };
+		ops = /** @type {import('./types.js').StringifyOperations} */ ({});
 
-		// treat explicitly-`undefined` members like omitted members, so that
-		// programmatically-built overrides can't clobber a default with undefined
-		for (const key of /** @type {(keyof typeof ops)[]} */ (Object.keys(options.operations))) {
-			const fn = options.operations[key];
-			if (fn !== undefined) ops[key] = /** @type {any} */ (fn);
+		// iterating the default keys (rather than the override's own keys) means
+		// nullish members fall back to the default, and inherited members — e.g.
+		// from a class instance — are picked up
+		for (const key of /** @type {(keyof typeof ops)[]} */ (
+			Object.keys(default_operations)
+		)) {
+			ops[key] = options.operations[key] ?? default_operations[key];
 		}
 	}
 
@@ -113,6 +115,9 @@ function run(async, value, reducers, options) {
 		/** @type {number | undefined} */
 		let number;
 
+		// `ops.primitive` is the boundary between the value being serialized and
+		// plain host JavaScript: everything below operates on the extracted host
+		// primitive, so native comparisons and arithmetic are correct there.
 		if (type === 'number') {
 			number = /** @type {number} */ (ops.primitive(thing));
 			if (Number.isNaN(number)) return NAN;
@@ -146,7 +151,6 @@ function run(async, value, reducers, options) {
 		let str = '';
 
 		if (type !== 'object') {
-			// 'null' | 'boolean' | 'number' | 'bigint' | 'string'
 			str = stringify_primitive(type === 'number' ? number : ops.primitive(thing));
 		} else if (ops.isThenable(thing)) {
 			if (!async) {
@@ -158,7 +162,7 @@ function run(async, value, reducers, options) {
 				);
 			}
 
-			str = Promise.resolve(ops.resolveThenable(thing)).then((value) => {
+			str = ops.toPromise(thing).then((value) => {
 				const i = flatten(value, index);
 				if (i < 0) stringified[index] = i;
 			});
@@ -209,7 +213,7 @@ function run(async, value, reducers, options) {
 					for (let i = 0; i < length; i += 1) {
 						if (i > 0) str += ',';
 
-						if (ops.hasOwnIndex(thing, i)) {
+						if (ops.hasOwn(thing, i)) {
 							keys.push(`[${i}]`);
 							str += flatten(ops.get(thing, i));
 							keys.pop();
