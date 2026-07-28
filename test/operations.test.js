@@ -1,6 +1,12 @@
 import * as assert from 'uvu/assert';
 import * as uvu from 'uvu';
-import { stringify, stringifyAsync, defaultOperations, parse } from '../index.js';
+import {
+	stringify,
+	stringifyAsync,
+	defaultOperations,
+	filterArrayIndices,
+	parse
+} from '../index.js';
 
 globalThis.Temporal ??= (await import('@js-temporal/polyfill')).Temporal;
 
@@ -680,5 +686,45 @@ suite('tripwire operations (value is never touched)', (test) => {
 
 		assert.throws(() => stringify(tripwire({ a: 1 })), /value touched directly/);
 		assert.ok(tripwire_violations.length > 0);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// filterArrayIndices helper
+// ---------------------------------------------------------------------------
+
+suite('filterArrayIndices', (test) => {
+	test('keeps the leading run of valid array indices', () => {
+		assert.equal(filterArrayIndices(['0', '1', '2']), ['0', '1', '2']);
+		assert.equal(filterArrayIndices(['0', '2', '7']), ['0', '2', '7']);
+		assert.equal(filterArrayIndices([]), []);
+	});
+
+	test('trims trailing non-index keys', () => {
+		assert.equal(filterArrayIndices(['0', '1', 'extra']), ['0', '1']);
+		assert.equal(filterArrayIndices(['0', 'a', 'b']), ['0']);
+		assert.equal(filterArrayIndices(['a', 'b']), []);
+	});
+
+	test('rejects index-like strings that are not valid indices', () => {
+		assert.equal(filterArrayIndices(['0', '01']), ['0']);
+		assert.equal(filterArrayIndices(['0', '-1']), ['0']);
+		assert.equal(filterArrayIndices(['0', '1.5']), ['0']);
+		assert.equal(filterArrayIndices(['0', '4294967295']), ['0']);
+	});
+
+	test('does not modify the input', () => {
+		const keys = ['0', '1', 'extra'];
+		filterArrayIndices(keys);
+		assert.equal(keys, ['0', '1', 'extra']);
+	});
+
+	test('matches the default operation for the same value', () => {
+		const array = [1, 2, 3];
+		array.extra = 'x';
+		assert.equal(
+			filterArrayIndices(Object.keys(array)),
+			defaultOperations.indicesOf(array)
+		);
 	});
 });

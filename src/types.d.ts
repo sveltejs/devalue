@@ -177,7 +177,14 @@ export interface StringifyOperations {
 
 	/**
 	 * Returns the populated indices of a (sparse) `Array` value as strings,
-	 * in ascending order. Equivalent to `Object.keys(array)` filtered to
+	 * in ascending order.
+	 *
+	 * Implementations that already have the value's own enumerable string
+	 * keys — as a foreign-runtime implementation typically does — should pass
+	 * them through the exported `filterArrayIndices` helper rather than
+	 * reimplementing the filtering, which encodes the sparse-array heuristic.
+	 *
+	 * Equivalent to `Object.keys(array)` filtered to
 	 * valid array indices.
 	 */
 	indicesOf(array: any): string[];

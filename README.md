@@ -184,6 +184,12 @@ const stringified = devalue.stringify(rootHandle, undefined, {
 });
 ```
 
+Some operations have a non-obvious contract that is easy to get subtly wrong. Where the work is not specific to your values, devalue exports the pieces so you don't have to reimplement them — `filterArrayIndices` does the array-index filtering that `indicesOf` needs, given keys you already have:
+
+```js
+indicesOf: (handle) => devalue.filterArrayIndices(handle.ownEnumerableStringKeys())
+```
+
 Reducers compose with custom operations: they receive the raw value/handle, and whatever they return is serialized through the same operations.
 
 ### Customizing `parse`

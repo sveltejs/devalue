@@ -5,7 +5,7 @@ export {
 	default_operations as defaultOperations,
 	default_parse_operations as defaultParseOperations
 } from './src/operations.js';
-export { DevalueError } from './src/utils.js';
+export { DevalueError, filter_array_indices as filterArrayIndices } from './src/utils.js';
 
 /** @typedef {import('./src/types.js').StringifyOperations} StringifyOperations */
 /** @typedef {import('./src/types.js').StringifyOptions} StringifyOptions */
