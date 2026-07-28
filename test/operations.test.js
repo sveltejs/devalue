@@ -463,3 +463,218 @@ suite('handle-based operations', (test) => {
 		assert_parity(Temporal.PlainDate.from('2023-11-14'));
 	});
 });
+
+// ---------------------------------------------------------------------------
+// The value is never touched directly
+// ---------------------------------------------------------------------------
+
+// Executable proof of the core claim of custom operations: with a complete
+// implementation, the stringify algorithm never touches the value being
+// serialized — every introspection goes through the operations. Values are
+// wrapped in "tripwire" proxies whose every trap records a violation and
+// throws; the operations unwrap through a WeakMap side-channel, so any direct
+// touch (a stray `thing.foo` in stringify.js) trips instantly with the trap
+// name and key.
+
+/** @type {WeakMap<object, any>} */
+const tripwire_targets = new WeakMap();
+
+/** @type {string[]} */
+let tripwire_violations = [];
+
+/** engine-level `.then` reads from the promise resolution procedure */
+let tripwire_then_probes = 0;
+
+const TRIPWIRE_TRAPS = /** @type {const} */ ([
+	'apply',
+	'construct',
+	'defineProperty',
+	'deleteProperty',
+	'get',
+	'getOwnPropertyDescriptor',
+	'getPrototypeOf',
+	'has',
+	'isExtensible',
+	'ownKeys',
+	'preventExtensions',
+	'set',
+	'setPrototypeOf'
+]);
+
+/**
+ * Wraps an object in a proxy that records + throws on every trap.
+ * Primitives are returned as-is (they cannot be touched).
+ * @param {any} value
+ */
+function tripwire(value) {
+	if (value === null || (typeof value !== 'object' && typeof value !== 'function')) {
+		return value;
+	}
+
+	/** @type {ProxyHandler<any>} */
+	const handler = {};
+
+	for (const trap of TRIPWIRE_TRAPS) {
+		// @ts-expect-error dynamic trap definition
+		handler[trap] = (_target, ...args) => {
+			// When a promise fulfills with an object, the ECMAScript promise
+			// resolution procedure reads `.then` on it — that is the engine,
+			// not the serializer, and no operations implementation can prevent
+			// it. Tolerate it (the proxy absorbs the read; the underlying value
+			// is never touched), but count it so tests can assert it only
+			// happens on async paths.
+			if (trap === 'get' && args[0] === 'then') {
+				tripwire_then_probes += 1;
+				return undefined;
+			}
+
+			const detail =
+				typeof args[0] === 'string' || typeof args[0] === 'symbol'
+					? ` (${String(args[0])})`
+					: '';
+			tripwire_violations.push(trap + detail);
+			throw new Error(`value touched directly: ${trap}${detail}`);
+		};
+	}
+
+	const proxy = new Proxy(value, handler);
+	tripwire_targets.set(proxy, value);
+	return proxy;
+}
+
+/** @param {any} value */
+const untrip = (value) => (tripwire_targets.has(value) ? tripwire_targets.get(value) : value);
+
+/**
+ * A complete operations implementation that only ever consults the WeakMap —
+ * never the proxy. Every recursively-serialized value is re-wrapped in a
+ * fresh tripwire so nested objects are protected too.
+ *
+ * @type {import('../src/types.js').StringifyOperations}
+ */
+const tripwire_operations = {
+	identify: (value) => untrip(value),
+	typeOf: (value) => {
+		const raw = untrip(value);
+		return raw === null ? 'null' : typeof raw;
+	},
+	primitive: (value) => untrip(value),
+	tag: (value) => defaultOperations.tag(untrip(value)),
+	isThenable: (value) => typeof untrip(value).then === 'function',
+	toPromise: (value) => Promise.resolve(untrip(value)).then(tripwire),
+	unbox: (value) => tripwire(untrip(value).valueOf()),
+	dateISO: (value) => defaultOperations.dateISO(untrip(value)),
+	toStringValue: (value) => untrip(value).toString(),
+	regExp: (value) => defaultOperations.regExp(untrip(value)),
+	setValues: (value) => [...untrip(value)].map(tripwire),
+	mapEntries: (value) => [...untrip(value)].map(([k, v]) => [tripwire(k), tripwire(v)]),
+	viewInfo: (value) => {
+		const info = defaultOperations.viewInfo(untrip(value));
+		return { ...info, buffer: tripwire(info.buffer) };
+	},
+	arrayBuffer: (value) => untrip(value),
+	arrayLength: (value) => untrip(value).length,
+	hasOwn: (value, key) => Object.hasOwn(untrip(value), key),
+	arrayIndices: (value) => defaultOperations.arrayIndices(untrip(value)),
+	objectShape: (value) => defaultOperations.objectShape(untrip(value)),
+	get: (value, key) => tripwire(untrip(value)[key])
+};
+
+suite('tripwire operations (value is never touched)', (test) => {
+	/** @param {any} value */
+	function assert_untouched(value) {
+		tripwire_violations = [];
+		tripwire_then_probes = 0;
+
+		const result = stringify(tripwire(value), undefined, {
+			operations: tripwire_operations
+		});
+
+		assert.equal(tripwire_violations, [], `traps fired: ${tripwire_violations.join(', ')}`);
+		assert.equal(tripwire_then_probes, 0, 'sync serialization must never read .then');
+		assert.equal(result, stringify(value), 'output parity');
+	}
+
+	test('sync serialization never touches the value', () => {
+		const shared = { x: 1 };
+
+		/** @type {any} */
+		const cyclic = { name: 'cycle' };
+		cyclic.self = cyclic;
+
+		const buffer = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]).buffer;
+
+		const sparse = [];
+		sparse[100] = 'x';
+
+		assert_untouched({ a: 1, nested: { b: [2, 3] }, first: shared, second: shared });
+		// eslint-disable-next-line no-sparse-arrays
+		assert_untouched([1, 'two', { three: 3 }, , 5]);
+		assert_untouched(sparse);
+		assert_untouched(new Date(1700000000000));
+		assert_untouched(/ab+c/gi);
+		assert_untouched(new Map([['k', { v: 1 }], [shared, shared]]));
+		assert_untouched(new Set([1, { two: 2 }]));
+		assert_untouched(new URL('https://example.com/?q=1'));
+		assert_untouched(Object.assign(Object.create(null), { x: 1 }));
+		assert_untouched(new Number(42));
+		assert_untouched(new String('boxed'));
+		assert_untouched(buffer);
+		assert_untouched(new Uint8Array(buffer));
+		assert_untouched(new Int16Array(buffer, 2, 2));
+		assert_untouched(new DataView(buffer, 1, 4));
+		assert_untouched(cyclic);
+	});
+
+	test('async serialization only incurs engine-level .then reads on the proxy', async () => {
+		tripwire_violations = [];
+		tripwire_then_probes = 0;
+
+		const value = { p: Promise.resolve({ deep: Promise.resolve(42) }) };
+
+		const result = await stringifyAsync(tripwire(value), undefined, {
+			operations: tripwire_operations
+		});
+
+		assert.equal(tripwire_violations, [], `traps fired: ${tripwire_violations.join(', ')}`);
+		// exactly one: the promise resolution procedure reading .then on the
+		// (re-wrapped) object that `p` fulfills with — absorbed by the proxy,
+		// never reaching the underlying value. `42` is a primitive, so the
+		// inner promise adds none.
+		assert.equal(tripwire_then_probes, 1);
+		assert.equal(result, await stringifyAsync(value));
+	});
+
+	test('reducers receive the untouched proxy', () => {
+		class Custom {
+			/** @param {any} inner */
+			constructor(inner) {
+				this.inner = inner;
+			}
+		}
+
+		tripwire_violations = [];
+		tripwire_then_probes = 0;
+
+		const result = stringify(
+			tripwire(new Custom('yes')),
+			{
+				Custom: (value) =>
+					untrip(value) instanceof Custom && tripwire({ inner: untrip(value).inner })
+			},
+			{ operations: tripwire_operations }
+		);
+
+		assert.equal(tripwire_violations, []);
+		assert.equal(parse(result, { Custom: (value) => value }).inner, 'yes');
+	});
+
+	test('negative control: default operations trip the wire', () => {
+		// proves the tripwire actually detects touches — without it, the other
+		// tests would pass vacuously
+		tripwire_violations = [];
+
+		assert.throws(() => stringify(tripwire({ a: 1 })), /value touched directly/);
+		assert.ok(tripwire_violations.length > 0);
+	});
+});
