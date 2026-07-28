@@ -519,10 +519,14 @@ function tripwire(value) {
 		handler[trap] = (_target, ...args) => {
 			// When a promise fulfills with an object, the ECMAScript promise
 			// resolution procedure reads `.then` on it — that is the engine,
-			// not the serializer, and no operations implementation can prevent
-			// it. Tolerate it (the proxy absorbs the read; the underlying value
-			// is never touched), but count it so tests can assert it only
-			// happens on async paths.
+			// not the serializer. `toPromise` could sidestep this by fulfilling
+			// with an inert (non-proxy) handle, but an inert handle cannot
+			// observe reads, and the handle is exactly the object a stray
+			// direct touch in stringify.js would land on — so wrapping it in
+			// the tripwire is what gives the suite its teeth on async paths.
+			// The engine probe is the one read that then cannot be prevented:
+			// absorb it (the underlying value is never touched) and count it,
+			// so tests can assert exactly when it occurs.
 			if (trap === 'get' && args[0] === 'then') {
 				tripwire_then_probes += 1;
 				return undefined;
