@@ -32,43 +32,43 @@ export const default_operations = Object.freeze({
 
 	typeOf: (value) => (value === null ? 'null' : typeof value),
 
-	primitive: (value) => value,
+	toPrimitive: (value) => value,
 
-	tag: (value) => get_type(value),
+	tagOf: (value) => get_type(value),
 
 	isThenable: (value) => typeof value.then === 'function',
 
-	toPromise: (value) => Promise.resolve(value),
+	toPromise: (thenable) => Promise.resolve(thenable),
 
-	unbox: (value) => value.valueOf(),
+	unbox: (boxed) => boxed.valueOf(),
 
-	dateISO: (value) => (isNaN(value.getDate()) ? '' : value.toISOString()),
+	toISOString: (date) => (isNaN(date.getDate()) ? '' : date.toISOString()),
 
 	toStringValue: (value) => value.toString(),
 
-	regExp: (value) => ({ source: value.source, flags: value.flags }),
+	regExpInfo: (regexp) => ({ source: regexp.source, flags: regexp.flags }),
 
-	setValues: (value) => value,
+	valuesOf: (set) => set,
 
-	mapEntries: (value) => value,
+	entriesOf: (map) => map,
 
-	viewInfo: (value) => ({
-		buffer: value.buffer,
-		byteOffset: value.byteOffset,
-		byteLength: value.byteLength,
-		length: value.length,
-		bufferByteLength: value.buffer.byteLength
+	viewInfo: (view) => ({
+		buffer: view.buffer,
+		byteOffset: view.byteOffset,
+		byteLength: view.byteLength,
+		length: view.length,
+		bufferByteLength: view.buffer.byteLength
 	}),
 
-	arrayBuffer: (value) => value,
+	toArrayBuffer: (buffer) => buffer,
 
-	arrayLength: (value) => value.length,
+	lengthOf: (array) => array.length,
 
 	hasOwn: (value, key) => Object.hasOwn(value, key),
 
-	arrayIndices: (value) => valid_array_indices(value),
+	indicesOf: (array) => valid_array_indices(array),
 
-	objectShape: (value) => {
+	shapeOf: (value) => {
 		if (!is_plain_object(value)) return NOT_PLAIN;
 		if (enumerable_symbols(value).length > 0) return SYMBOL_KEYS;
 

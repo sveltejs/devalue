@@ -48,8 +48,8 @@ suite('operations option', (test) => {
 			{
 				operations: {
 					get: undefined,
-					dateISO: undefined,
-					tag: (value) => defaultOperations.tag(value)
+					toISOString: undefined,
+					tagOf: (value) => defaultOperations.tagOf(value)
 				}
 			}
 		);
@@ -64,8 +64,8 @@ suite('operations option', (test) => {
 			operations: {
 				get: undefined,
 				// @ts-expect-error null is not a valid override, but coalesces
-				dateISO: null,
-				tag: (thing) => defaultOperations.tag(thing)
+				toISOString: null,
+				tagOf: (thing) => defaultOperations.tagOf(thing)
 			}
 		});
 
@@ -76,7 +76,7 @@ suite('operations option', (test) => {
 		// an operations object need not own its members — e.g. a class instance
 		class Operations {
 			/** @param {any} value */
-			dateISO(value) {
+			toISOString(value) {
 				return `custom:${value.getTime()}`;
 			}
 		}
@@ -88,18 +88,18 @@ suite('operations option', (test) => {
 		assert.equal(result, '[["Date","custom:1700000000000"]]');
 	});
 
-	test('defaultOperations and objectShape sentinels are frozen', () => {
+	test('defaultOperations and shapeOf sentinels are frozen', () => {
 		assert.ok(Object.isFrozen(defaultOperations));
-		assert.ok(Object.isFrozen(defaultOperations.objectShape(new Map())));
+		assert.ok(Object.isFrozen(defaultOperations.shapeOf(new Map())));
 		assert.ok(
-			Object.isFrozen(defaultOperations.objectShape({ [Symbol('key')]: 1 }))
+			Object.isFrozen(defaultOperations.shapeOf({ [Symbol('key')]: 1 }))
 		);
 	});
 
 	test('defaultOperations is exported and delegable', () => {
 		const result = stringify(new Map([['k', 'v']]), undefined, {
 			operations: {
-				mapEntries: (value) => defaultOperations.mapEntries(value)
+				entriesOf: (value) => defaultOperations.entriesOf(value)
 			}
 		});
 
@@ -119,17 +119,17 @@ suite('operations option', (test) => {
 		const a = new Wrapper(shared);
 		const b = new Wrapper(shared);
 
-		/** @type {import('../src/types.js').StringifyOperations['objectShape']} */
-		const objectShape = (value) =>
+		/** @type {import('../src/types.js').StringifyOperations['shapeOf']} */
+		const shapeOf = (value) =>
 			value instanceof Wrapper
-				? defaultOperations.objectShape(value.inner)
-				: defaultOperations.objectShape(value);
+				? defaultOperations.shapeOf(value.inner)
+				: defaultOperations.shapeOf(value);
 
 		const result = stringify([a, b], undefined, {
 			operations: {
 				identify: (value) => (value instanceof Wrapper ? value.inner : value),
-				tag: (value) => (value instanceof Wrapper ? 'Object' : defaultOperations.tag(value)),
-				objectShape,
+				tagOf: (value) => (value instanceof Wrapper ? 'Object' : defaultOperations.tagOf(value)),
+				shapeOf,
 				get: (value, key) =>
 					value instanceof Wrapper ? value.inner[key] : value[key]
 			}
@@ -145,7 +145,7 @@ suite('operations option', (test) => {
 // ---------------------------------------------------------------------------
 
 suite('side-effect-free operations', (test) => {
-	test('dateISO override avoids patched Date.prototype.toISOString', () => {
+	test('toISOString override avoids patched Date.prototype.toISOString', () => {
 		const original = Date.prototype.toISOString;
 		let patched_calls = 0;
 		// eslint-disable-next-line no-extend-native
@@ -164,7 +164,7 @@ suite('side-effect-free operations', (test) => {
 			// hardened ops use a captured intrinsic
 			const result = stringify(date, undefined, {
 				operations: {
-					dateISO: (value) => original.call(value)
+					toISOString: (value) => original.call(value)
 				}
 			});
 
@@ -176,7 +176,7 @@ suite('side-effect-free operations', (test) => {
 		}
 	});
 
-	test('mapEntries/setValues overrides avoid patched Symbol.iterator', () => {
+	test('entriesOf/valuesOf overrides avoid patched Symbol.iterator', () => {
 		const map_entries = Map.prototype.entries;
 		const set_values = Set.prototype.values;
 		const map_iterator = Map.prototype[Symbol.iterator];
@@ -197,8 +197,8 @@ suite('side-effect-free operations', (test) => {
 
 			const result = stringify(value, undefined, {
 				operations: {
-					mapEntries: (map) => map_entries.call(map),
-					setValues: (set) => set_values.call(set)
+					entriesOf: (map) => map_entries.call(map),
+					valuesOf: (set) => set_values.call(set)
 				}
 			});
 
@@ -210,7 +210,7 @@ suite('side-effect-free operations', (test) => {
 		}
 	});
 
-	test('tag override is not fooled by Symbol.toStringTag getters', () => {
+	test('tagOf override is not fooled by Symbol.toStringTag getters', () => {
 		let getter_calls = 0;
 
 		const sneaky = {};
@@ -232,7 +232,7 @@ suite('side-effect-free operations', (test) => {
 		// hardened ops use brand checks — here simplified to "trust nothing"
 		const result = stringify(sneaky, undefined, {
 			operations: {
-				tag: (value) => {
+				tagOf: (value) => {
 					if (value instanceof Date) return 'Date';
 					if (Array.isArray(value)) return 'Array';
 					return 'Object';
@@ -291,7 +291,7 @@ suite('side-effect-free operations', (test) => {
 		stringify(trap, undefined, {
 			operations: {
 				isThenable: (value) => value instanceof Promise,
-				objectShape: (value) => ({
+				shapeOf: (value) => ({
 					kind: 'plain',
 					keys: Object.keys(value)
 				})
@@ -338,25 +338,25 @@ const handle_operations = {
 		const value = raw(handle);
 		return value === null ? 'null' : typeof value;
 	},
-	primitive: (handle) => raw(handle),
-	tag: (handle) => defaultOperations.tag(raw(handle)),
+	toPrimitive: (handle) => raw(handle),
+	tagOf: (handle) => defaultOperations.tagOf(raw(handle)),
 	isThenable: (handle) => typeof raw(handle).then === 'function',
 	toPromise: (handle) => Promise.resolve(raw(handle)).then(h),
 	unbox: (handle) => h(raw(handle).valueOf()),
-	dateISO: (handle) => defaultOperations.dateISO(raw(handle)),
+	toISOString: (handle) => defaultOperations.toISOString(raw(handle)),
 	toStringValue: (handle) => raw(handle).toString(),
-	regExp: (handle) => defaultOperations.regExp(raw(handle)),
-	setValues: (handle) => [...raw(handle)].map(h),
-	mapEntries: (handle) => [...raw(handle)].map(([k, v]) => [h(k), h(v)]),
+	regExpInfo: (handle) => defaultOperations.regExpInfo(raw(handle)),
+	valuesOf: (handle) => [...raw(handle)].map(h),
+	entriesOf: (handle) => [...raw(handle)].map(([k, v]) => [h(k), h(v)]),
 	viewInfo: (handle) => {
 		const info = defaultOperations.viewInfo(raw(handle));
 		return { ...info, buffer: h(info.buffer) };
 	},
-	arrayBuffer: (handle) => raw(handle),
-	arrayLength: (handle) => raw(handle).length,
+	toArrayBuffer: (handle) => raw(handle),
+	lengthOf: (handle) => raw(handle).length,
 	hasOwn: (handle, index) => Object.hasOwn(raw(handle), index),
-	arrayIndices: (handle) => defaultOperations.arrayIndices(raw(handle)),
-	objectShape: (handle) => defaultOperations.objectShape(raw(handle)),
+	indicesOf: (handle) => defaultOperations.indicesOf(raw(handle)),
+	shapeOf: (handle) => defaultOperations.shapeOf(raw(handle)),
 	get: (handle, key) => h(raw(handle)[key])
 };
 
@@ -562,25 +562,25 @@ const tripwire_operations = {
 		const raw = untrip(value);
 		return raw === null ? 'null' : typeof raw;
 	},
-	primitive: (value) => untrip(value),
-	tag: (value) => defaultOperations.tag(untrip(value)),
+	toPrimitive: (value) => untrip(value),
+	tagOf: (value) => defaultOperations.tagOf(untrip(value)),
 	isThenable: (value) => typeof untrip(value).then === 'function',
 	toPromise: (value) => Promise.resolve(untrip(value)).then(tripwire),
 	unbox: (value) => tripwire(untrip(value).valueOf()),
-	dateISO: (value) => defaultOperations.dateISO(untrip(value)),
+	toISOString: (value) => defaultOperations.toISOString(untrip(value)),
 	toStringValue: (value) => untrip(value).toString(),
-	regExp: (value) => defaultOperations.regExp(untrip(value)),
-	setValues: (value) => [...untrip(value)].map(tripwire),
-	mapEntries: (value) => [...untrip(value)].map(([k, v]) => [tripwire(k), tripwire(v)]),
+	regExpInfo: (value) => defaultOperations.regExpInfo(untrip(value)),
+	valuesOf: (value) => [...untrip(value)].map(tripwire),
+	entriesOf: (value) => [...untrip(value)].map(([k, v]) => [tripwire(k), tripwire(v)]),
 	viewInfo: (value) => {
 		const info = defaultOperations.viewInfo(untrip(value));
 		return { ...info, buffer: tripwire(info.buffer) };
 	},
-	arrayBuffer: (value) => untrip(value),
-	arrayLength: (value) => untrip(value).length,
+	toArrayBuffer: (value) => untrip(value),
+	lengthOf: (value) => untrip(value).length,
 	hasOwn: (value, key) => Object.hasOwn(untrip(value), key),
-	arrayIndices: (value) => defaultOperations.arrayIndices(untrip(value)),
-	objectShape: (value) => defaultOperations.objectShape(untrip(value)),
+	indicesOf: (value) => defaultOperations.indicesOf(untrip(value)),
+	shapeOf: (value) => defaultOperations.shapeOf(untrip(value)),
 	get: (value, key) => tripwire(untrip(value)[key])
 };
 

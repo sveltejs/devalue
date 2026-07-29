@@ -115,11 +115,11 @@ function run(async, value, reducers, options) {
 		/** @type {number | undefined} */
 		let number;
 
-		// `ops.primitive` is the boundary between the value being serialized and
+		// `ops.toPrimitive` is the boundary between the value being serialized and
 		// plain host JavaScript: everything below operates on the extracted host
 		// primitive, so native comparisons and arithmetic are correct there.
 		if (type === 'number') {
-			number = /** @type {number} */ (ops.primitive(thing));
+			number = /** @type {number} */ (ops.toPrimitive(thing));
 			if (Number.isNaN(number)) return NAN;
 			if (number === Infinity) return POSITIVE_INFINITY;
 			if (number === -Infinity) return NEGATIVE_INFINITY;
@@ -151,7 +151,7 @@ function run(async, value, reducers, options) {
 		let str = '';
 
 		if (type !== 'object') {
-			str = stringify_primitive(type === 'number' ? number : ops.primitive(thing));
+			str = stringify_primitive(type === 'number' ? number : ops.toPrimitive(thing));
 		} else if (ops.isThenable(thing)) {
 			if (!async) {
 				throw new DevalueError(
@@ -167,7 +167,7 @@ function run(async, value, reducers, options) {
 				if (i < 0) stringified[index] = i;
 			});
 		} else {
-			const tag = ops.tag(thing);
+			const tag = ops.tagOf(thing);
 
 			switch (tag) {
 				case 'Number':
@@ -178,7 +178,7 @@ function run(async, value, reducers, options) {
 					break;
 
 				case 'Date':
-					str = `["Date","${ops.dateISO(thing)}"]`;
+					str = `["Date","${ops.toISOString(thing)}"]`;
 					break;
 
 				case 'URL':
@@ -190,7 +190,7 @@ function run(async, value, reducers, options) {
 					break;
 
 				case 'RegExp':
-					const { source, flags } = ops.regExp(thing);
+					const { source, flags } = ops.regExpInfo(thing);
 					str = flags
 						? `["RegExp",${stringify_string(source)},"${flags}"]`
 						: `["RegExp",${stringify_string(source)}]`;
@@ -206,7 +206,7 @@ function run(async, value, reducers, options) {
 					// is what protects against the DoS of e.g. `arr[1000000] = 1`.
 					let mostly_dense = false;
 
-					const length = ops.arrayLength(thing);
+					const length = ops.lengthOf(thing);
 
 					str = '[';
 
@@ -254,7 +254,7 @@ function run(async, value, reducers, options) {
 							//
 							// Sparse encoding is cheaper when:
 							//   (4 + d) + P * (d + 1) < (L - P) * 3
-							const populated_keys = ops.arrayIndices(thing);
+							const populated_keys = ops.indicesOf(thing);
 							const population = populated_keys.length;
 							const d = String(length).length;
 
@@ -285,7 +285,7 @@ function run(async, value, reducers, options) {
 				case 'Set':
 					str = '["Set"';
 
-					for (const value of ops.setValues(thing)) {
+					for (const value of ops.valuesOf(thing)) {
 						str += `,${flatten(value)}`;
 					}
 
@@ -295,12 +295,12 @@ function run(async, value, reducers, options) {
 				case 'Map':
 					str = '["Map"';
 
-					for (const [key, value] of ops.mapEntries(thing)) {
+					for (const [key, value] of ops.entriesOf(thing)) {
 						const key_type = ops.typeOf(key);
 						const key_is_primitive =
 							key_type !== 'object' && key_type !== 'function' && key_type !== 'symbol';
 						keys.push(
-							`.get(${key_is_primitive ? stringify_primitive(ops.primitive(key)) : '...'})`
+							`.get(${key_is_primitive ? stringify_primitive(ops.toPrimitive(key)) : '...'})`
 						);
 						str += `,${flatten(key)},${flatten(value)}`;
 						keys.pop();
@@ -346,7 +346,7 @@ function run(async, value, reducers, options) {
 				}
 
 				case 'ArrayBuffer': {
-					const base64 = encode64(ops.arrayBuffer(thing));
+					const base64 = encode64(ops.toArrayBuffer(thing));
 
 					str = `["ArrayBuffer","${base64}"]`;
 					break;
@@ -364,7 +364,7 @@ function run(async, value, reducers, options) {
 					break;
 
 				default: {
-					const shape = ops.objectShape(thing);
+					const shape = ops.shapeOf(thing);
 
 					if (shape.kind === 'not-plain') {
 						throw new DevalueError(`Cannot stringify arbitrary non-POJOs`, keys, thing, value);

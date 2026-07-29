@@ -32,6 +32,22 @@ export type TypedArray =
  *
  * All members are optional when passed to `stringify` — omitted members fall
  * back to the defaults (native behavior, exported as `defaultOperations`).
+ *
+ * Members are named by what they do with the value:
+ * - `isXxx`/`hasXxx` — predicates returning booleans
+ * - `toXxx` — conversions whose whole result crosses into host JavaScript
+ *   (`toPrimitive`, `toISOString`) or into a native container (`toPromise`)
+ * - `xxxOf` — queries returning host data *about* the value (`typeOf`,
+ *   `tagOf`, `lengthOf`) or its constituents, which remain in value space
+ *   (`valuesOf`, `entriesOf`)
+ * - `xxxInfo` — multi-field descriptors mixing host data and constituent
+ *   values (`viewInfo`, `regExpInfo`)
+ * - bare verbs (`get`, `unbox`, `identify`) — accessors whose results remain
+ *   in value space
+ *
+ * (`toStringValue` and `unbox` deliberately avoid the names `toString` and
+ * `valueOf`, which would shadow `Object.prototype` methods on the operations
+ * object.)
  */
 export interface StringifyOperations {
 	/**
@@ -72,7 +88,7 @@ export interface StringifyOperations {
 	 * `'null'`, `'boolean'`, `'number'`, `'bigint'` or `'string'`.
 	 * Default: the value itself (it already is the primitive).
 	 */
-	primitive(value: any): undefined | null | boolean | number | bigint | string;
+	toPrimitive(value: any): undefined | null | boolean | number | bigint | string;
 
 	/**
 	 * Returns the brand of an object value — the strings produced by
@@ -82,7 +98,7 @@ export interface StringifyOperations {
 	 * engine-level brand checks rather than (spoofable, getter-invoking)
 	 * `Symbol.toStringTag` lookups.
 	 */
-	tag(value: any): string;
+	tagOf(value: any): string;
 
 	/** Returns true if the object value should be treated as a thenable. */
 	isThenable(value: any): boolean;
@@ -93,20 +109,20 @@ export interface StringifyOperations {
 	 * `stringifyAsync` rejects. Only called from `stringifyAsync`, for values
 	 * where `isThenable` returned true.
 	 */
-	toPromise(value: any): Promise<any>;
+	toPromise(thenable: any): Promise<any>;
 
 	/**
 	 * Extracts the inner value of a boxed primitive (`Number`, `String`,
-	 * `Boolean`, `BigInt` objects). Equivalent to `value.valueOf()`. The
+	 * `Boolean`, `BigInt` objects). Equivalent to `boxed.valueOf()`. The
 	 * result is serialized recursively, so it may be a foreign value/handle.
 	 */
-	unbox(value: any): any;
+	unbox(boxed: any): any;
 
 	/**
 	 * Returns the ISO string for a `Date` value, or `''` for an invalid
-	 * date. Equivalent to `value.toISOString()`.
+	 * date. Equivalent to `date.toISOString()`.
 	 */
-	dateISO(value: any): string;
+	toISOString(date: any): string;
 
 	/**
 	 * Returns the string form of a `URL`, `URLSearchParams` or `Temporal.*`
@@ -115,27 +131,27 @@ export interface StringifyOperations {
 	toStringValue(value: any): string;
 
 	/** Returns the source and flags of a `RegExp` value. */
-	regExp(value: any): { source: string; flags: string };
+	regExpInfo(regexp: any): { source: string; flags: string };
 
 	/**
 	 * Returns an iterable over the elements of a `Set` value. The iterable
 	 * is consumed on the host; elements may be foreign values/handles.
 	 */
-	setValues(value: any): Iterable<any>;
+	valuesOf(set: any): Iterable<any>;
 
 	/**
 	 * Returns an iterable over the `[key, value]` entries of a `Map` value.
 	 * The iterable is consumed on the host; keys/values may be foreign
 	 * values/handles.
 	 */
-	mapEntries(value: any): Iterable<[any, any]>;
+	entriesOf(map: any): Iterable<[any, any]>;
 
 	/**
 	 * Returns the view metadata of a typed array or `DataView` value.
 	 * `length` is only meaningful for typed arrays. `buffer` is serialized
 	 * recursively, so it may be a foreign value/handle.
 	 */
-	viewInfo(value: any): {
+	viewInfo(view: any): {
 		buffer: any;
 		byteOffset: number;
 		byteLength: number;
@@ -148,10 +164,10 @@ export interface StringifyOperations {
 	 * Default: the value itself. Foreign-runtime implementations should copy
 	 * the bytes into a host buffer.
 	 */
-	arrayBuffer(value: any): ArrayBuffer;
+	toArrayBuffer(buffer: any): ArrayBuffer;
 
 	/** Returns the length of an `Array` value. */
-	arrayLength(value: any): number;
+	lengthOf(array: any): number;
 
 	/**
 	 * Returns true if a value has an own property at `key`. Same contract as
@@ -161,10 +177,10 @@ export interface StringifyOperations {
 
 	/**
 	 * Returns the populated indices of a (sparse) `Array` value as strings,
-	 * in ascending order. Equivalent to `Object.keys(value)` filtered to
+	 * in ascending order. Equivalent to `Object.keys(array)` filtered to
 	 * valid array indices.
 	 */
-	arrayIndices(value: any): string[];
+	indicesOf(array: any): string[];
 
 	/**
 	 * Classifies a plain-object candidate:
@@ -174,7 +190,7 @@ export interface StringifyOperations {
 	 * - `{ kind: 'symbol-keys' }` — a POJO with enumerable symbol keys
 	 *   (stringify throws)
 	 */
-	objectShape(
+	shapeOf(
 		value: any
 	):
 		| { kind: 'plain' | 'null-proto'; keys: string[] }

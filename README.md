@@ -159,7 +159,7 @@ const originalToISOString = Date.prototype.toISOString;
 const stringified = devalue.stringify(value, undefined, {
 	operations: {
 		// use a captured intrinsic instead of a (possibly patched) prototype method
-		dateISO: (date) => originalToISOString.call(date),
+		toISOString: (date) => originalToISOString.call(date),
 
 		// read through descriptors so getters are never invoked
 		get: (object, key) => {
@@ -171,7 +171,7 @@ const stringified = devalue.stringify(value, undefined, {
 });
 ```
 
-**Foreign-runtime serialization.** The `stringify` algorithm never touches the value directly, so "value" can be an opaque handle to something living in another JavaScript runtime — a `node:vm` context, a WASM-hosted engine, a remote process — as long as the operations know how to inspect it. Implement `typeOf`/`tag` for classification, `primitive`/`get`/`mapEntries`/etc. for extraction, and `identify` to key deduplication and cycle detection on the underlying value's identity rather than the handle's:
+**Foreign-runtime serialization.** The `stringify` algorithm never touches the value directly, so "value" can be an opaque handle to something living in another JavaScript runtime — a `node:vm` context, a WASM-hosted engine, a remote process — as long as the operations know how to inspect it. Implement `typeOf`/`tagOf` for classification, `toPrimitive`/`get`/`entriesOf`/etc. for extraction, and `identify` to key deduplication and cycle detection on the underlying value's identity rather than the handle's:
 
 ```js
 const stringified = devalue.stringify(rootHandle, undefined, {
