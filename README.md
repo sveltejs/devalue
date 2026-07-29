@@ -147,7 +147,7 @@ Note that any variables referenced in the resulting JavaScript (like `Vector` in
 
 ## Custom operations
 
-Every introspection `stringify` performs on the value being serialized — property reads, prototype method calls, iteration, type classification — goes through an operations interface that you can override via the `operations` option. Omitted members fall back to the defaults (exported as `defaultOperations`), which behave exactly as devalue always has.
+Every introspection `stringify` performs on the value being serialized — property reads, prototype method calls, iteration, type classification — goes through an operations interface that you can override via the `operations` option. Omitted members fall back to the defaults (exported as `defaultStringifyOperations`), which behave exactly as devalue always has.
 
 This is useful in two situations:
 
@@ -213,7 +213,7 @@ const revived = devalue.parse(serialized, undefined, {
 ```js
 const rootHandle = devalue.parse(serialized, undefined, {
 	operations: {
-		fromPrimitive: (value) => vm.toHandle(value),
+		fromPrimitive: (primitive) => vm.toHandle(primitive),
 		createObject: () => vm.newObject(),
 		set: (handle, key, value) => handle.setProp(key, value)
 		// ... see ParseOperations for the full interface

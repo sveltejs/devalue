@@ -3,7 +3,7 @@ import * as uvu from 'uvu';
 import {
 	stringify,
 	stringifyAsync,
-	defaultOperations,
+	defaultStringifyOperations,
 	filterArrayIndices,
 	parse
 } from '../index.js';
@@ -55,7 +55,7 @@ suite('operations option', (test) => {
 				operations: {
 					get: undefined,
 					toISOString: undefined,
-					tagOf: (value) => defaultOperations.tagOf(value)
+					tagOf: (value) => defaultStringifyOperations.tagOf(value)
 				}
 			}
 		);
@@ -71,7 +71,7 @@ suite('operations option', (test) => {
 				get: undefined,
 				// @ts-expect-error null is not a valid override, but coalesces
 				toISOString: null,
-				tagOf: (thing) => defaultOperations.tagOf(thing)
+				tagOf: (thing) => defaultStringifyOperations.tagOf(thing)
 			}
 		});
 
@@ -94,18 +94,18 @@ suite('operations option', (test) => {
 		assert.equal(result, '[["Date","custom:1700000000000"]]');
 	});
 
-	test('defaultOperations and shapeOf sentinels are frozen', () => {
-		assert.ok(Object.isFrozen(defaultOperations));
-		assert.ok(Object.isFrozen(defaultOperations.shapeOf(new Map())));
+	test('defaultStringifyOperations and shapeOf sentinels are frozen', () => {
+		assert.ok(Object.isFrozen(defaultStringifyOperations));
+		assert.ok(Object.isFrozen(defaultStringifyOperations.shapeOf(new Map())));
 		assert.ok(
-			Object.isFrozen(defaultOperations.shapeOf({ [Symbol('key')]: 1 }))
+			Object.isFrozen(defaultStringifyOperations.shapeOf({ [Symbol('key')]: 1 }))
 		);
 	});
 
-	test('defaultOperations is exported and delegable', () => {
+	test('defaultStringifyOperations is exported and delegable', () => {
 		const result = stringify(new Map([['k', 'v']]), undefined, {
 			operations: {
-				entriesOf: (value) => defaultOperations.entriesOf(value)
+				entriesOf: (value) => defaultStringifyOperations.entriesOf(value)
 			}
 		});
 
@@ -128,13 +128,13 @@ suite('operations option', (test) => {
 		/** @type {import('../src/types.js').StringifyOperations['shapeOf']} */
 		const shapeOf = (value) =>
 			value instanceof Wrapper
-				? defaultOperations.shapeOf(value.inner)
-				: defaultOperations.shapeOf(value);
+				? defaultStringifyOperations.shapeOf(value.inner)
+				: defaultStringifyOperations.shapeOf(value);
 
 		const result = stringify([a, b], undefined, {
 			operations: {
 				identify: (value) => (value instanceof Wrapper ? value.inner : value),
-				tagOf: (value) => (value instanceof Wrapper ? 'Object' : defaultOperations.tagOf(value)),
+				tagOf: (value) => (value instanceof Wrapper ? 'Object' : defaultStringifyOperations.tagOf(value)),
 				shapeOf,
 				get: (value, key) =>
 					value instanceof Wrapper ? value.inner[key] : value[key]
@@ -345,24 +345,24 @@ const handle_operations = {
 		return value === null ? 'null' : typeof value;
 	},
 	toPrimitive: (handle) => raw(handle),
-	tagOf: (handle) => defaultOperations.tagOf(raw(handle)),
+	tagOf: (handle) => defaultStringifyOperations.tagOf(raw(handle)),
 	isThenable: (handle) => typeof raw(handle).then === 'function',
 	toPromise: (handle) => Promise.resolve(raw(handle)).then(h),
 	unbox: (handle) => h(raw(handle).valueOf()),
-	toISOString: (handle) => defaultOperations.toISOString(raw(handle)),
+	toISOString: (handle) => defaultStringifyOperations.toISOString(raw(handle)),
 	toStringValue: (handle) => raw(handle).toString(),
-	regExpInfo: (handle) => defaultOperations.regExpInfo(raw(handle)),
+	regExpInfo: (handle) => defaultStringifyOperations.regExpInfo(raw(handle)),
 	valuesOf: (handle) => [...raw(handle)].map(h),
 	entriesOf: (handle) => [...raw(handle)].map(([k, v]) => [h(k), h(v)]),
 	viewInfo: (handle) => {
-		const info = defaultOperations.viewInfo(raw(handle));
+		const info = defaultStringifyOperations.viewInfo(raw(handle));
 		return { ...info, buffer: h(info.buffer) };
 	},
 	toArrayBuffer: (handle) => raw(handle),
 	lengthOf: (handle) => raw(handle).length,
 	hasOwn: (handle, index) => Object.hasOwn(raw(handle), index),
-	indicesOf: (handle) => defaultOperations.indicesOf(raw(handle)),
-	shapeOf: (handle) => defaultOperations.shapeOf(raw(handle)),
+	indicesOf: (handle) => defaultStringifyOperations.indicesOf(raw(handle)),
+	shapeOf: (handle) => defaultStringifyOperations.shapeOf(raw(handle)),
 	get: (handle, key) => h(raw(handle)[key])
 };
 
@@ -569,24 +569,24 @@ const tripwire_operations = {
 		return raw === null ? 'null' : typeof raw;
 	},
 	toPrimitive: (value) => untrip(value),
-	tagOf: (value) => defaultOperations.tagOf(untrip(value)),
+	tagOf: (value) => defaultStringifyOperations.tagOf(untrip(value)),
 	isThenable: (value) => typeof untrip(value).then === 'function',
 	toPromise: (value) => Promise.resolve(untrip(value)).then(tripwire),
 	unbox: (value) => tripwire(untrip(value).valueOf()),
-	toISOString: (value) => defaultOperations.toISOString(untrip(value)),
+	toISOString: (value) => defaultStringifyOperations.toISOString(untrip(value)),
 	toStringValue: (value) => untrip(value).toString(),
-	regExpInfo: (value) => defaultOperations.regExpInfo(untrip(value)),
+	regExpInfo: (value) => defaultStringifyOperations.regExpInfo(untrip(value)),
 	valuesOf: (value) => [...untrip(value)].map(tripwire),
 	entriesOf: (value) => [...untrip(value)].map(([k, v]) => [tripwire(k), tripwire(v)]),
 	viewInfo: (value) => {
-		const info = defaultOperations.viewInfo(untrip(value));
+		const info = defaultStringifyOperations.viewInfo(untrip(value));
 		return { ...info, buffer: tripwire(info.buffer) };
 	},
 	toArrayBuffer: (value) => untrip(value),
 	lengthOf: (value) => untrip(value).length,
 	hasOwn: (value, key) => Object.hasOwn(untrip(value), key),
-	indicesOf: (value) => defaultOperations.indicesOf(untrip(value)),
-	shapeOf: (value) => defaultOperations.shapeOf(untrip(value)),
+	indicesOf: (value) => defaultStringifyOperations.indicesOf(untrip(value)),
+	shapeOf: (value) => defaultStringifyOperations.shapeOf(untrip(value)),
 	get: (value, key) => tripwire(untrip(value)[key])
 };
 
@@ -724,7 +724,7 @@ suite('filterArrayIndices', (test) => {
 		array.extra = 'x';
 		assert.equal(
 			filterArrayIndices(Object.keys(array)),
-			defaultOperations.indicesOf(array)
+			defaultStringifyOperations.indicesOf(array)
 		);
 	});
 });

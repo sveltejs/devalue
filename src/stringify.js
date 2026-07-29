@@ -9,7 +9,7 @@ import {
 	UNDEFINED
 } from './constants.js';
 import { encode64 } from './base64.js';
-import { default_operations, merge_operations } from './operations.js';
+import { default_stringify_operations, merge_operations } from './operations.js';
 
 /**
  * Turn a value into a JSON string that can be parsed with `devalue.parse`
@@ -68,7 +68,7 @@ export async function stringifyAsync(value, reducers, options) {
  * @param {import('./types.js').StringifyOptions} [options]
  */
 function run(async, value, reducers, options) {
-	const ops = merge_operations(default_operations, options?.operations);
+	const ops = merge_operations(default_stringify_operations, options?.operations);
 
 	/** @type {any[]} */
 	const stringified = [];

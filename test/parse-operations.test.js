@@ -6,7 +6,7 @@ import {
 	parse,
 	unflatten,
 	defaultParseOperations,
-	defaultOperations
+	defaultStringifyOperations
 } from '../index.js';
 
 globalThis.Temporal ??= (await import('@js-temporal/polyfill')).Temporal;
@@ -171,8 +171,8 @@ suite('cross-realm operations', (test) => {
 			createObject: () => intrinsics.createObject(),
 			createNullPrototypeObject: () => intrinsics.createNullPrototypeObject(),
 			createArray: (length) => new intrinsics.Array(length),
-			fromViewInfo: (type, buffer, byteOffset, length) => {
-				const Constructor = vm.runInContext(type, context);
+			fromViewInfo: (tag, buffer, byteOffset, length) => {
+				const Constructor = vm.runInContext(tag, context);
 				return byteOffset !== undefined
 					? new Constructor(buffer, byteOffset, length)
 					: new Constructor(buffer);
@@ -274,6 +274,103 @@ suite('cross-realm operations', (test) => {
 });
 
 // ---------------------------------------------------------------------------
+// Constructed values are never touched directly
+// ---------------------------------------------------------------------------
+
+suite('tripwire parse operations', (test) => {
+	const values = new WeakMap();
+
+	const handler = new Proxy(
+		{},
+		{
+			get: (_, trap) => () => {
+				throw new Error(`constructed value touched via ${String(trap)}`);
+			}
+		}
+	);
+
+	/** @param {any} value */
+	function tripwire(value) {
+		const handle = new Proxy({}, handler);
+		values.set(handle, value);
+		return handle;
+	}
+
+	/** @param {any} handle */
+	function untrip(handle) {
+		if (!values.has(handle)) throw new Error('expected a tripwire handle');
+		return values.get(handle);
+	}
+
+	/** @type {import('../src/types.js').ParseOperations} */
+	const operations = {
+		fromPrimitive: (primitive) => tripwire(primitive),
+		fromISOString: (iso) => tripwire(new Date(iso)),
+		fromStringValue: (tag, text) =>
+			tripwire(defaultParseOperations.fromStringValue(tag, text)),
+		fromArrayBuffer: (buffer) => tripwire(buffer),
+		fromRegExpInfo: (source, flags) => tripwire(new RegExp(source, flags)),
+		fromViewInfo: (tag, buffer, byteOffset, length) =>
+			tripwire(
+				defaultParseOperations.fromViewInfo(
+					tag,
+					untrip(buffer),
+					byteOffset,
+					length
+				)
+			),
+		box: (value) => tripwire(Object(untrip(value))),
+		createArray: (length) => tripwire(new Array(length)),
+		createSparseArray: (length) =>
+			tripwire(defaultParseOperations.createSparseArray(length)),
+		createObject: () => tripwire({}),
+		createNullPrototypeObject: () => tripwire(Object.create(null)),
+		createSet: () => tripwire(new Set()),
+		createMap: () => tripwire(new Map()),
+		set: (target, key, value) => {
+			untrip(target)[key] = untrip(value);
+		},
+		addValue: (set, value) => {
+			untrip(set).add(untrip(value));
+		},
+		addEntry: (map, key, value) => {
+			untrip(map).set(untrip(key), untrip(value));
+		}
+	};
+
+	test('parse only passes constructed values to operations', () => {
+		const shared = { shared: true };
+		const cyclic = { shared };
+		cyclic.self = cyclic;
+
+		const input = {
+			primitive: 123n,
+			date: new Date(1700000000000),
+			url: new URL('https://example.com/path?q=1'),
+			temporal: Temporal.Instant.from('2023-11-14T22:13:20Z'),
+			regexp: /ab+c/gi,
+			buffer: new Uint8Array([1, 2, 3, 4]).buffer,
+			view: new Uint8Array([5, 6, 7, 8]),
+			boxed: new Number(42),
+			array: [shared, , cyclic],
+			sparse: Object.assign(new Array(1000), { 999: shared }),
+			object: { shared },
+			null_object: Object.assign(Object.create(null), { shared }),
+			set: new Set([shared]),
+			map: new Map([[shared, cyclic]])
+		};
+
+		const revived = parse(stringify(input), undefined, { operations });
+		const root = untrip(revived);
+
+		assert.equal(root.object.shared, root.array[0]);
+		assert.equal(root.array[2].self, root.array[2]);
+		assert.equal(root.sparse.length, 1000);
+		assert.equal(root.sparse[999], root.array[0]);
+	});
+});
+
+// ---------------------------------------------------------------------------
 // Foreign-runtime (handle-based) revival
 // ---------------------------------------------------------------------------
 
@@ -295,14 +392,14 @@ const raw = (handle) => /** @type {Handle} */ (handle).value;
 
 /** @type {import('../src/types.js').ParseOperations} */
 const handle_operations = {
-	fromPrimitive: (value) => h(value),
+	fromPrimitive: (primitive) => h(primitive),
 	fromISOString: (iso) => h(new Date(iso)),
 	fromRegExpInfo: (source, flags) => h(new RegExp(source, flags)),
 	fromStringValue: (tag, text) => h(defaultParseOperations.fromStringValue(tag, text)),
 	box: (value) => h(Object(raw(value))),
 	fromArrayBuffer: (buffer) => h(buffer),
-	fromViewInfo: (type, buffer, byteOffset, length) =>
-		h(defaultParseOperations.fromViewInfo(type, raw(buffer), byteOffset, length)),
+	fromViewInfo: (tag, buffer, byteOffset, length) =>
+		h(defaultParseOperations.fromViewInfo(tag, raw(buffer), byteOffset, length)),
 	createArray: (length) => h(new Array(length)),
 	createSparseArray: (length) => h(defaultParseOperations.createSparseArray(length)),
 
@@ -428,13 +525,13 @@ suite('handle-based parse operations', (test) => {
 				return value === null ? 'null' : typeof value;
 			},
 			toPrimitive: (handle) => raw(handle),
-			tagOf: (handle) => defaultOperations.tagOf(raw(handle)),
+			tagOf: (handle) => defaultStringifyOperations.tagOf(raw(handle)),
 			isThenable: () => false,
-			toISOString: (handle) => defaultOperations.toISOString(raw(handle)),
+			toISOString: (handle) => defaultStringifyOperations.toISOString(raw(handle)),
 			lengthOf: (handle) => raw(handle).length,
 			hasOwn: (handle, key) => Object.hasOwn(raw(handle), key),
-			indicesOf: (handle) => defaultOperations.indicesOf(raw(handle)),
-			shapeOf: (handle) => defaultOperations.shapeOf(raw(handle)),
+			indicesOf: (handle) => defaultStringifyOperations.indicesOf(raw(handle)),
+			shapeOf: (handle) => defaultStringifyOperations.shapeOf(raw(handle)),
 			get: (handle, key) => h(raw(handle)[key])
 		};
 

@@ -49,9 +49,9 @@ const SYMBOL_KEYS = Object.freeze({ kind: 'symbol-keys' });
  * The object is frozen — it is shared by every `stringify` call that does
  * not override a given operation.
  *
- * @type {import('./types.js').StringifyOperations}
  */
-export const default_operations = Object.freeze({
+/** @type {import('./types.js').DefaultStringifyOperations} */
+const stringify_operations = {
 	identify: (value) => value,
 
 	typeOf: (value) => (value === null ? 'null' : typeof value),
@@ -103,7 +103,9 @@ export const default_operations = Object.freeze({
 	},
 
 	get: (value, key) => value[key]
-});
+};
+
+export const default_stringify_operations = Object.freeze(stringify_operations);
 
 /**
  * The default implementations of every construction operation `parse` and
@@ -119,10 +121,10 @@ export const default_operations = Object.freeze({
  * The object is frozen — it is shared by every `parse` call that does not
  * override a given operation.
  *
- * @type {import('./types.js').ParseOperations}
  */
-export const default_parse_operations = Object.freeze({
-	fromPrimitive: (value) => value,
+/** @type {import('./types.js').DefaultParseOperations} */
+const parse_operations = {
+	fromPrimitive: (primitive) => primitive,
 
 	fromISOString: (iso) => new Date(iso),
 
@@ -138,8 +140,8 @@ export const default_parse_operations = Object.freeze({
 
 	fromRegExpInfo: (source, flags) => new RegExp(source, flags),
 
-	fromViewInfo: (type, buffer, byteOffset, length) => {
-		const Constructor = /** @type {any} */ (globalThis)[type];
+	fromViewInfo: (tag, buffer, byteOffset, length) => {
+		const Constructor = /** @type {any} */ (globalThis)[tag];
 		return byteOffset !== undefined
 			? new Constructor(buffer, byteOffset, length)
 			: new Constructor(buffer);
@@ -186,4 +188,6 @@ export const default_parse_operations = Object.freeze({
 	addEntry: (map, key, value) => {
 		map.set(key, value);
 	}
-});
+};
+
+export const default_parse_operations = Object.freeze(parse_operations);

@@ -1,3 +1,30 @@
+export type StringValueTag =
+	| 'URL'
+	| 'URLSearchParams'
+	| 'Temporal.Duration'
+	| 'Temporal.Instant'
+	| 'Temporal.PlainDate'
+	| 'Temporal.PlainTime'
+	| 'Temporal.PlainDateTime'
+	| 'Temporal.PlainMonthDay'
+	| 'Temporal.PlainYearMonth'
+	| 'Temporal.ZonedDateTime';
+
+export type ViewTag =
+	| 'Int8Array'
+	| 'Uint8Array'
+	| 'Uint8ClampedArray'
+	| 'Int16Array'
+	| 'Uint16Array'
+	| 'Float16Array'
+	| 'Int32Array'
+	| 'Uint32Array'
+	| 'Float32Array'
+	| 'Float64Array'
+	| 'BigInt64Array'
+	| 'BigUint64Array'
+	| 'DataView';
+
 export type TypedArray =
 	| Int8Array
 	| Uint8Array
@@ -31,7 +58,8 @@ export type TypedArray =
  *   be any opaque token as long as the operations agree on what it means.
  *
  * All members are optional when passed to `stringify` — omitted members fall
- * back to the defaults (native behavior, exported as `defaultOperations`).
+ * back to the defaults (native behavior, exported as
+ * `defaultStringifyOperations`).
  *
  * Members are named by what they do with the value:
  * - `isXxx`/`hasXxx` — predicates returning booleans
@@ -212,11 +240,33 @@ export interface StringifyOperations {
 	get(value: any, key: string | number): any;
 }
 
+/** The native JavaScript implementation exported as `defaultStringifyOperations`. */
+export interface DefaultStringifyOperations extends StringifyOperations {
+	identify(value: any): any;
+	toPrimitive(
+		value: undefined | null | boolean | number | bigint | string
+	): undefined | null | boolean | number | bigint | string;
+	toISOString(date: Date): string;
+	regExpInfo(regexp: RegExp): { source: string; flags: string };
+	valuesOf(set: Set<any>): Set<any>;
+	entriesOf(map: Map<any, any>): Map<any, any>;
+	viewInfo(view: any): {
+		buffer: ArrayBufferLike;
+		byteOffset: number;
+		byteLength: number;
+		length?: number;
+		bufferByteLength: number;
+	};
+	toArrayBuffer(buffer: ArrayBuffer): ArrayBuffer;
+	lengthOf(array: any[]): number;
+	indicesOf(array: any[]): string[];
+}
+
 /** Options for `stringify` and `stringifyAsync`. */
 export interface StringifyOptions {
 	/**
 	 * Overrides for the introspection/extraction operations used while
-	 * serializing. Omitted members fall back to `defaultOperations`.
+	 * serializing. Omitted members fall back to `defaultStringifyOperations`.
 	 */
 	operations?: Partial<StringifyOperations>;
 }
@@ -268,7 +318,7 @@ export interface ParseOperations {
 	 * `toPrimitive`. Default: the value itself.
 	 */
 	fromPrimitive(
-		value: string | number | boolean | bigint | null | undefined
+		primitive: string | number | boolean | bigint | null | undefined
 	): any;
 
 	/**
@@ -284,7 +334,7 @@ export interface ParseOperations {
 	 * inverse. `tag` distinguishes them (e.g. `'URL'`,
 	 * `'Temporal.Instant'`).
 	 */
-	fromStringValue(tag: string, text: string): any;
+	fromStringValue(tag: StringValueTag, text: string): any;
 
 	/**
 	 * Creates an `ArrayBuffer` from a host `ArrayBuffer` holding the decoded
@@ -302,14 +352,14 @@ export interface ParseOperations {
 
 	/**
 	 * Creates a typed array or `DataView` over an already-revived buffer.
-	 * The inverse of `viewInfo`. `type` is the constructor name (e.g.
+	 * The inverse of `viewInfo`. `tag` is the constructor name (e.g.
 	 * `'Uint8Array'`, `'DataView'`). `byteOffset` and `length` are
 	 * `undefined` when the view spans the whole buffer; otherwise `length`
 	 * is the element count for typed arrays and the byte length for
 	 * `DataView`, matching the constructor signatures.
 	 */
 	fromViewInfo(
-		type: string,
+		tag: ViewTag,
 		buffer: any,
 		byteOffset: number | undefined,
 		length: number | undefined
@@ -364,6 +414,32 @@ export interface ParseOperations {
 
 	/** Adds an entry to a `Map` created by `createMap`. The inverse of `entriesOf`. */
 	addEntry(map: any, key: any, value: any): void;
+}
+
+/** The native JavaScript implementation exported as `defaultParseOperations`. */
+export interface DefaultParseOperations extends ParseOperations {
+	fromPrimitive(
+		primitive: string | number | boolean | bigint | null | undefined
+	): string | number | boolean | bigint | null | undefined;
+	fromISOString(iso: string): Date;
+	fromStringValue(tag: StringValueTag, text: string): URL | URLSearchParams | object;
+	fromArrayBuffer(buffer: ArrayBuffer): ArrayBuffer;
+	fromRegExpInfo(source: string, flags: string | undefined): RegExp;
+	fromViewInfo(
+		tag: ViewTag,
+		buffer: ArrayBufferLike,
+		byteOffset: number | undefined,
+		length: number | undefined
+	): TypedArray | DataView;
+	box(value: any): object;
+	createArray(length: number): any[];
+	createSparseArray(length: number): any[];
+	createObject(): Record<string, any>;
+	createNullPrototypeObject(): Record<string, any>;
+	createSet(): Set<any>;
+	createMap(): Map<any, any>;
+	addValue(set: Set<any>, value: any): void;
+	addEntry(map: Map<any, any>, key: any, value: any): void;
 }
 
 /** Options for `parse` and `unflatten`. */

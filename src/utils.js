@@ -146,7 +146,7 @@ function is_valid_array_index_string(s) {
 
 /**
  * Returns the length of the leading run of valid array indices in `keys`.
- * @param {string[]} keys
+ * @param {readonly string[]} keys
  */
 function array_index_cut(keys) {
 	for (var i = keys.length - 1; i >= 0; i--) {
@@ -171,13 +171,13 @@ export function valid_array_indices(array) {
  * Given the own enumerable string keys of an array-like value, in property
  * order, returns the leading run of them that are valid array indices.
  *
- * This is the filtering half of the `arrayIndices` stringify operation,
+ * This is the filtering half of the `indicesOf` stringify operation,
  * exposed so that custom operations — which typically already have the keys
  * in hand, e.g. from a foreign runtime — don't have to reimplement it.
  *
  * Does not modify `keys`.
  *
- * @param {string[]} keys
+ * @param {readonly string[]} keys
  * @returns {string[]}
  */
 export function filter_array_indices(keys) {
