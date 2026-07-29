@@ -1,9 +1,33 @@
+import { MAX_ARRAY_INDEX } from './constants.js';
 import {
 	enumerable_symbols,
 	get_type,
 	is_plain_object,
 	valid_array_indices
 } from './utils.js';
+
+/**
+ * Merges caller-provided operation overrides over the defaults. Iterating the
+ * default keys (rather than the override's own keys) means nullish members
+ * fall back to the default, and inherited members — e.g. from a class
+ * instance — are picked up.
+ *
+ * @template {Record<string, any>} T
+ * @param {T} defaults
+ * @param {Partial<T> | undefined} overrides
+ * @returns {T}
+ */
+export function merge_operations(defaults, overrides) {
+	if (!overrides) return defaults;
+
+	const merged = /** @type {T} */ ({});
+
+	for (const key of /** @type {(keyof T)[]} */ (Object.keys(defaults))) {
+		merged[key] = overrides[key] ?? defaults[key];
+	}
+
+	return merged;
+}
 
 /** @type {{ kind: 'not-plain' }} */
 const NOT_PLAIN = Object.freeze({ kind: 'not-plain' });
@@ -25,9 +49,9 @@ const SYMBOL_KEYS = Object.freeze({ kind: 'symbol-keys' });
  * The object is frozen — it is shared by every `stringify` call that does
  * not override a given operation.
  *
- * @type {import('./types.js').StringifyOperations}
  */
-export const default_operations = Object.freeze({
+/** @type {import('./types.js').DefaultStringifyOperations} */
+const stringify_operations = {
 	identify: (value) => value,
 
 	typeOf: (value) => (value === null ? 'null' : typeof value),
@@ -79,4 +103,91 @@ export const default_operations = Object.freeze({
 	},
 
 	get: (value, key) => value[key]
-});
+};
+
+export const default_stringify_operations = Object.freeze(stringify_operations);
+
+/**
+ * The default implementations of every construction operation `parse` and
+ * `unflatten` perform while reviving a value. Each one uses native
+ * JavaScript semantics (built-in constructors, property assignment, etc).
+ *
+ * Pass overrides via the `operations` option of `parse`/`unflatten` to
+ * customize how values are built — e.g. to construct them from the
+ * intrinsics of a different realm (a `node:vm` context), or to build up
+ * values inside another JavaScript runtime (a WASM-hosted engine, a remote
+ * process) through handle objects.
+ *
+ * The object is frozen — it is shared by every `parse` call that does not
+ * override a given operation.
+ *
+ */
+/** @type {import('./types.js').DefaultParseOperations} */
+const parse_operations = {
+	fromPrimitive: (primitive) => primitive,
+
+	fromISOString: (iso) => new Date(iso),
+
+	fromStringValue: (tag, text) => {
+		if (tag === 'URL') return new URL(text);
+		if (tag === 'URLSearchParams') return new URLSearchParams(text);
+		// 'Temporal.Instant', 'Temporal.PlainDate', ...
+		// @ts-expect-error TS doesn't know about Temporal yet
+		return Temporal[tag.slice(9)].from(text);
+	},
+
+	fromArrayBuffer: (buffer) => buffer,
+
+	fromRegExpInfo: (source, flags) => new RegExp(source, flags),
+
+	fromViewInfo: (tag, buffer, byteOffset, length) => {
+		const Constructor = /** @type {any} */ (globalThis)[tag];
+		return byteOffset !== undefined
+			? new Constructor(buffer, byteOffset, length)
+			: new Constructor(buffer);
+	},
+
+	box: (value) => Object(value),
+
+	createArray: (length) => new Array(length),
+
+	createSparseArray: (length) => {
+		/** @type {any[]} */
+		const array = [];
+
+		// Setting `array.length = length` (or equivalently calling
+		// `new Array(length)`) on an untrusted length is a DoS vector: V8
+		// eagerly allocates a contiguous backing store for array lengths below
+		// ~10^8, so a small payload with a huge declared length can force
+		// arbitrary memory allocation. Touching the largest-possible index
+		// first forces V8 into dictionary-elements mode, where `length` is
+		// just a number and no contiguous allocation occurs.
+		array[MAX_ARRAY_INDEX] = undefined;
+		delete array[MAX_ARRAY_INDEX];
+		array.length = length;
+
+		return array;
+	},
+
+	createObject: () => ({}),
+
+	createNullPrototypeObject: () => Object.create(null),
+
+	createSet: () => new Set(),
+
+	createMap: () => new Map(),
+
+	set: (target, key, value) => {
+		target[key] = value;
+	},
+
+	addValue: (set, value) => {
+		set.add(value);
+	},
+
+	addEntry: (map, key, value) => {
+		map.set(key, value);
+	}
+};
+
+export const default_parse_operations = Object.freeze(parse_operations);

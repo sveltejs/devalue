@@ -9,7 +9,7 @@ import {
 	UNDEFINED
 } from './constants.js';
 import { encode64 } from './base64.js';
-import { default_operations } from './operations.js';
+import { default_stringify_operations, merge_operations } from './operations.js';
 
 /**
  * Turn a value into a JSON string that can be parsed with `devalue.parse`
@@ -68,21 +68,7 @@ export async function stringifyAsync(value, reducers, options) {
  * @param {import('./types.js').StringifyOptions} [options]
  */
 function run(async, value, reducers, options) {
-	/** @type {import('./types.js').StringifyOperations} */
-	let ops = default_operations;
-
-	if (options?.operations) {
-		ops = /** @type {import('./types.js').StringifyOperations} */ ({});
-
-		// iterating the default keys (rather than the override's own keys) means
-		// nullish members fall back to the default, and inherited members — e.g.
-		// from a class instance — are picked up
-		for (const key of /** @type {(keyof typeof ops)[]} */ (
-			Object.keys(default_operations)
-		)) {
-			ops[key] = options.operations[key] ?? default_operations[key];
-		}
-	}
+	const ops = merge_operations(default_stringify_operations, options?.operations);
 
 	/** @type {any[]} */
 	const stringified = [];

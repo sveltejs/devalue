@@ -1,7 +1,6 @@
 import { decode64 } from './base64.js';
 import {
 	HOLE,
-	MAX_ARRAY_INDEX,
 	NAN,
 	NEGATIVE_INFINITY,
 	NEGATIVE_ZERO,
@@ -9,23 +8,29 @@ import {
 	SPARSE,
 	UNDEFINED
 } from './constants.js';
+import { default_parse_operations, merge_operations } from './operations.js';
 import { is_valid_array_index, is_valid_array_len } from './utils.js';
 
 /**
  * Revive a value serialized with `devalue.stringify`
  * @param {string} serialized
  * @param {Record<string, (value: any) => any>} [revivers]
+ * @param {import('./types.js').ParseOptions} [options]
  */
-export function parse(serialized, revivers) {
-	return unflatten(JSON.parse(serialized), revivers);
+export function parse(serialized, revivers, options) {
+	return unflatten(JSON.parse(serialized), revivers, options);
 }
 
 /**
  * Revive a value flattened with `devalue.stringify`
  * @param {number | any[]} parsed
  * @param {Record<string, (value: any) => any>} [revivers]
+ * @param {import('./types.js').ParseOptions} [options]
  */
-export function unflatten(parsed, revivers) {
+export function unflatten(parsed, revivers, options) {
+	/** @type {import('./types.js').ParseOperations} */
+	const ops = merge_operations(default_parse_operations, options?.operations);
+
 	if (typeof parsed === 'number') return hydrate(parsed, true);
 
 	if (!Array.isArray(parsed) || parsed.length === 0) {
@@ -48,11 +53,11 @@ export function unflatten(parsed, revivers) {
 	 * @returns {any}
 	 */
 	function hydrate(index, standalone = false) {
-		if (index === UNDEFINED) return undefined;
-		if (index === NAN) return NaN;
-		if (index === POSITIVE_INFINITY) return Infinity;
-		if (index === NEGATIVE_INFINITY) return -Infinity;
-		if (index === NEGATIVE_ZERO) return -0;
+		if (index === UNDEFINED) return ops.fromPrimitive(undefined);
+		if (index === NAN) return ops.fromPrimitive(NaN);
+		if (index === POSITIVE_INFINITY) return ops.fromPrimitive(Infinity);
+		if (index === NEGATIVE_INFINITY) return ops.fromPrimitive(-Infinity);
+		if (index === NEGATIVE_ZERO) return ops.fromPrimitive(-0);
 
 		if (standalone || typeof index !== 'number') {
 			throw new Error(`Invalid input`);
@@ -63,7 +68,7 @@ export function unflatten(parsed, revivers) {
 		const value = values[index];
 
 		if (!value || typeof value !== 'object') {
-			hydrated[index] = value;
+			hydrated[index] = ops.fromPrimitive(value);
 		} else if (Array.isArray(value)) {
 			if (typeof value[0] === 'string') {
 				const type = value[0];
@@ -103,27 +108,27 @@ export function unflatten(parsed, revivers) {
 
 				switch (type) {
 					case 'Date':
-						hydrated[index] = new Date(value[1]);
+						hydrated[index] = ops.fromISOString(value[1]);
 						break;
 
 					case 'Set':
-						const set = new Set();
+						const set = ops.createSet();
 						hydrated[index] = set;
 						for (let i = 1; i < value.length; i += 1) {
-							set.add(hydrate(value[i]));
+							ops.addValue(set, hydrate(value[i]));
 						}
 						break;
 
 					case 'Map':
-						const map = new Map();
+						const map = ops.createMap();
 						hydrated[index] = map;
 						for (let i = 1; i < value.length; i += 2) {
-							map.set(hydrate(value[i]), hydrate(value[i + 1]));
+							ops.addEntry(map, hydrate(value[i]), hydrate(value[i + 1]));
 						}
 						break;
 
 					case 'RegExp':
-						hydrated[index] = new RegExp(value[1], value[2]);
+						hydrated[index] = ops.fromRegExpInfo(value[1], value[2]);
 						break;
 
 					case 'Object': {
@@ -137,23 +142,23 @@ export function unflatten(parsed, revivers) {
 							throw new Error('Invalid input');
 						}
 
-						hydrated[index] = Object(hydrate(wrapped_index));
+						hydrated[index] = ops.box(hydrate(wrapped_index));
 						break;
 					}
 
 					case 'BigInt':
-						hydrated[index] = BigInt(value[1]);
+						hydrated[index] = ops.fromPrimitive(BigInt(value[1]));
 						break;
 
 					case 'null':
-						const obj = Object.create(null);
+						const obj = ops.createNullPrototypeObject();
 						hydrated[index] = obj;
 						for (let i = 1; i < value.length; i += 2) {
 							if (value[i] === '__proto__') {
 								throw new Error('Cannot parse an object with a `__proto__` property');
 							}
 
-							obj[value[i]] = hydrate(value[i + 1]);
+							ops.set(obj, value[i], hydrate(value[i + 1]));
 						}
 						break;
 
@@ -177,13 +182,9 @@ export function unflatten(parsed, revivers) {
 							throw new Error('Invalid data');
 						}
 
-						const TypedArrayConstructor = globalThis[type];
 						const buffer = hydrate(value[1]);
 
-						hydrated[index] =
-							value[2] !== undefined
-								? new TypedArrayConstructor(buffer, value[2], value[3])
-								: new TypedArrayConstructor(buffer);
+						hydrated[index] = ops.fromViewInfo(type, buffer, value[2], value[3]);
 
 						break;
 					}
@@ -193,11 +194,12 @@ export function unflatten(parsed, revivers) {
 						if (typeof base64 !== 'string') {
 							throw new Error('Invalid ArrayBuffer encoding');
 						}
-						const arraybuffer = decode64(base64);
-						hydrated[index] = arraybuffer;
+						hydrated[index] = ops.fromArrayBuffer(decode64(base64));
 						break;
 					}
 
+					case 'URL':
+					case 'URLSearchParams':
 					case 'Temporal.Duration':
 					case 'Temporal.Instant':
 					case 'Temporal.PlainDate':
@@ -206,21 +208,8 @@ export function unflatten(parsed, revivers) {
 					case 'Temporal.PlainMonthDay':
 					case 'Temporal.PlainYearMonth':
 					case 'Temporal.ZonedDateTime': {
-						const temporalName = type.slice(9);
-						// @ts-expect-error TS doesn't know about Temporal yet
-						hydrated[index] = Temporal[temporalName].from(value[1]);
-						break;
-					}
-
-					case 'URL': {
-						const url = new URL(value[1]);
-						hydrated[index] = url;
-						break;
-					}
-
-					case 'URLSearchParams': {
-						const url = new URLSearchParams(value[1]);
-						hydrated[index] = url;
+						// the same tags `toStringValue` serializes on the stringify side
+						hydrated[index] = ops.fromStringValue(type, value[1]);
 						break;
 					}
 
@@ -235,19 +224,11 @@ export function unflatten(parsed, revivers) {
 					throw new Error('Invalid input');
 				}
 
-				/** @type {any[]} */
-				const array = [];
+				// `len` comes from the input rather than being bounded by it, so
+				// `createSparseArray` is responsible for not allocating storage
+				// proportional to it.
+				const array = ops.createSparseArray(len);
 				hydrated[index] = array;
-
-				// Setting `array.length = len` (or equivalently calling `new Array(len)`)
-				// on an untrusted `len` is a DoS vector: V8 eagerly allocates a
-				// contiguous backing store for array lengths below ~10^8, so a
-				// small payload with a huge declared length can force arbitrary
-				// memory allocation. Touching the largest-possible index first
-				// forces V8 into dictionary-elements mode, where `length` is
-				// just a number and no contiguous allocation occurs.
-				array[MAX_ARRAY_INDEX] = undefined;
-				delete array[MAX_ARRAY_INDEX];
 
 				for (let i = 2; i < value.length; i += 2) {
 					const idx = value[i];
@@ -256,24 +237,21 @@ export function unflatten(parsed, revivers) {
 						throw new Error('Invalid input');
 					}
 
-					array[idx] = hydrate(value[i + 1]);
+					ops.set(array, idx, hydrate(value[i + 1]));
 				}
-
-				array.length = len;
 			} else {
-				const array = new Array(value.length);
+				const array = ops.createArray(value.length);
 				hydrated[index] = array;
 
 				for (let i = 0; i < value.length; i += 1) {
 					const n = value[i];
 					if (n === HOLE) continue;
 
-					array[i] = hydrate(n);
+					ops.set(array, i, hydrate(n));
 				}
 			}
 		} else {
-			/** @type {Record<string, any>} */
-			const object = {};
+			const object = ops.createObject();
 			hydrated[index] = object;
 
 			for (const key of Object.keys(value)) {
@@ -281,8 +259,7 @@ export function unflatten(parsed, revivers) {
 					throw new Error('Cannot parse an object with a `__proto__` property');
 				}
 
-				const n = value[key];
-				object[key] = hydrate(n);
+				ops.set(object, key, hydrate(value[key]));
 			}
 		}
 

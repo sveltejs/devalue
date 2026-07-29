@@ -145,16 +145,41 @@ function is_valid_array_index_string(s) {
 }
 
 /**
- * Finds the populated indices of an array.
- * @param {unknown[]} array
+ * Returns the length of the leading run of valid array indices in `keys`.
+ * @param {readonly string[]} keys
  */
-export function valid_array_indices(array) {
-	const keys = Object.keys(array);
+function array_index_cut(keys) {
 	for (var i = keys.length - 1; i >= 0; i--) {
 		if (is_valid_array_index_string(keys[i])) {
 			break;
 		}
 	}
-	keys.length = i + 1;
+	return i + 1;
+}
+
+/**
+ * Finds the populated indices of an array.
+ * @param {unknown[]} array
+ */
+export function valid_array_indices(array) {
+	const keys = Object.keys(array);
+	keys.length = array_index_cut(keys);
 	return keys;
+}
+
+/**
+ * Given the own enumerable string keys of an array-like value, in property
+ * order, returns the leading run of them that are valid array indices.
+ *
+ * This is the filtering half of the `indicesOf` stringify operation,
+ * exposed so that custom operations — which typically already have the keys
+ * in hand, e.g. from a foreign runtime — don't have to reimplement it.
+ *
+ * Does not modify `keys`.
+ *
+ * @param {readonly string[]} keys
+ * @returns {string[]}
+ */
+export function filter_array_indices(keys) {
+	return keys.slice(0, array_index_cut(keys));
 }

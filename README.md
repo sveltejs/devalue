@@ -147,7 +147,7 @@ Note that any variables referenced in the resulting JavaScript (like `Vector` in
 
 ## Custom operations
 
-Every introspection `stringify` performs on the value being serialized — property reads, prototype method calls, iteration, type classification — goes through an operations interface that you can override via the `operations` option. Omitted members fall back to the defaults (exported as `defaultOperations`), which behave exactly as devalue always has.
+Every introspection `stringify` performs on the value being serialized — property reads, prototype method calls, iteration, type classification — goes through an operations interface that you can override via the `operations` option. Omitted members fall back to the defaults (exported as `defaultStringifyOperations`), which behave exactly as devalue always has.
 
 This is useful in two situations:
 
@@ -184,7 +184,46 @@ const stringified = devalue.stringify(rootHandle, undefined, {
 });
 ```
 
+Some operations have a non-obvious contract that is easy to get subtly wrong. Where the work is not specific to your values, devalue exports the pieces so you don't have to reimplement them — `filterArrayIndices` does the array-index filtering that `indicesOf` needs, given keys you already have:
+
+```js
+indicesOf: (handle) => devalue.filterArrayIndices(handle.ownEnumerableStringKeys())
+```
+
 Reducers compose with custom operations: they receive the raw value/handle, and whatever they return is serialized through the same operations.
+
+### Customizing `parse`
+
+The mirror image: `parse` and `unflatten` build every value through construction operations (`ParseOperations`, defaults exported as `defaultParseOperations`), so you can control what gets created. The members mirror `StringifyOperations` with the host/value-space boundary running the other way: each `fromXxx` inverts the corresponding `toXxx`, `fromXxxInfo` inverts `xxxInfo`, and the bare-verb mutators invert the bare-verb accessors (`set`/`get`, `addValue`/`valuesOf`, `addEntry`/`entriesOf`, `box`/`unbox`).
+
+**Cross-realm revival.** By default the revived value is built from the intrinsics of whichever realm devalue is running in, so `instanceof` checks fail elsewhere. Constructing from a target realm's intrinsics fixes that:
+
+```js
+const revived = devalue.parse(serialized, undefined, {
+	operations: {
+		fromISOString: (iso) => new sandbox.Date(iso),
+		createMap: () => new sandbox.Map(),
+		createObject: () => sandbox.makeObject()
+	}
+});
+```
+
+**Foreign-runtime revival.** `parse` never inspects the values it creates — it only passes them back into other operations — so the operations can build values inside another runtime and return opaque handles:
+
+```js
+const rootHandle = devalue.parse(serialized, undefined, {
+	operations: {
+		fromPrimitive: (primitive) => vm.toHandle(primitive),
+		createObject: () => vm.newObject(),
+		set: (handle, key, value) => handle.setProp(key, value)
+		// ... see ParseOperations for the full interface
+	}
+});
+```
+
+Containers are created empty and populated afterwards (`createMap` then `addEntry`, `createObject` then `set`, and so on) — that ordering is what allows cyclic values to be revived, since the empty container is cached before its contents are built.
+
+Revivers compose the same way reducers do: they receive whatever the operations built, and their return value is used as-is.
 
 ## Error handling
 
