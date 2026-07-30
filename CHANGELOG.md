@@ -1,5 +1,12 @@
 # devalue changelog
 
+## 5.9.0
+### Minor Changes
+
+- 07d6a38: feat: export `filterArrayIndices`, the array-index filtering used by the `indicesOf` stringify operation, so custom operations can reuse it instead of reimplementing it
+- 07d6a38: feat: add pluggable `operations` option to `parse`/`unflatten`, allowing customization of how values are constructed while reviving (e.g. cross-realm or foreign-runtime revival)
+- 5b53532: feat: add pluggable `operations` option to `stringify`/`stringifyAsync`, allowing customization of how values are introspected during serialization (e.g. side-effect-free or foreign-runtime serialization)
+
 ## 5.8.2
 ### Patch Changes
 
