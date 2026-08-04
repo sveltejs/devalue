@@ -290,7 +290,7 @@ export function uneval(value, replacer) {
 				let str = `new ${type}`;
 
 				if (!names.has(thing.buffer)) {
-					str += `([${stringify_typed_array_elements(new thing.constructor(thing.buffer))}])`;
+					str += `([${stringify_typed_array_elements(type, thing.buffer)}])`;
 				} else {
 					str += `(${stringify(thing.buffer)})`;
 				}
@@ -451,7 +451,7 @@ export function uneval(value, replacer) {
 					let str = `new ${type}`;
 
 					if (!names.has(thing.buffer)) {
-						str += `([${stringify_typed_array_elements(new thing.constructor(thing.buffer))}])`;
+						str += `([${stringify_typed_array_elements(type, thing.buffer)}])`;
 					} else {
 						str += `(${stringify(thing.buffer)})`;
 					}
@@ -522,13 +522,19 @@ export function uneval(value, replacer) {
 }
 
 /**
- * Serialize the elements of a typed array as a comma-separated list.
+ * Serialize the elements of `buffer`, read as `type`, as a comma-separated list.
+ * The view is created from `type` rather than from the serialized value's own
+ * constructor, which may be a subclass like Node's `Buffer` whose `toString`
+ * decodes the bytes instead of listing them.
  * `BigInt64Array`/`BigUint64Array` elements are bigints and must be written
  * with an `n` suffix, otherwise the emitted `new BigInt64Array([...])` throws.
- * @param {import('./types.js').TypedArray} array
+ * @param {string} type
+ * @param {ArrayBufferLike} buffer
  */
-function stringify_typed_array_elements(array) {
-	if (array instanceof BigInt64Array || array instanceof BigUint64Array) {
+function stringify_typed_array_elements(type, buffer) {
+	const array = new (/** @type {any} */ (globalThis)[type])(buffer);
+
+	if (type === 'BigInt64Array' || type === 'BigUint64Array') {
 		return Array.from(array, (element) => `${element}n`).join(',');
 	}
 
