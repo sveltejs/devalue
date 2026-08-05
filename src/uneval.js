@@ -515,6 +515,14 @@ export function uneval(value, replacer) {
 		statements.push(`return ${str}`);
 
 		const body = [...reconstructions, ...statements].join(';');
+		// A function may have at most 65535 parameters (and a call at most that
+		// many arguments). For very large graphs, pass the hoisted values as a
+		// single array argument and destructure them into the placeholder names,
+		// so the emitted code stays within the engine limit (#93).
+		if (params.length > 65534) {
+			return `(function(){var[${params.join(',')}]=arguments[0];${body}}([${values.join(',')}]))`;
+		}
+
 		return `(function(${params.join(',')}){${body}}(${values.join(',')}))`;
 	} else {
 		return str;
