@@ -1,5 +1,162 @@
 # devalue changelog
 
+## 5.9.0
+### Minor Changes
+
+- 07d6a38: feat: export `filterArrayIndices`, the array-index filtering used by the `indicesOf` stringify operation, so custom operations can reuse it instead of reimplementing it
+- 07d6a38: feat: add pluggable `operations` option to `parse`/`unflatten`, allowing customization of how values are constructed while reviving (e.g. cross-realm or foreign-runtime revival)
+- 5b53532: feat: add pluggable `operations` option to `stringify`/`stringifyAsync`, allowing customization of how values are introspected during serialization (e.g. side-effect-free or foreign-runtime serialization)
+
+## 5.8.2
+### Patch Changes
+
+- 48cc81f: fix: serialize DataView subviews with the correct byte offset and length
+- cd6da94: fix: resolve circular references through custom revivers when payload is already hydrated
+- 29a3382: fix: `uneval` now produces valid output for a repeated empty `Map` or `Set`
+- 8c0db06: fix: serialize Temporal values referenced more than once in `uneval`
+- 3770846: fix: emit valid JS for `BigInt64Array` and `BigUint64Array` in `uneval`
+- 756265a: fix: preserve shared-reference identity for Map keys in `uneval`
+- faa8a05: fix: emit uneval reconstructions before the statements that reference them
+- 06129ad: fix: do not grow sparse arrays by one slot in uneval
+
+## 5.8.1
+### Patch Changes
+
+- 206ca67: fix: force sparse arrays to allocate sparsely
+
+## 5.8.0
+### Minor Changes
+
+- c5115b0: feat: add `stringifyAsync` for async serialization
+
+## 5.7.1
+### Patch Changes
+
+- 8becc7c: fix: handle regexes consistently in uneval's value and reference formats
+
+## 5.7.0
+### Minor Changes
+
+- df2e284: feat: use native alternatives to encode/decode base64
+- 498656e: feat: add `DataView` support
+- a210130: feat: whitelist `Float16Array`
+- df2e284: feat: simplify TypedArray slices
+
+### Patch Changes
+
+- 5590634: fix: get `uneval` type handling up to parity with `stringify`
+- 57f73fc: fix: correctly support boxed bigints and sentinel values
+
+## 5.6.4
+
+### Patch Changes
+
+- 87c1f3c: fix: reject `__proto__` keys in malformed `Object` wrapper payloads
+
+  This validates the `"Object"` parse path and throws when the wrapped value has an own `__proto__` key.
+
+- 40f1db1: fix: ensure sparse array indices are integers
+- 87c1f3c: fix: disallow `__proto__` keys in null-prototype object parsing
+
+  This disallows `__proto__` keys in the `"null"` parse path so null-prototype object hydration cannot carry that key through parse/unflatten.
+
+## 5.6.3
+
+### Patch Changes
+
+- 0f04d4d: fix: Properly handle `__proto__`
+- 819f1ac: fix: better encoding for sparse arrays
+
+## 5.6.2
+
+### Patch Changes
+
+- 1175584: fix: validate input for `ArrayBuffer` parsing
+- e46afa6: fix: validate input for typed arrays
+- 1175584: fix: more helpful errors for inputs causing stack overflows
+
+## 5.6.1
+
+### Patch Changes
+
+- 2161d44: fix: add hasOwn check before calling reviver
+
+## 5.6.0
+
+### Minor Changes
+
+- a3d09d4: feat: expose `DevalueError` for `instanceof` checks in `catch` clauses
+- a3d09d4: feat: add `value` and `root` properties in `DevalueError` instances
+
+## 5.5.0
+
+### Minor Changes
+
+- 828fa1c: Enable support for custom reducer/reviver for "function" values
+
+## 5.4.2
+
+### Patch Changes
+
+- 5c26c0d: fix: allow custom revivers to revive things serialized by builtin reducers
+
+## 5.4.1
+
+### Patch Changes
+
+- ca3c7b6: chore: Remove impossible `void` type from replacer's `uneval`
+
+## 5.4.0
+
+### Minor Changes
+
+- 9306d09: feat: pass `uneval` to replacer, for handling nested custom types
+
+### Patch Changes
+
+- b617c7c: perf: shrink `uneval` output with null-proto objects
+
+## 5.3.2
+
+### Patch Changes
+
+- 0623a47: fix: disallow array method access when parsing
+- 0623a47: fix: disallow `__proto__` properties on objects
+
+## 5.3.1
+
+### Patch Changes
+
+- ae904c5: fix: correctly differentiate between +0 and -0
+
+## 5.3.0
+
+### Minor Changes
+
+- 2896e7b: feat: support Temporal
+- fec694d: feat: support `URL` and `URLSearchParams` objects
+
+## 5.2.1
+
+### Patch Changes
+
+- e46f4c8: fix: handle repeated array buffers and subarrays
+- 2dfa504: fix: handle custom classes with null proto as pojo
+
+## 5.2.0
+
+- Handle custom classes with null proto as pojo ([#95](https://github.com/sveltejs/devalue/pull/95))
+
+## 5.1.1
+
+- Only iterate over own properties of reducers ([#80](https://github.com/Rich-Harris/devalue/pull/80))
+
+## 5.1.0
+
+- Handle typed arrays and array buffers ([#69](https://github.com/Rich-Harris/devalue/pull/69))
+- Add `sideEffects: false` to `package.json` ([#81](https://github.com/Rich-Harris/devalue/pull/81))
+- Better errors when keys are invalid identifiers ([#82](https://github.com/Rich-Harris/devalue/pull/82))
+
 ## 5.0.0
 
 - Ignore non-enumerable symbolic keys ([#78](https://github.com/Rich-Harris/devalue/pull/78))

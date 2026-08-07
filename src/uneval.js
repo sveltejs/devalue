@@ -5,7 +5,9 @@ import {
 	get_type,
 	is_plain_object,
 	is_primitive,
-	stringify_string
+	stringify_key,
+	stringify_string,
+	valid_array_indices
 } from './utils.js';
 
 const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$';
@@ -16,7 +18,7 @@ const reserved =
 /**
  * Turn a value into the JavaScript that creates an equivalent value
  * @param {any} value
- * @param {(value: any) => string | void} [replacer]
+ * @param {(value: any, uneval: (value: any) => string) => string | void} [replacer]
  */
 export function uneval(value, replacer) {
 	const counts = new Map();
@@ -28,10 +30,6 @@ export function uneval(value, replacer) {
 
 	/** @param {any} thing */
 	function walk(thing) {
-		if (typeof thing === 'function') {
-			throw new DevalueError(`Cannot stringify a function`, keys);
-		}
-
 		if (!is_primitive(thing)) {
 			if (counts.has(thing)) {
 				counts.set(thing, counts.get(thing) + 1);
@@ -41,12 +39,16 @@ export function uneval(value, replacer) {
 			counts.set(thing, 1);
 
 			if (replacer) {
-				const str = replacer(thing);
+				const str = replacer(thing, (value) => uneval(value, replacer));
 
 				if (typeof str === 'string') {
 					custom.set(thing, str);
 					return;
 				}
+			}
+
+			if (typeof thing === 'function') {
+				throw new DevalueError(`Cannot stringify a function`, keys, thing, value);
 			}
 
 			const type = get_type(thing);
@@ -58,6 +60,8 @@ export function uneval(value, replacer) {
 				case 'Boolean':
 				case 'Date':
 				case 'RegExp':
+				case 'URL':
+				case 'URLSearchParams':
 					return;
 
 				case 'Array':
@@ -74,35 +78,68 @@ export function uneval(value, replacer) {
 
 				case 'Map':
 					for (const [key, value] of thing) {
-						keys.push(
-							`.get(${is_primitive(key) ? stringify_primitive(key) : '...'})`
-						);
+						keys.push(`.get(${is_primitive(key) ? stringify_primitive(key) : '...'})`);
+						walk(key);
 						walk(value);
 						keys.pop();
 					}
 					break;
 
+				case 'Int8Array':
+				case 'Uint8Array':
+				case 'Uint8ClampedArray':
+				case 'Int16Array':
+				case 'Uint16Array':
+				case 'Float16Array':
+				case 'Int32Array':
+				case 'Uint32Array':
+				case 'Float32Array':
+				case 'Float64Array':
+				case 'BigInt64Array':
+				case 'BigUint64Array':
+				case 'DataView':
+					walk(thing.buffer);
+					return;
+
+				case 'ArrayBuffer':
+					return;
+
+				case 'Temporal.Duration':
+				case 'Temporal.Instant':
+				case 'Temporal.PlainDate':
+				case 'Temporal.PlainTime':
+				case 'Temporal.PlainDateTime':
+				case 'Temporal.PlainMonthDay':
+				case 'Temporal.PlainYearMonth':
+				case 'Temporal.ZonedDateTime':
+					return;
+
 				default:
 					if (!is_plain_object(thing)) {
-						throw new DevalueError(
-							`Cannot stringify arbitrary non-POJOs`,
-							keys
-						);
+						throw new DevalueError(`Cannot stringify arbitrary non-POJOs`, keys, thing, value);
 					}
 
 					if (enumerable_symbols(thing).length > 0) {
-						throw new DevalueError(
-							`Cannot stringify POJOs with symbolic keys`,
-							keys
-						);
+						throw new DevalueError(`Cannot stringify POJOs with symbolic keys`, keys, thing, value);
 					}
 
-					for (const key in thing) {
-						keys.push(`.${key}`);
+					for (const key of Object.keys(thing)) {
+						if (key === '__proto__') {
+							throw new DevalueError(
+								`Cannot stringify objects with __proto__ keys`,
+								keys,
+								thing,
+								value
+							);
+						}
+
+						keys.push(stringify_key(key));
 						walk(thing[key]);
 						keys.pop();
 					}
 			}
+		} else if (typeof thing === 'symbol') {
+			throw new DevalueError(`Cannot stringify a Symbol primitive`, keys, thing, value);
 		}
 	}
 
@@ -140,39 +177,175 @@ export function uneval(value, replacer) {
 			case 'Number':
 			case 'String':
 			case 'Boolean':
+			case 'BigInt':
 				return `Object(${stringify(thing.valueOf())})`;
 
 			case 'RegExp':
-				return `new RegExp(${stringify_string(thing.source)}, "${
-					thing.flags
-				}")`;
+				const { source, flags } = thing;
+				return flags
+					? `new RegExp(${stringify_string(source)},"${flags}")`
+					: `new RegExp(${stringify_string(source)})`;
 
 			case 'Date':
 				return `new Date(${thing.getTime()})`;
 
-			case 'Array':
-				const members = /** @type {any[]} */ (thing).map((v, i) =>
-					i in thing ? stringify(v) : ''
-				);
+			case 'URL':
+				return `new URL(${stringify_string(thing.toString())})`;
+
+			case 'URLSearchParams':
+				return `new URLSearchParams(${stringify_string(thing.toString())})`;
+
+			case 'Array': {
+				// For dense arrays (no holes), we iterate normally.
+				// When we encounter the first hole, we call Object.keys
+				// to determine the sparseness, then decide between:
+				//   - Array literal with holes: [,"a",,] (default)
+				//   - Object.assign: Object.assign(Array(n),{...}) (for very sparse arrays)
+				// Only the Object.assign path avoids iterating every slot, which
+				// is what protects against the DoS of e.g. `arr[1000000] = 1`.
+				let has_holes = false;
+
+				let result = '[';
+
+				for (let i = 0; i < thing.length; i += 1) {
+					if (i > 0) result += ',';
+
+					if (Object.hasOwn(thing, i)) {
+						result += stringify(thing[i]);
+					} else if (!has_holes) {
+						// Decide between array literal and Object.assign.
+						//
+						// Array literal: holes are consecutive commas.
+						// For example, [, "a", ,] is written as [,"a",,].
+						// Each hole costs 1 char (a comma).
+						//
+						// Object.assign: populated indices are listed explicitly.
+						// For example, [, "a", ,] would be written as
+						// Object.assign(Array(3),{1:"a"}). This avoids paying
+						// per-hole, but has a large fixed overhead for the
+						// "Object.assign(Array(n),{...})" wrapper, and each
+						// element costs extra chars for its index and colon.
+						//
+						// The serialized values are the same size either way, so
+						// the choice comes down to the structural overhead:
+						//
+						//   Array literal overhead:
+						//     1 char per element or hole (comma separators)
+						//     + 2 chars for "[" and "]"
+						//     = L + 2
+						//
+						//   Object.assign overhead:
+						//     "Object.assign(Array(" — 20 chars
+						//     + length              — d chars
+						//     + "),{"               — 3 chars
+						//     + for each populated element:
+						//       index + ":" + ","   — (d + 2) chars
+						//     + "})"                — 2 chars
+						//     = (25 + d) + P * (d + 2)
+						//
+						// where L is the array length, P is the number of
+						// populated elements, and d is the number of digits
+						// in L (an upper bound on the digits in any index).
+						//
+						// Object.assign is cheaper when:
+						//   (25 + d) + P * (d + 2) < L + 2
+						const populated_keys = valid_array_indices(/** @type {any[]} */ (thing));
+						const population = populated_keys.length;
+						const d = String(thing.length).length;
+
+						const hole_cost = thing.length + 2;
+						const sparse_cost = 25 + d + population * (d + 2);
+
+						if (hole_cost > sparse_cost) {
+							const entries = populated_keys.map((k) => `${k}:${stringify(thing[k])}`).join(',');
+							return `Object.assign(Array(${thing.length}),{${entries}})`;
+						}
+
+						has_holes = true;
+					}
+					// else: already decided on array literal, hole is just an empty slot
+					// (the comma separator is all we need — no content for this position)
+				}
+
 				const tail = thing.length === 0 || thing.length - 1 in thing ? '' : ',';
-				return `[${members.join(',')}${tail}]`;
+				return result + tail + ']';
+			}
 
 			case 'Set':
 			case 'Map':
 				return `new ${type}([${Array.from(thing).map(stringify).join(',')}])`;
 
-			default:
-				const obj = `{${Object.keys(thing)
-					.map((key) => `${safe_key(key)}:${stringify(thing[key])}`)
-					.join(',')}}`;
-				const proto = Object.getPrototypeOf(thing);
-				if (proto === null) {
-					return Object.keys(thing).length > 0
-						? `Object.assign(Object.create(null),${obj})`
-						: `Object.create(null)`;
+			case 'Int8Array':
+			case 'Uint8Array':
+			case 'Uint8ClampedArray':
+			case 'Int16Array':
+			case 'Uint16Array':
+			case 'Float16Array':
+			case 'Int32Array':
+			case 'Uint32Array':
+			case 'Float32Array':
+			case 'Float64Array':
+			case 'BigInt64Array':
+			case 'BigUint64Array': {
+				let str = `new ${type}`;
+
+				if (!names.has(thing.buffer)) {
+					str += `([${stringify_typed_array_elements(new thing.constructor(thing.buffer))}])`;
+				} else {
+					str += `(${stringify(thing.buffer)})`;
 				}
 
-				return obj;
+				// handle subarrays
+				if (thing.byteLength !== thing.buffer.byteLength) {
+					const start = thing.byteOffset / thing.BYTES_PER_ELEMENT;
+					const end = start + thing.length;
+					str += `.subarray(${start},${end})`;
+				}
+
+				return str;
+			}
+
+			case 'DataView': {
+				let str = `new DataView`;
+
+				if (!names.has(thing.buffer)) {
+					str += `(new Uint8Array([${new Uint8Array(thing.buffer)}]).buffer`;
+				} else {
+					str += `(${stringify(thing.buffer)}`;
+				}
+
+				// handle subviews
+				if (thing.byteLength !== thing.buffer.byteLength) {
+					str += `,${thing.byteOffset},${thing.byteLength}`;
+				}
+
+				return str + ')';
+			}
+
+			case 'ArrayBuffer': {
+				const ui8 = new Uint8Array(thing);
+				return `new Uint8Array([${ui8.toString()}]).buffer`;
+			}
+
+			case 'Temporal.Duration':
+			case 'Temporal.Instant':
+			case 'Temporal.PlainDate':
+			case 'Temporal.PlainTime':
+			case 'Temporal.PlainDateTime':
+			case 'Temporal.PlainMonthDay':
+			case 'Temporal.PlainYearMonth':
+			case 'Temporal.ZonedDateTime':
+				return `${type}.from(${stringify_string(thing.toString())})`;
+
+			default:
+				const keys = Object.keys(thing);
+				const obj = keys.map((key) => `${safe_key(key)}:${stringify(thing[key])}`).join(',');
+				const proto = Object.getPrototypeOf(thing);
+				if (proto === null) {
+					return keys.length > 0 ? `{${obj},__proto__:null}` : `{__proto__:null}`;
+				}
+
+				return `{${obj}}`;
 		}
 	}
 
@@ -187,6 +360,13 @@ export function uneval(value, replacer) {
 
 		/** @type {string[]} */
 		const values = [];
+
+		// Reconstructions (e.g. `b = new Uint8Array(...)`) reassign a placeholder
+		// parameter. They must run before the `statements` that reference them,
+		// otherwise those statements capture the placeholder. They only depend on
+		// IIFE arguments (never on each other), so emitting them first is safe.
+		/** @type {string[]} */
+		const reconstructions = [];
 
 		names.forEach((name, thing) => {
 			params.push(name);
@@ -207,15 +387,28 @@ export function uneval(value, replacer) {
 				case 'Number':
 				case 'String':
 				case 'Boolean':
+				case 'BigInt':
 					values.push(`Object(${stringify(thing.valueOf())})`);
 					break;
 
 				case 'RegExp':
-					values.push(thing.toString());
+					const { source, flags } = thing;
+					const regexp = flags
+						? `new RegExp(${stringify_string(source)},"${flags}")`
+						: `new RegExp(${stringify_string(source)})`
+					values.push(regexp);
 					break;
 
 				case 'Date':
 					values.push(`new Date(${thing.getTime()})`);
+					break;
+
+				case 'URL':
+					values.push(`new URL(${stringify_string(thing.toString())})`);
+					break;
+
+				case 'URLSearchParams':
+					values.push(`new URLSearchParams(${stringify_string(thing.toString())})`);
 					break;
 
 				case 'Array':
@@ -225,44 +418,121 @@ export function uneval(value, replacer) {
 					});
 					break;
 
-				case 'Set':
+				case 'Set': {
 					values.push(`new Set`);
-					statements.push(
-						`${name}.${Array.from(thing)
-							.map((v) => `add(${stringify(v)})`)
-							.join('.')}`
+					const adds = Array.from(thing).map((v) => `.add(${stringify(v)})`);
+					// An empty Set is fully built by `new Set`; a chained statement would
+					// otherwise be a dangling `name.`.
+					if (adds.length > 0) statements.push(name + adds.join(''));
+					break;
+				}
+
+				case 'Map': {
+					values.push(`new Map`);
+					const sets = Array.from(thing).map(
+						([k, v]) => `.set(${stringify(k)}, ${stringify(v)})`
 					);
+					if (sets.length > 0) statements.push(name + sets.join(''));
+					break;
+				}
+
+				case 'Int8Array':
+				case 'Uint8Array':
+				case 'Uint8ClampedArray':
+				case 'Int16Array':
+				case 'Uint16Array':
+				case 'Float16Array':
+				case 'Int32Array':
+				case 'Uint32Array':
+				case 'Float32Array':
+				case 'Float64Array':
+				case 'BigInt64Array':
+				case 'BigUint64Array': {
+					let str = `new ${type}`;
+
+					if (!names.has(thing.buffer)) {
+						str += `([${stringify_typed_array_elements(new thing.constructor(thing.buffer))}])`;
+					} else {
+						str += `(${stringify(thing.buffer)})`;
+					}
+
+					// handle subarrays
+					if (thing.byteLength !== thing.buffer.byteLength) {
+						const start = thing.byteOffset / thing.BYTES_PER_ELEMENT;
+						const end = start + thing.length;
+						str += `.subarray(${start},${end})`;
+					}
+
+					values.push(`{}`);
+					reconstructions.push(`${name}=${str}`);
+					break;
+				}
+
+				case 'DataView': {
+					let str = `new DataView`;
+
+					if (!names.has(thing.buffer)) {
+						str += `(new Uint8Array([${new Uint8Array(thing.buffer)}]).buffer`;
+					} else {
+						str += `(${stringify(thing.buffer)}`;
+					}
+
+					// handle subviews
+					if (thing.byteLength !== thing.buffer.byteLength) {
+						str += `,${thing.byteOffset},${thing.byteLength}`;
+					}
+
+					str += ')';
+
+					values.push(`{}`);
+					reconstructions.push(`${name}=${str}`);
+					break;
+				}
+
+				case 'ArrayBuffer':
+					values.push(`new Uint8Array([${new Uint8Array(thing)}]).buffer`);
 					break;
 
-				case 'Map':
-					values.push(`new Map`);
-					statements.push(
-						`${name}.${Array.from(thing)
-							.map(([k, v]) => `set(${stringify(k)}, ${stringify(v)})`)
-							.join('.')}`
-					);
+				case 'Temporal.Duration':
+				case 'Temporal.Instant':
+				case 'Temporal.PlainDate':
+				case 'Temporal.PlainTime':
+				case 'Temporal.PlainDateTime':
+				case 'Temporal.PlainMonthDay':
+				case 'Temporal.PlainYearMonth':
+				case 'Temporal.ZonedDateTime':
+					values.push(`${type}.from(${stringify_string(thing.toString())})`);
 					break;
 
 				default:
-					values.push(
-						Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}'
-					);
+					values.push(Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}');
 					Object.keys(thing).forEach((key) => {
-						statements.push(
-							`${name}${safe_prop(key)}=${stringify(thing[key])}`
-						);
+						statements.push(`${name}${safe_prop(key)}=${stringify(thing[key])}`);
 					});
 			}
 		});
 
 		statements.push(`return ${str}`);
 
-		return `(function(${params.join(',')}){${statements.join(
-			';'
-		)}}(${values.join(',')}))`;
+		const body = [...reconstructions, ...statements].join(';');
+		return `(function(${params.join(',')}){${body}}(${values.join(',')}))`;
 	} else {
 		return str;
 	}
+}
+
+/**
+ * Serialize the elements of a typed array as a comma-separated list.
+ * `BigInt64Array`/`BigUint64Array` elements are bigints and must be written
+ * with an `n` suffix, otherwise the emitted `new BigInt64Array([...])` throws.
+ * @param {import('./types.js').TypedArray} array
+ */
+function stringify_typed_array_elements(array) {
+	if (array instanceof BigInt64Array || array instanceof BigUint64Array) {
+		return Array.from(array, (element) => `${element}n`).join(',');
+	}
+
+	return array.toString();
 }
 
 /** @param {number} num */
@@ -289,9 +559,7 @@ function escape_unsafe_chars(str) {
 
 /** @param {string} key */
 function safe_key(key) {
-	return /^[_$a-zA-Z][_$a-zA-Z0-9]*$/.test(key)
-		? key
-		: escape_unsafe_chars(JSON.stringify(key));
+	return /^[_$a-zA-Z][_$a-zA-Z0-9]*$/.test(key) ? key : escape_unsafe_chars(JSON.stringify(key));
 }
 
 /** @param {string} key */
@@ -303,11 +571,12 @@ function safe_prop(key) {
 
 /** @param {any} thing */
 function stringify_primitive(thing) {
-	if (typeof thing === 'string') return stringify_string(thing);
+	const type = typeof thing;
+	if (type === 'string') return stringify_string(thing);
 	if (thing === void 0) return 'void 0';
 	if (thing === 0 && 1 / thing < 0) return '-0';
 	const str = String(thing);
-	if (typeof thing === 'number') return str.replace(/^(-)?0\./, '$1.');
-	if (typeof thing === 'bigint') return thing + 'n';
+	if (type === 'number') return str.replace(/^(-)?0\./, '$1.');
+	if (type === 'bigint') return thing + 'n';
 	return str;
 }

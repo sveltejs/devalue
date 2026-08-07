@@ -9,7 +9,11 @@ Like `JSON.stringify`, but handles
 - dates
 - `Map` and `Set`
 - `BigInt`
+- `ArrayBuffer` and Typed Arrays
+- `URL` and `URLSearchParams`
+- `Temporal`
 - custom types via replacers, reducers and revivers
+- promises (via `stringifyAsync`)
 
 Try it out [here](https://svelte.dev/repl/138d70def7a748ce9eda736ef1c71239?version=3.49.0).
 
@@ -23,6 +27,7 @@ Try it out [here](https://svelte.dev/repl/138d70def7a748ce9eda736ef1c71239?versi
 
 - Human-readable output
 - Stringifying functions
+- Stability of serialization mechanisms between versions (i.e. if you `devalue.stringify` with one version and `devalue.parse` with another, things may break)
 
 ## Usage
 
@@ -63,6 +68,24 @@ devalue.parse(stringified); // { message: 'hello', self: [Circular] }
 ```
 
 Use `stringify` and `parse` when evaluating JavaScript isn't an option.
+
+### `stringifyAsync`
+
+`stringifyAsync` is an async version of `stringify` that can handle promises:
+
+```js
+import * as devalue from 'devalue';
+
+let obj = {
+	quick: 'data',
+	slow: fetch('/api/slow').then((r) => r.json())
+};
+
+let stringified = await devalue.stringifyAsync(obj);
+devalue.parse(stringified); // { quick: 'data', slow: { ... } }
+```
+
+Promises are awaited and their resolved values are serialized. The output format is identical to `stringify`, so `parse` and `unflatten` work unchanged.
 
 ### `unflatten`
 
@@ -121,6 +144,86 @@ devalue.uneval(vector, (value, uneval) => {
 ```
 
 Note that any variables referenced in the resulting JavaScript (like `Vector` in the example above) must be in scope when it runs.
+
+## Custom operations
+
+Every introspection `stringify` performs on the value being serialized — property reads, prototype method calls, iteration, type classification — goes through an operations interface that you can override via the `operations` option. Omitted members fall back to the defaults (exported as `defaultStringifyOperations`), which behave exactly as devalue always has.
+
+This is useful in two situations:
+
+**Side-effect-free serialization.** By default, serializing a value can execute user code: getters and proxy traps fire during property reads, `Object.prototype.toString` consults (potentially getter-defined) `Symbol.toStringTag`, and patched prototype methods like `Date.prototype.toISOString` or `Map.prototype[Symbol.iterator]` are invoked. Deterministic or sandboxed runtimes can replace these operations with implementations based on captured intrinsics and property descriptors:
+
+```js
+const originalToISOString = Date.prototype.toISOString;
+
+const stringified = devalue.stringify(value, undefined, {
+	operations: {
+		// use a captured intrinsic instead of a (possibly patched) prototype method
+		toISOString: (date) => originalToISOString.call(date),
+
+		// read through descriptors so getters are never invoked
+		get: (object, key) => {
+			const descriptor = Object.getOwnPropertyDescriptor(object, key);
+			if (descriptor?.get) throw new Error(`refusing to invoke getter for "${key}"`);
+			return descriptor?.value;
+		}
+	}
+});
+```
+
+**Foreign-runtime serialization.** The `stringify` algorithm never touches the value directly, so "value" can be an opaque handle to something living in another JavaScript runtime — a `node:vm` context, a WASM-hosted engine, a remote process — as long as the operations know how to inspect it. Implement `typeOf`/`tagOf` for classification, `toPrimitive`/`get`/`entriesOf`/etc. for extraction, and `identify` to key deduplication and cycle detection on the underlying value's identity rather than the handle's:
+
+```js
+const stringified = devalue.stringify(rootHandle, undefined, {
+	operations: {
+		identify: (handle) => handle.pointer,
+		typeOf: (handle) => handle.typeOf(),
+		get: (handle, key) => handle.getProperty(key)
+		// ... see StringifyOperations for the full interface
+	}
+});
+```
+
+Some operations have a non-obvious contract that is easy to get subtly wrong. Where the work is not specific to your values, devalue exports the pieces so you don't have to reimplement them — `filterArrayIndices` does the array-index filtering that `indicesOf` needs, given keys you already have:
+
+```js
+indicesOf: (handle) => devalue.filterArrayIndices(handle.ownEnumerableStringKeys())
+```
+
+Reducers compose with custom operations: they receive the raw value/handle, and whatever they return is serialized through the same operations.
+
+### Customizing `parse`
+
+The mirror image: `parse` and `unflatten` build every value through construction operations (`ParseOperations`, defaults exported as `defaultParseOperations`), so you can control what gets created. The members mirror `StringifyOperations` with the host/value-space boundary running the other way: each `fromXxx` inverts the corresponding `toXxx`, `fromXxxInfo` inverts `xxxInfo`, and the bare-verb mutators invert the bare-verb accessors (`set`/`get`, `addValue`/`valuesOf`, `addEntry`/`entriesOf`, `box`/`unbox`).
+
+**Cross-realm revival.** By default the revived value is built from the intrinsics of whichever realm devalue is running in, so `instanceof` checks fail elsewhere. Constructing from a target realm's intrinsics fixes that:
+
+```js
+const revived = devalue.parse(serialized, undefined, {
+	operations: {
+		fromISOString: (iso) => new sandbox.Date(iso),
+		createMap: () => new sandbox.Map(),
+		createObject: () => sandbox.makeObject()
+	}
+});
+```
+
+**Foreign-runtime revival.** `parse` never inspects the values it creates — it only passes them back into other operations — so the operations can build values inside another runtime and return opaque handles:
+
+```js
+const rootHandle = devalue.parse(serialized, undefined, {
+	operations: {
+		fromPrimitive: (primitive) => vm.toHandle(primitive),
+		createObject: () => vm.newObject(),
+		set: (handle, key, value) => handle.setProp(key, value)
+		// ... see ParseOperations for the full interface
+	}
+});
+```
+
+Containers are created empty and populated afterwards (`createMap` then `addEntry`, `createObject` then `set`, and so on) — that ordering is what allows cyclic values to be revived, since the empty container is cached before its contents are built.
+
+Revivers compose the same way reducers do: they receive whatever the operations built, and their return value is used as-is.
 
 ## Error handling
 
