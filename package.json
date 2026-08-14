@@ -38,7 +38,7 @@
     "test": "vitest run --project unit",
     "test:unit": "vitest run --project unit",
     "test:watch": "vitest --project unit",
-    "test:types": "tsc -p . --noEmit",
+    "test:types": "tsc -p . --noEmit && tsc -p type-tests",
     "check:format": "prettier --check .",
     "format": "prettier --write .",
     "prepublishOnly": "npm test && npm run test:types && npm run build && publint",
