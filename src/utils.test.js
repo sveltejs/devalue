@@ -1,6 +1,6 @@
 import * as assert from 'uvu/assert';
 import { suite } from 'uvu';
-import { valid_array_indices } from './utils.js';
+import { stringify_string, valid_array_indices } from './utils.js';
 
 const test = suite('valid_array_indices');
 
@@ -61,3 +61,21 @@ test('handles array properties pretending to be indices', () => {
 });
 
 test.run();
+
+const strings = suite('stringify_string');
+
+strings('escapes unpaired surrogates so output survives UTF-8 transport', () => {
+	for (const value of ['\ud800', 'a\ud800b', '\udfff', 'x\udbff', '\udc00y', '\ud800\ud800\udc00']) {
+		const source = stringify_string(value);
+		assert.ok(source.isWellFormed(), source);
+		const encoded = new TextDecoder().decode(new TextEncoder().encode(source));
+		assert.is((0, eval)(encoded), value);
+	}
+});
+
+strings('leaves well-formed surrogate pairs untouched', () => {
+	assert.is(stringify_string('\ud83d\ude00'), '"\ud83d\ude00"');
+	assert.is((0, eval)(stringify_string('a\ud83d\ude00b')), 'a\ud83d\ude00b');
+});
+
+strings.run();
