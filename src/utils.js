@@ -90,8 +90,19 @@ export function stringify_string(str) {
 	const len = str.length;
 
 	for (let i = 0; i < len; i += 1) {
-		const char = str[i];
-		const replacement = get_escaped_char(char);
+		const code = str.charCodeAt(i);
+		if (code >= 0xd800 && code <= 0xdfff) {
+			// A well-formed surrogate pair passes through untouched; an unpaired
+			// surrogate cannot survive UTF-8 transport, so it is escaped.
+			if (code <= 0xdbff && i + 1 < len && (str.charCodeAt(i + 1) & 0xfc00) === 0xdc00) {
+				i += 1;
+				continue;
+			}
+			result += str.slice(last_pos, i) + `\\u${code.toString(16)}`;
+			last_pos = i + 1;
+			continue;
+		}
+		const replacement = get_escaped_char(str[i]);
 		if (replacement) {
 			result += str.slice(last_pos, i) + replacement;
 			last_pos = i + 1;
