@@ -532,6 +532,16 @@ function stringify_typed_array_elements(array) {
 		return Array.from(array, (element) => `${element}n`).join(',');
 	}
 
+	// Float arrays can hold `-0`, which `toString()` collapses to `"0"`, silently
+	// losing the sign on round-trip. Emit `-0` explicitly for those elements.
+	if (
+		array instanceof Float32Array ||
+		array instanceof Float64Array ||
+		(typeof Float16Array !== 'undefined' && array instanceof Float16Array)
+	) {
+		return Array.from(array, (element) => (Object.is(element, -0) ? '-0' : `${element}`)).join(',');
+	}
+
 	return array.toString();
 }
 

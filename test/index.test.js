@@ -300,6 +300,16 @@ const fixtures = {
 			json: '[["Uint8Array",1],["ArrayBuffer","AQID"]]'
 		},
 		{
+			name: 'Float64Array with negative zero',
+			value: new Float64Array([-0, 1.5]),
+			js: 'new Float64Array([-0,1.5])',
+			json: '[["Float64Array",1],["ArrayBuffer","AAAAAAAAAIAAAAAAAAD4Pw=="]]',
+			validate: (value) => {
+				assert.ok(Object.is(value[0], -0));
+				assert.equal(value[1], 1.5);
+			}
+		},
+		{
 			name: 'BigInt64Array',
 			value: new BigInt64Array([1n, -2n, 3n]),
 			js: 'new BigInt64Array([1n,-2n,3n])',
