@@ -300,6 +300,15 @@ const fixtures = {
 			json: '[["Uint8Array",1],["ArrayBuffer","AQID"]]'
 		},
 		{
+			// `Buffer.alloc` does not allocate from Node's shared pool, so the buffer
+			// backing this view is exactly four bytes and the expectations are stable
+			name: 'Node Buffer',
+			value: Buffer.alloc(4, 65),
+			js: 'new Uint8Array([65,65,65,65])',
+			json: '[["Uint8Array",1],["ArrayBuffer","QUFBQQ=="]]',
+			validate: (value) => assert.equal(value, new Uint8Array([65, 65, 65, 65]))
+		},
+		{
 			name: 'Float64Array with negative zero',
 			value: new Float64Array([-0, 1.5]),
 			js: 'new Float64Array([-0,1.5])',
