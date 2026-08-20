@@ -1,5 +1,12 @@
 # devalue changelog
 
+## 5.9.1
+### Patch Changes
+
+- 39457ce: fix: `uneval` emits valid JS for graphs with more than 65534 repeated references
+- 686e379: fix: emit valid JS for Node `Buffer` in `uneval`
+- 376b65c: fix: preserve `-0` in float typed arrays in `uneval`
+
 ## 5.9.0
 ### Minor Changes
 
