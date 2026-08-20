@@ -309,6 +309,16 @@ const fixtures = {
 			validate: (value) => assert.equal(value, new Uint8Array([65, 65, 65, 65]))
 		},
 		{
+			name: 'Float64Array with negative zero',
+			value: new Float64Array([-0, 1.5]),
+			js: 'new Float64Array([-0,1.5])',
+			json: '[["Float64Array",1],["ArrayBuffer","AAAAAAAAAIAAAAAAAAD4Pw=="]]',
+			validate: (value) => {
+				assert.ok(Object.is(value[0], -0));
+				assert.equal(value[1], 1.5);
+			}
+		},
+		{
 			name: 'BigInt64Array',
 			value: new BigInt64Array([1n, -2n, 3n]),
 			js: 'new BigInt64Array([1n,-2n,3n])',
@@ -1918,3 +1928,27 @@ circularCustomTypes('resolves self-referencing custom type', () => {
 });
 
 circularCustomTypes.run();
+
+
+{
+	const test = uvu.suite('uneval: large graphs');
+
+	test('serializes more than 65534 repeated references to valid JS', () => {
+		// A function may have at most 65535 parameters, so one hoisted parameter
+		// per repeated value produced code the engine rejects with "Too many
+		// parameters in function definition". See issue #93.
+		const shared = Array.from({ length: 70000 }, (_, i) => ({ i }));
+		const value = { a: shared, b: shared.slice() };
+
+		const serialized = uneval(value);
+		const roundtripped = new Function('return ' + serialized)();
+
+		assert.equal(roundtripped.a.length, 70000);
+		assert.equal(roundtripped.a[0].i, 0);
+		assert.equal(roundtripped.a[69999].i, 69999);
+		// the two arrays share object identity
+		assert.ok(roundtripped.a[123] === roundtripped.b[123]);
+	});
+
+	test.run();
+}
