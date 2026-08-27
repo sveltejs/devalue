@@ -1596,6 +1596,13 @@ uvu.test('valid sparse array parses correctly', () => {
 	assert.is(Object.getPrototypeOf(result), Array.prototype);
 });
 
+uvu.test('errors on out-of-bounds indices', () => {
+	assert.throws(
+		() => parse('[["Set",7]]'),
+		(error) => error.message === 'Invalid input'
+	)
+});
+
 // Regression test for a DoS vulnerability in sparse array parsing.
 // The SPARSE encoding is `[-7, length, idx, val, ...]`. Previously, `parse`
 // handled this by calling `new Array(length)`, which V8 eagerly allocates
