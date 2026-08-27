@@ -1,5 +1,10 @@
 # devalue changelog
 
+## 5.9.2
+### Patch Changes
+
+- 8b2a456: fix: reject out-of-bounds indices
+
 ## 5.9.1
 ### Patch Changes
 
