@@ -105,6 +105,14 @@ class Session {
 	#references = new Map();
 	/** Monotonic owner tag for reusable node planning scratch. */
 	#region_id = 0;
+	/** Registry keys claimed by async descriptors in this stream. @type {Set<string>} */
+	#keys = new Set();
+	/** Whether tail blocks must not depend on the head having been evaluated. @type {boolean} */
+	#detached;
+	/** Whether the head has been emitted and the graph reset for detached tail blocks. @type {boolean} */
+	#detached_tail = false;
+	/** Whether a detached tail block has already taken over the saved session. @type {boolean} */
+	#detached_started = false;
 
 	/**
 	 * Creates an isolated server-side stream session.
@@ -125,6 +133,7 @@ class Session {
 		this.#graph = create_captured_graph(root, (value, node, graph) => this.#classify(value, node, graph));
 		this.#abort = () => void this.#cancel(signal?.reason);
 		signal?.addEventListener('abort', this.#abort, { once: true });
+		this.#detached = options.detached === true;
 	}
 
 	/** @param {unknown} value @returns {Promise<UnevalStreamResult>} */
@@ -172,11 +181,15 @@ class Session {
 			this.#start_unstarted();
 
 			if (this.#active === 0 && this.#batch.length === 0) {
-				return { head: this.#wrap_head(head_region, operations + this.#cleanup_source()), tail: empty_tail(), id: this.#id };
+				return { head: this.#wrap_head(head_region, operations + this.#cleanup_source(this.#id)), tail: empty_tail(), id: this.#id };
 			}
 
-			this.#emit_dispatch = true;
-			return { head: this.#wrap_head(head_region, operations), tail: this.#tail(), id: this.#id };
+			if (!this.#detached) this.#emit_dispatch = true;
+			const head = this.#wrap_head(head_region, operations);
+			// Detach only after the head is fully rendered, since rendering records which
+			// runtime helpers the head defined and detaching forgets them.
+			if (this.#detached) this.#detach();
+			return { head, tail: this.#tail(), id: this.#id };
 		} catch (error) {
 			await this.#cancel(error);
 			throw this.#failure ?? error;
@@ -249,7 +262,8 @@ class Session {
 	 *
 	 * Everything a walk touches is either append-only (graph nodes, sources, new custom
 	 * nodes) or a counter (pending indices, opaque use counts), so a checkpoint is a few
-	 * integers and rollback truncates back to them. Success costs nothing beyond the walk.
+	 * integers and rollback truncates back to them. Registry keys are recovered from the
+	 * truncated sources. Success costs nothing beyond the walk.
 	 *
 	 * @param {unknown} value
 	 * @param {boolean} root
@@ -274,6 +288,8 @@ class Session {
 				const source = this.#sources[i];
 				source.active = false;
 				if (source.observer) source.observer.active = false;
+				const key = source.node.data.key;
+				if (key !== undefined) this.#keys.delete(key);
 			}
 			this.#sources.length = sources;
 			for (let i = this.#new_custom.length - 1; i >= custom; i--) {
@@ -418,6 +434,12 @@ class Session {
 	 * @returns {Source}
 	 */
 	#add_source(node, descriptor, type) {
+		/** @type {string | undefined} */
+		const key = descriptor.id;
+		if (key !== undefined) {
+			if (this.#keys.has(key)) throw this.#error(`Duplicate asynchronous value id ${stringify_string(key)}`, node.value);
+			this.#keys.add(key);
+		}
 		let captured = false;
 		const pending = this.#pending;
 		/** @param {JavaScriptSource} expression */
@@ -436,7 +458,7 @@ class Session {
 		/** @type {Source} */
 		const state = { node: async_node, descriptor, type, started: false, terminal: false, cleaned: false, active: true, flushed_pending: 0 };
 		async_node.kind = 'Async';
-		async_node.data = { source, pending, captured, state };
+		async_node.data = { source, pending, captured, state, key };
 		this.#sources.push(state);
 		if (this.#signal?.aborted) throw this.#signal.reason;
 		return state;
@@ -505,6 +527,9 @@ class Session {
 	 * @param {any} descriptor
 	 */
 	#validate_value_descriptor(descriptor) {
+		if (descriptor.id !== undefined && typeof descriptor.id !== 'string') {
+			throw new TypeError('Invalid async-value id');
+		}
 		if ((typeof descriptor.source !== 'object' || descriptor.source === null) && typeof descriptor.source !== 'function') {
 			throw new TypeError('Invalid async-value source');
 		}
@@ -522,6 +547,9 @@ class Session {
 	 * @param {any} descriptor
 	 */
 	#validate_sequence_descriptor(descriptor) {
+		if (descriptor.id !== undefined && typeof descriptor.id !== 'string') {
+			throw new TypeError('Invalid async-sequence id');
+		}
 		if ((typeof descriptor.source !== 'object' || descriptor.source === null) && typeof descriptor.source !== 'function') {
 			throw new TypeError('Invalid async-sequence source');
 		}
@@ -772,8 +800,10 @@ class Session {
 		/** @param {CapturedNode} node */
 		const is_sparse = (node) => node.kind === 'Array' && node.keys.length !== node.data;
 		let hoisted_count = 0;
+		/** Keyed async values need a name so the registry sidecar can capture their target. @param {CapturedNode} node */
+		const is_keyed = (node) => node.kind === 'Async' && node.data.key !== undefined;
 		for (const node of order) {
-			if (node.uses > 1 || node.opaque > 0 || node.kind === 'NullObject' || is_sparse(node)) {
+			if (node.uses > 1 || node.opaque > 0 || node.kind === 'NullObject' || is_sparse(node) || is_keyed(node)) {
 				node.hoisted = true;
 				hoisted_count++;
 			}
@@ -1065,6 +1095,12 @@ class Session {
 		}
 
 		const root = expression(value);
+		for (const node of order) {
+			if (!is_keyed(node)) continue;
+			// Register `[target, control]` so settlements from any session can address it by key.
+			const control = node.data.captured ? `,s.p[${node.data.pending}]` : '';
+			sidecars.push(`(s.k||(s.k={__proto__:null}))[${stringify_string(node.data.key)}]=[${node.name}${control}]`);
+		}
 		if (persistent) {
 			for (const node of order) {
 				if (node.opaque === 0) continue;
@@ -1181,13 +1217,13 @@ class Session {
 	}
 
 	/**
-	 * Emits source that removes this session from the retained table.
+	 * Emits source that removes a session from the retained table.
 	 *
+	 * @param {string} id
 	 * @returns {string}
 	 */
-	#cleanup_source() {
-		const id = stringify_string(this.#id);
-		return `delete n[${id}]`;
+	#cleanup_source(id = this.#id) {
+		return `delete n[${stringify_string(id)}]`;
 	}
 
 	/**
