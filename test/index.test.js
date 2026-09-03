@@ -447,26 +447,26 @@ const fixtures = {
 		{
 			name: 'lone low surrogate',
 			value: 'a\uDC00b',
-			js: '"a\uDC00b"',
-			json: '["a\uDC00b"]'
+			js: '"a\\udc00b"',
+			json: '["a\\udc00b"]'
 		},
 		{
 			name: 'lone high surrogate',
 			value: 'a\uD800b',
-			js: '"a\uD800b"',
-			json: '["a\uD800b"]'
+			js: '"a\\ud800b"',
+			json: '["a\\ud800b"]'
 		},
 		{
 			name: 'two low surrogates',
 			value: 'a\uDC00\uDC00b',
-			js: '"a\uDC00\uDC00b"',
-			json: '["a\uDC00\uDC00b"]'
+			js: '"a\\udc00\\udc00b"',
+			json: '["a\\udc00\\udc00b"]'
 		},
 		{
 			name: 'two high surrogates',
 			value: 'a\uD800\uD800b',
-			js: '"a\uD800\uD800b"',
-			json: '["a\uD800\uD800b"]'
+			js: '"a\\ud800\\ud800b"',
+			json: '["a\\ud800\\ud800b"]'
 		},
 		{
 			name: 'surrogate pair',
@@ -477,8 +477,8 @@ const fixtures = {
 		{
 			name: 'surrogate pair in wrong order',
 			value: 'a\uDC00\uD800b',
-			js: '"a\uDC00\uD800b"',
-			json: '["a\uDC00\uD800b"]'
+			js: '"a\\udc00\\ud800b"',
+			json: '["a\\udc00\\ud800b"]'
 		},
 		{
 			name: 'nul',
