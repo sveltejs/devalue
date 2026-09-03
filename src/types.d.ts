@@ -41,17 +41,20 @@ export type TypedArray =
 
 declare const javascript_source: unique symbol;
 
-/** Opaque JavaScript assembled by the `js` tag passed to an `uneval` replacer. */
+/** The result of the `js` tag passed to an `uneval` replacer. */
 export interface JavaScriptSource {
 	readonly [javascript_source]: true;
 }
 
-/** Builds trusted JavaScript. Static text is emitted verbatim; interpolations are serialized values. */
+/**
+ * A tagged template function for building trusted JavaScript. The string bits are emitted verbatim,
+ * while the "holes" are recursively serialized.
+ */
 export interface JavaScriptTag {
 	(strings: TemplateStringsArray, ...values: unknown[]): JavaScriptSource;
 }
 
-/** Synchronously replaces a value with JavaScript assembled by the provided `js` tag. */
+/** A function that replaces a value with JavaScript that can be evaluated to reproduce that value. */
 export type UnevalReplacer = (value: unknown, js: JavaScriptTag) => JavaScriptSource | void;
 
 /**

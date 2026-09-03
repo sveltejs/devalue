@@ -1,3 +1,5 @@
+/** @import { JavaScriptSource } from './types.js' */
+
 const SOURCE = Symbol('JavaScriptSource');
 
 /**
@@ -15,7 +17,7 @@ export function js(strings, ...values) {
 /**
  * @param {readonly string[]} strings
  * @param {readonly unknown[]} values
- * @returns {JavaScriptSource}
+ * @returns {SourceFragment}
  */
 export function create_source(strings, values) {
 	return { [SOURCE]: true, strings, values };
@@ -23,22 +25,22 @@ export function create_source(strings, values) {
 
 /**
  * @param {unknown} value
- * @returns {value is JavaScriptSource}
+ * @returns {value is SourceFragment}
  */
 export function is_source(value) {
-	return typeof value === 'object' && value !== null && /** @type {JavaScriptSource} */ (value)[SOURCE] === true;
+	return typeof value === 'object' && value !== null && /** @type {SourceFragment} */ (value)[SOURCE] === true;
 }
 
 /**
  * @param {string} text
- * @returns {JavaScriptSource}
+ * @returns {SourceFragment}
  */
 export function raw_source(text) {
 	return create_source([text], []);
 }
 
 /**
- * @param {JavaScriptSource} source
+ * @param {SourceFragment} source
  * @param {(value: unknown) => string} render
  */
 export function render_source(source, render) {
@@ -52,7 +54,7 @@ export function render_source(source, render) {
 }
 
 /**
- * @param {JavaScriptSource} source
+ * @param {SourceFragment} source
  * @param {(value: unknown) => void} visit
  */
 export function visit_source(source, visit) {
@@ -63,5 +65,5 @@ export function visit_source(source, visit) {
 }
 
 /**
- * @typedef {{ readonly [SOURCE]: true, readonly strings: readonly string[], readonly values: readonly unknown[] }} JavaScriptSource
+ * @typedef {JavaScriptSource & { readonly [SOURCE]: true, readonly strings: readonly string[], readonly values: readonly unknown[] }} SourceFragment
  */

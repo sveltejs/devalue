@@ -1,3 +1,5 @@
+/** @import { UnevalReplacer } from './types.js' */
+
 import {
 	DevalueError,
 	enumerable_symbols,
@@ -19,7 +21,7 @@ const reserved =
 /**
  * Turn a value into the JavaScript that creates an equivalent value
  * @param {any} value
- * @param {import('./types.js').UnevalReplacer} [replacer]
+ * @param {UnevalReplacer} [replacer]
  */
 export function uneval(value, replacer) {
 	const counts = new Map();
