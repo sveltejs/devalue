@@ -56,8 +56,10 @@ export function get_type(thing) {
 }
 
 // everything `JSON.stringify` escapes, plus the three things it doesn't but we need to:
-// `<` (so the output can't close a script tag) and the U+2028/U+2029 line separators
-const escape_chars = /["<\\\n\r\t\b\f\u2028\u2029\x00-\x1f]/;
+// `<` (so the output can't close a script tag) and the U+2028/U+2029 line separators.
+// surrogates are included so unpaired ones reach `JSON.stringify`, which escapes them
+const escape_chars = /["<\\\n\r\t\b\f\u2028\u2029\x00-\x1f\ud800-\udfff]/;
+const needs_replace = /[<\u2028\u2029]/;
 const u2028_all = /\u2028/g;
 const u2029_all = /\u2029/g;
 const lt_all = /</g;
@@ -68,7 +70,10 @@ export function stringify_string(str) {
 		return `"${str}"`;
 	}
 
-	return JSON.stringify(str)
+	const json = JSON.stringify(str);
+	if (!needs_replace.test(str)) return json;
+
+	return json
 		.replace(u2028_all, '\\u2028')
 		.replace(u2029_all, '\\u2029')
 		.replace(lt_all, '\\u003C');
