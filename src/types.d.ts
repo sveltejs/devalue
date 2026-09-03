@@ -39,6 +39,21 @@ export type TypedArray =
 	| BigInt64Array
 	| BigUint64Array;
 
+declare const javascript_source: unique symbol;
+
+/** Opaque JavaScript assembled by the `js` tag passed to an `uneval` replacer. */
+export interface JavaScriptSource {
+	readonly [javascript_source]: true;
+}
+
+/** Builds trusted JavaScript. Static text is emitted verbatim; interpolations are serialized values. */
+export interface JavaScriptTag {
+	(strings: TemplateStringsArray, ...values: unknown[]): JavaScriptSource;
+}
+
+/** Synchronously replaces a value with JavaScript assembled by the provided `js` tag. */
+export type UnevalReplacer = (value: unknown, js: JavaScriptTag) => JavaScriptSource | void;
+
 /**
  * The introspection/extraction operations `stringify` performs on the value
  * being serialized. Every dynamic operation — property reads, prototype

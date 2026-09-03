@@ -9,6 +9,7 @@ import {
 	stringify_string,
 	valid_array_indices
 } from './utils.js';
+import { is_source, js, render_source, visit_source } from './javascript-source.js';
 
 const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$';
 const unsafe_chars = /[<\b\f\n\r\t\0\u2028\u2029]/g;
@@ -18,7 +19,7 @@ const reserved =
 /**
  * Turn a value into the JavaScript that creates an equivalent value
  * @param {any} value
- * @param {(value: any, uneval: (value: any) => string) => string | void} [replacer]
+ * @param {import('./types.js').UnevalReplacer} [replacer]
  */
 export function uneval(value, replacer) {
 	const counts = new Map();
@@ -39,12 +40,14 @@ export function uneval(value, replacer) {
 			counts.set(thing, 1);
 
 			if (replacer) {
-				const str = replacer(thing, (value) => uneval(value, replacer));
+				const source = replacer(thing, js);
 
-				if (typeof str === 'string') {
-					custom.set(thing, str);
+				if (is_source(source)) {
+					custom.set(thing, source);
+					visit_source(source, walk);
 					return;
 				}
+				if (source !== undefined) throw new TypeError('Invalid uneval replacer result');
 			}
 
 			if (typeof thing === 'function') {
@@ -168,7 +171,7 @@ export function uneval(value, replacer) {
 		}
 
 		if (custom.has(thing)) {
-			return custom.get(thing);
+			return render_source(custom.get(thing), stringify);
 		}
 
 		const type = get_type(thing);
@@ -372,7 +375,7 @@ export function uneval(value, replacer) {
 			params.push(name);
 
 			if (custom.has(thing)) {
-				values.push(/** @type {string} */ (custom.get(thing)));
+				values.push(render_source(custom.get(thing), stringify));
 				return;
 			}
 
