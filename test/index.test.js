@@ -924,13 +924,13 @@ const fixtures = {
 			value: [instance, instance],
 			js: '(function(a){return [a,a]}(new Foo({bar:new Bar({answer:42})})))',
 			json: '[[1,1],["Foo",2],{"bar":3},["Bar",4],{"answer":5},42]',
-			replacer: (value, uneval) => {
+			replacer: (value, js) => {
 				if (value instanceof Foo) {
-					return `new Foo(${uneval(value.value)})`;
+					return js`new Foo(${value.value})`;
 				}
 
 				if (value instanceof Bar) {
-					return `new Bar(${uneval(value.value)})`;
+					return js`new Bar(${value.value})`;
 				}
 			},
 			// test for https://github.com/Rich-Harris/devalue/pull/80
@@ -957,7 +957,7 @@ const fixtures = {
 			value: date,
 			js: "new Date('')",
 			json: '[["Date",""]]',
-			replacer: (value) => value instanceof Date && `new Date('')`,
+			replacer: (value, js) => value instanceof Date && js`new Date('')`,
 			reducers: {
 				Date: (value) => value instanceof Date && ''
 			},
@@ -987,10 +987,9 @@ const fixtures = {
 				value: new FunctionRef(testFn),
 				js: 'new FunctionRef((x) => x * 2)',
 				json: '[["FunctionRef",1],"(x) => x * 2"]',
-				replacer: (value, uneval) => {
+				replacer: (value, js) => {
 					if (value instanceof FunctionRef) {
-						// Serialize the function code directly as a string
-						return `new FunctionRef(${value.fn.toString()})`;
+						return js`new FunctionRef((x) => x * 2)`;
 					}
 				},
 				reducers: {
@@ -1020,10 +1019,9 @@ const fixtures = {
 				value: { fn: testFn, nested: { data: 42 } },
 				js: '{fn:(x) => x * 2,nested:{data:42}}',
 				json: '[{"fn":1,"nested":3},["FunctionRef",2],"(x) => x * 2",{"data":4},42]',
-				replacer: (value, uneval) => {
+				replacer: (value, js) => {
 					if (typeof value === 'function') {
-						// Serialize the function code directly
-						return value.toString();
+						return js`(x) => x * 2`;
 					}
 				},
 				reducers: {
@@ -1059,6 +1057,22 @@ for (const [name, tests] of Object.entries(fixtures)) {
 	}
 	test.run();
 }
+
+const custom_source_test = uvu.suite('uneval: custom source');
+custom_source_test('preserves identities referenced by custom source', () => {
+	class Wrapper {
+		constructor(inner) {
+			this.inner = inner;
+		}
+	}
+	const shared = { hello: 'world' };
+	const source = uneval({ wrapped: new Wrapper(shared), shared }, (value, js) =>
+		value instanceof Wrapper ? js`new Wrapper(${value.inner})` : undefined
+	);
+	const result = eval(source);
+	assert.is(result.wrapped.inner, result.shared);
+});
+custom_source_test.run();
 
 for (const [name, tests] of Object.entries(fixtures)) {
 	const test = uvu.suite(`stringify: ${name}`);
