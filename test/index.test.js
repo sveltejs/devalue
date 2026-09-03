@@ -1072,6 +1072,17 @@ custom_source_test('preserves identities referenced by custom source', () => {
 	const result = eval(source);
 	assert.is(result.wrapped.inner, result.shared);
 });
+custom_source_test('requires js to be used as a tagged template', () => {
+	for (const invoke of [
+		(js) => js('new Date()'),
+		(js) => js(['new Date()'])
+	]) {
+		assert.throws(
+			() => uneval(new Date(), (value, js) => value instanceof Date ? invoke(js) : undefined),
+			'`js` must be used as a tagged template, but was called as a regular function'
+		);
+	}
+});
 custom_source_test.run();
 
 for (const [name, tests] of Object.entries(fixtures)) {
