@@ -1,3 +1,7 @@
+import type { JavaScriptSource } from './javascript-source.js';
+
+export type { JavaScriptSource };
+
 export type StringValueTag =
 	| 'URL'
 	| 'URLSearchParams'
@@ -38,6 +42,17 @@ export type TypedArray =
 	| Float64Array
 	| BigInt64Array
 	| BigUint64Array;
+
+/**
+ * A tagged template function for building trusted JavaScript. The string bits are emitted verbatim,
+ * while the "holes" are recursively serialized.
+ */
+export interface JavaScriptTag {
+	(strings: TemplateStringsArray, ...values: unknown[]): JavaScriptSource;
+}
+
+/** A function that replaces a value with JavaScript that can be evaluated to reproduce that value. */
+export type UnevalReplacer = (value: unknown, js: JavaScriptTag) => JavaScriptSource | void;
 
 /**
  * The introspection/extraction operations `stringify` performs on the value
