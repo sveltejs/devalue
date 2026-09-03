@@ -1,3 +1,7 @@
+import type { JavaScriptSource } from './javascript-source.js';
+
+export type { JavaScriptSource };
+
 export type StringValueTag =
 	| 'URL'
 	| 'URLSearchParams'
@@ -38,13 +42,6 @@ export type TypedArray =
 	| Float64Array
 	| BigInt64Array
 	| BigUint64Array;
-
-declare const javascript_source: unique symbol;
-
-/** The result of the `js` tag passed to an `uneval` replacer. */
-export interface JavaScriptSource {
-	readonly [javascript_source]: true;
-}
 
 /**
  * A tagged template function for building trusted JavaScript. The string bits are emitted verbatim,
