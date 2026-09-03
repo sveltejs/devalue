@@ -2590,6 +2590,26 @@ describe('stringifyAsync: errors', () => {
 		expect(error.value).toBe(value);
 		expect(error.root).toBe(root);
 	});
+
+	test('populates error.path for a value inside a promise', async () => {
+		const value = function invalid() {};
+		const root = { foo: { array: [Promise.resolve(value)] } };
+		const error = await catch_async_error(() => stringifyAsync(root));
+		expect(error.name).toEqual('DevalueError');
+		expect(error.path).toEqual('.foo.array[0]');
+		expect(error.value).toBe(value);
+		expect(error.root).toBe(root);
+	});
+
+	test('populates error.path through chained promises', async () => {
+		const root = {
+			foo: Promise.resolve({ bar: Promise.resolve({ invalid() {} }) })
+		};
+		const error = await catch_async_error(() => stringifyAsync(root));
+		expect(error.name).toEqual('DevalueError');
+		expect(error.path).toEqual('.foo.bar.invalid');
+		expect(error.root).toBe(root);
+	});
 });
 
 describe('circular references through custom types', () => {
