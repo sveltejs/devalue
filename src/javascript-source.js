@@ -2,8 +2,8 @@ const SOURCE = Symbol('JavaScriptSource');
 
 export class JavaScriptSource {
 	/**
-	 * @param {TemplateStringsArray} strings
-	 * @param {unknown[]} values
+	 * @param {readonly string[]} strings
+	 * @param {readonly unknown[]} values
 	 */
 	constructor(strings, values) {
 		this.strings = strings;
@@ -89,7 +89,32 @@ export function js(strings, ...values) {
 			'`js` must be used as a tagged template, but was called as a regular function'
 		);
 	}
+	return create_source(strings, values);
+}
+
+/**
+ * @param {readonly string[]} strings
+ * @param {readonly unknown[]} values
+ * @returns {JavaScriptFragment}
+ */
+export function create_source(strings, values) {
 	return { [SOURCE]: new JavaScriptSource(strings, values) };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is JavaScriptFragment}
+ */
+export function is_source(value) {
+	return JavaScriptSource.is_fragment(value);
+}
+
+/**
+ * @param {string} text
+ * @returns {JavaScriptFragment}
+ */
+export function raw_source(text) {
+	return create_source([text], []);
 }
 
 /**

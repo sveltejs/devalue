@@ -2,42 +2,24 @@
  * @import {
  *   AsyncSequenceDescriptor,
  *   AsyncValueDescriptor,
+ *   ClientReference,
  *   UnevalStreamOptions,
  *   UnevalStreamReplacer,
  *   UnevalStreamResult,
  *   UnevalStreamTail
  * } from './types.js'
- * @import { CapturedGraph, CapturedNode, Child, ClientPath } from './graph.js'
+ * @import { AsyncNode, CapturedGraph, CapturedNode, Child, ClientPath, ViewKind } from './graph.js'
+ * @import { JavaScriptSource } from './javascript-source.js'
  */
 
 import { DevalueError, is_primitive, stringify_primitive, stringify_string } from './utils.js';
 import { child, create_captured_graph, discover, is_node, rollback } from './graph.js';
+import { create_source, is_source, js, raw_source } from './javascript-source.js';
 
 const promise_then = Promise.prototype.then;
 const TOKEN_PATTERN = /"\d+"/g;
-const SOURCE = Symbol('JavaScriptSource');
-
-/** @param {TemplateStringsArray | readonly string[]} strings @param {...unknown} values @returns {JavaScriptSource} */
-function js(strings, ...values) {
-	return create_source(strings, values);
-}
-
-/** @param {readonly string[]} strings @param {readonly unknown[]} values @returns {JavaScriptSource} */
-function create_source(strings, values) {
-	return { [SOURCE]: true, strings, values };
-}
 
 const generic_error = js`new Error("devalue: failed to serialize asynchronous value")`;
-
-/** @param {unknown} value @returns {value is JavaScriptSource} */
-function is_source(value) {
-	return typeof value === 'object' && value !== null && value[SOURCE] === true;
-}
-
-/** @param {string} text @returns {JavaScriptSource} */
-function raw_source(text) {
-	return create_source([text], []);
-}
 
 /**
  * Stream executable source while preserving identities across asynchronous regions.
@@ -140,7 +122,9 @@ class Session {
 		this.#replacer = replacer;
 		this.#signal = signal;
 		this.#onerror = options.onerror;
-		this.#graph = create_captured_graph(root, (value, node, graph) => this.#classify(value, node, graph));
+		this.#graph = create_captured_graph(root, (value, node, graph) =>
+			this.#classify(value, node, graph)
+		);
 		this.#abort = () => void this.#cancel(signal?.reason);
 		signal?.addEventListener('abort', this.#abort, { once: true });
 	}
@@ -190,7 +174,11 @@ class Session {
 			this.#start_unstarted();
 
 			if (this.#active === 0 && this.#batch.length === 0) {
-				return { head: this.#wrap_head(head_region, operations + this.#cleanup_source()), tail: empty_tail(), id: this.#id };
+				return {
+					head: this.#wrap_head(head_region, operations + this.#cleanup_source()),
+					tail: empty_tail(),
+					id: this.#id
+				};
 			}
 
 			this.#emit_dispatch = true;
@@ -322,7 +310,8 @@ class Session {
 		/** @param {CapturedNode} node */
 		const validate = (node) => {
 			if (this.#validated.has(node) || validated.has(node)) return;
-			if (validating.has(node)) throw this.#error('Cannot stringify an atomic custom cycle', node.value);
+			if (validating.has(node))
+				throw this.#error('Cannot stringify an atomic custom cycle', node.value);
 			validating.add(node);
 			for (const child of node.children) {
 				if (is_node(child) && child.kind === 'Custom') validate(child);
@@ -383,29 +372,27 @@ class Session {
 		if (typeof value === 'object' && value !== null) {
 			/** @type {{ active: boolean } | undefined} */
 			let observer;
-			if (is_native_promise(value)) try {
-				const current = observer = { active: true };
-				/**
-				 * Forwards a native Promise fulfillment while its provisional observer is active.
-				 *
-				 * @param {unknown} result
-				 */
-				const resolve = (result) => current.active && this.#native_event(value, 'resolve', result);
-				/**
-				 * Forwards a native Promise rejection while its provisional observer is active.
-				 *
-				 * @param {unknown} reason
-				 */
-				const reject = (reason) => current.active && this.#native_event(value, 'reject', reason);
-				const observed = promise_then.call(
-					value,
-					resolve,
-					reject
-				);
-				promise_then.call(observed, undefined, () => {});
-			} catch {
-				observer = undefined;
-			}
+			if (is_native_promise(value))
+				try {
+					const current = (observer = { active: true });
+					/**
+					 * Forwards a native Promise fulfillment while its provisional observer is active.
+					 *
+					 * @param {unknown} result
+					 */
+					const resolve = (result) =>
+						current.active && this.#native_event(value, 'resolve', result);
+					/**
+					 * Forwards a native Promise rejection while its provisional observer is active.
+					 *
+					 * @param {unknown} reason
+					 */
+					const reject = (reason) => current.active && this.#native_event(value, 'reject', reason);
+					const observed = promise_then.call(value, resolve, reject);
+					promise_then.call(observed, undefined, () => {});
+				} catch {
+					observer = undefined;
+				}
 			if (observer) {
 				const descriptor = this.#native_descriptor(/** @type {Promise<unknown>} */ (value));
 				try {
@@ -438,19 +425,32 @@ class Session {
 	#add_source(node, descriptor, type) {
 		let captured = false;
 		const pending = this.#pending;
+		/** @param {JavaScriptSource} expression */
 		const control = (expression) => {
 			if (captured) throw new TypeError('devalue: capture may only be called once');
 			if (!is_source(expression)) throw new TypeError('Invalid async descriptor capture');
 			captured = true;
-			return /** @type {JavaScriptSource} */ ({ [SOURCE]: true, strings: ['', ''], values: [{ type: 'capture', pending, source: expression }] });
+			return hole_source({ type: 'capture', pending, source: expression });
 		};
 		const source = descriptor.construct(control);
 		if (!is_source(source)) throw new TypeError('Invalid async descriptor construct result');
 		this.#pending = pending + 1;
+		// `node` is reserved but unclassified; this call classifies it, so the cast records
+		// the mutation that TypeScript cannot follow.
+		const async_node = /** @type {AsyncNode} */ (node);
 		/** @type {Source} */
-		const state = { node, descriptor, type, started: false, terminal: false, cleaned: false, active: true, flushed_pending: 0 };
-		node.kind = 'Async';
-		node.data = { source, pending, captured, state };
+		const state = {
+			node: async_node,
+			descriptor,
+			type,
+			started: false,
+			terminal: false,
+			cleaned: false,
+			active: true,
+			flushed_pending: 0
+		};
+		async_node.kind = 'Async';
+		async_node.data = { source, pending, captured, state };
 		this.#sources.push(state);
 		if (this.#signal?.aborted) throw this.#signal.reason;
 		return state;
@@ -475,6 +475,11 @@ class Session {
 	/** @param {Promise<unknown>} promise @returns {AsyncValueDescriptor & { manages_pending: true }} */
 	#native_descriptor(promise) {
 		let pending = -1;
+		/**
+		 * @param {ClientReference} reference
+		 * @param {0 | 1} which `0` resolves, `1` rejects.
+		 * @param {JavaScriptSource} value
+		 */
 		const settle = (reference, which, value) => {
 			const remaining = this.#native_pending--;
 			if (this.#runtimes_emitted.r || remaining >= 3) {
@@ -514,7 +519,10 @@ class Session {
 	 * @param {any} descriptor
 	 */
 	#validate_value_descriptor(descriptor) {
-		if ((typeof descriptor.source !== 'object' || descriptor.source === null) && typeof descriptor.source !== 'function') {
+		if (
+			(typeof descriptor.source !== 'object' || descriptor.source === null) &&
+			typeof descriptor.source !== 'function'
+		) {
 			throw new TypeError('Invalid async-value source');
 		}
 		for (const key of ['construct', 'resolve', 'reject']) {
@@ -531,11 +539,15 @@ class Session {
 	 * @param {any} descriptor
 	 */
 	#validate_sequence_descriptor(descriptor) {
-		if ((typeof descriptor.source !== 'object' || descriptor.source === null) && typeof descriptor.source !== 'function') {
+		if (
+			(typeof descriptor.source !== 'object' || descriptor.source === null) &&
+			typeof descriptor.source !== 'function'
+		) {
 			throw new TypeError('Invalid async-sequence source');
 		}
 		for (const key of ['construct', 'next', 'complete', 'error']) {
-			if (typeof descriptor[key] !== 'function') throw new TypeError(`Invalid async-sequence ${key}`);
+			if (typeof descriptor[key] !== 'function')
+				throw new TypeError(`Invalid async-sequence ${key}`);
 		}
 		if (descriptor.cancel !== undefined && typeof descriptor.cancel !== 'function') {
 			throw new TypeError('Invalid async-sequence cancel');
@@ -721,10 +733,12 @@ class Session {
 
 	/** Waits for the same scheduled flush window used by tail batches before freezing the head. */
 	#initial_window() {
-		return new Promise(/** @param {(value?: void | PromiseLike<void>) => void} resolve */ (resolve) => {
-			const settle = () => setTimeout(() => this.#flushing ? settle() : resolve(), 0);
-			settle();
-		});
+		return new Promise(
+			/** @param {(value?: void | PromiseLike<void>) => void} resolve */ (resolve) => {
+				const settle = () => setTimeout(() => (this.#flushing ? settle() : resolve()), 0);
+				settle();
+			}
+		);
 	}
 
 	/**
@@ -760,7 +774,9 @@ class Session {
 			}
 			node.position = order.push(node) - 1;
 		};
-		const root_node = is_primitive(value) ? undefined : identities.get(/** @type {object} */ (value));
+		const root_node = is_primitive(value)
+			? undefined
+			: identities.get(/** @type {object} */ (value));
 		if (root_node) visit(root_node);
 
 		// In-region use counts; a node used once can be inlined at its single use site.
@@ -825,13 +841,13 @@ class Session {
 					continue;
 				}
 				if (!references_later(child, limit, new Set())) continue;
-				if (is_atomic(child.kind)) secure_atomic(child);
+				if (is_atomic(child)) secure_atomic(child);
 				child.hoisted = true;
 				hoisted_count++;
 			}
 		};
 		for (const node of order) {
-			if (node.hoisted && is_atomic(node.kind)) secure_atomic(node);
+			if (node.hoisted && is_atomic(node)) secure_atomic(node);
 		}
 
 		// `hoisted` and `early` are final now, so "does this child's expansion reach a
@@ -909,10 +925,12 @@ class Session {
 			}
 		};
 		/** @param {Child} child */
-		const expression_child = (child) => is_node(child) ? expression_node(child) : stringify_primitive(child);
+		const expression_child = (child) =>
+			is_node(child) ? expression_node(child) : stringify_primitive(child);
 
 		/** @param {Child[]} children */
-		const set_literal = (children) => children.length ? `new Set([${children.map(expression_child).join(',')}])` : 'new Set';
+		const set_literal = (children) =>
+			children.length ? `new Set([${children.map(expression_child).join(',')}])` : 'new Set';
 		/** @param {Child[]} children */
 		const map_literal = (children) => {
 			if (children.length === 0) return 'new Map';
@@ -970,20 +988,28 @@ class Session {
 				switch (node.kind) {
 					case 'Array':
 						early_declarations.push(`${name}=Array(${node.data})`);
-						for (let i = 0; i < keys.length; i++) fill.push(`${name}[${keys[i]}]=${expression_child(children[i])}`);
+						for (let i = 0; i < keys.length; i++)
+							fill.push(`${name}[${keys[i]}]=${expression_child(children[i])}`);
 						break;
 					case 'Object':
 					case 'NullObject':
-						early_declarations.push(`${name}=${node.kind === 'NullObject' ? 'Object.create(null)' : '{}'}`);
-						for (let i = 0; i < keys.length; i++) fill.push(`${name}${prop(keys[i])}=${expression_child(children[i])}`);
+						early_declarations.push(
+							`${name}=${node.kind === 'NullObject' ? 'Object.create(null)' : '{}'}`
+						);
+						for (let i = 0; i < keys.length; i++)
+							fill.push(`${name}${prop(keys[i])}=${expression_child(children[i])}`);
 						break;
 					case 'Set':
 						early_declarations.push(`${name}=new Set`);
-						for (let i = 0; i < children.length; i++) fill.push(`${name}.add(${expression_child(children[i])})`);
+						for (let i = 0; i < children.length; i++)
+							fill.push(`${name}.add(${expression_child(children[i])})`);
 						break;
 					case 'Map':
 						early_declarations.push(`${name}=new Map`);
-						for (let i = 0; i < children.length; i += 2) fill.push(`${name}.set(${expression_child(children[i])},${expression_child(children[i + 1])})`);
+						for (let i = 0; i < children.length; i += 2)
+							fill.push(
+								`${name}.set(${expression_child(children[i])},${expression_child(children[i + 1])})`
+							);
 						break;
 					default:
 						throw this.#error('Cannot stringify value', node.value);
@@ -998,7 +1024,8 @@ class Session {
 					case 'Array': {
 						if (is_sparse(node)) {
 							declarations.push(`${name}=Array(${node.data})`);
-							for (let i = 0; i < keys.length; i++) fill.push(`${name}[${keys[i]}]=${expression_child(children[i])}`);
+							for (let i = 0; i < keys.length; i++)
+								fill.push(`${name}[${keys[i]}]=${expression_child(children[i])}`);
 							break;
 						}
 						const parts = [];
@@ -1011,14 +1038,17 @@ class Session {
 							}
 						}
 						// A trailing elision needs one extra comma to preserve length.
-						declarations.push(`${name}=[${parts.join(',')}${parts.length && parts[parts.length - 1] === '' ? ',' : ''}]`);
+						declarations.push(
+							`${name}=[${parts.join(',')}${parts.length && parts[parts.length - 1] === '' ? ',' : ''}]`
+						);
 						break;
 					}
 					case 'Object': {
 						const embedded = [];
 						for (let i = 0; i < children.length; i++) {
 							const child = children[i];
-							if (available(child)) embedded.push(`${literal_key(keys[i])}:${expression_child(child)}`);
+							if (available(child))
+								embedded.push(`${literal_key(keys[i])}:${expression_child(child)}`);
 							else fill.push(`${name}${prop(keys[i])}=${expression_child(child)}`);
 						}
 						declarations.push(`${name}={${embedded.join(',')}}`);
@@ -1026,7 +1056,8 @@ class Session {
 					}
 					case 'NullObject': {
 						declarations.push(`${name}=Object.create(null)`);
-						for (let i = 0; i < keys.length; i++) fill.push(`${name}${prop(keys[i])}=${expression_child(children[i])}`);
+						for (let i = 0; i < keys.length; i++)
+							fill.push(`${name}${prop(keys[i])}=${expression_child(children[i])}`);
 						break;
 					}
 					case 'Set': {
@@ -1035,7 +1066,8 @@ class Session {
 							declarations.push(`${name}=${set_literal(children)}`);
 						} else {
 							declarations.push(`${name}=new Set`);
-							for (let i = 0; i < children.length; i++) fill.push(`${name}.add(${expression_child(children[i])})`);
+							for (let i = 0; i < children.length; i++)
+								fill.push(`${name}.add(${expression_child(children[i])})`);
 						}
 						break;
 					}
@@ -1044,7 +1076,10 @@ class Session {
 							declarations.push(`${name}=${map_literal(children)}`);
 						} else {
 							declarations.push(`${name}=new Map`);
-							for (let i = 0; i < children.length; i += 2) fill.push(`${name}.set(${expression_child(children[i])},${expression_child(children[i + 1])})`);
+							for (let i = 0; i < children.length; i += 2)
+								fill.push(
+									`${name}.set(${expression_child(children[i])},${expression_child(children[i + 1])})`
+								);
 						}
 						break;
 					}
@@ -1077,6 +1112,7 @@ class Session {
 				if (node.opaque === 0) continue;
 				const index = this.#slot++;
 				slots.push(`s.s[${index}]=${node.name}`);
+				/** @type {ClientPath} */
 				const reference = { root: `s.s[${index}]`, segments: [] };
 				this.#reference_node(node, reference);
 				this.#assign_references(node.value, reference, new Map());
@@ -1134,15 +1170,25 @@ class Session {
 		if (node.kind === 'Array') {
 			for (let i = 0; i < children.length; i++) {
 				const child = children[i];
-				if (is_node(child)) this.#assign_references_node(child, append_reference(reference, `[${node.keys[i]}]`), seen);
+				if (is_node(child))
+					this.#assign_references_node(
+						child,
+						append_reference(reference, `[${node.keys[i]}]`),
+						seen
+					);
 			}
 		} else if (node.kind === 'Object' || node.kind === 'NullObject') {
 			for (let i = 0; i < children.length; i++) {
 				const child = children[i];
-				if (is_node(child)) this.#assign_references_node(child, append_reference(reference, prop(node.keys[i])), seen);
+				if (is_node(child))
+					this.#assign_references_node(
+						child,
+						append_reference(reference, prop(node.keys[i])),
+						seen
+					);
 			}
-		} else if (is_view(node.kind)) {
-			this.#assign_references_node(/** @type {CapturedNode} */ (children[0]), append_reference(reference, '.buffer'), seen);
+		} else if (is_view(node)) {
+			this.#assign_references_node(node.children[0], append_reference(reference, '.buffer'), seen);
 		}
 	}
 
@@ -1192,6 +1238,7 @@ class Session {
 	 */
 	#emit_batch(batch, block = true) {
 		const prefix = block ? `;${this.#scope}[${stringify_string(this.#id)}].b((s,n)=>{` : '';
+		/** @type {JavaScriptSource[]} */
 		const operations = [];
 		/** @type {Set<CapturedNode>} */
 		const references = new Set();
@@ -1207,8 +1254,9 @@ class Session {
 				target,
 				control
 			};
+			/** @type {JavaScriptSource} */
 			let value_source;
-			/** @type {{ source: JavaScriptSource, write: string, folded: string } | undefined} */
+			/** @type {{ source: OutcomeHole, write: string, folded: string } | undefined} */
 			let anchor;
 			if (!event.invalid) {
 				// Persistent: async outcomes must retain Map/Set element and opaque custom
@@ -1216,7 +1264,9 @@ class Session {
 				const region = this.#emit_region(event.value, true, references);
 				value_source = region_source(region);
 				const rendered_region = render_fragment(value_source, (value) => {
-					if (value?.type === 'reference') return render_reference(value.reference ?? this.#references.get(value.node));
+					if (is_internal_hole(value) && value.type === 'reference') {
+						return render_reference(value.reference ?? this.#references.get(value.node));
+					}
 					return render_fragment_hole(value);
 				});
 				if (!is_primitive(event.value)) {
@@ -1235,9 +1285,15 @@ class Session {
 					// Defer the anchor write: when the operation uses the value exactly
 					// once, the write is folded into that use site. A helper call is a
 					// primary expression; only the assignment form needs parentheses.
-					const outcome = { type: 'outcome', source: value_source, anchored: name, folded: use_helper ? write : `(${write})` };
+					/** @type {OutcomeHole} */
+					const outcome = {
+						type: 'outcome',
+						source: value_source,
+						anchored: name,
+						folded: use_helper ? write : `(${write})`
+					};
 					anchor = { source: outcome, write, folded: outcome.folded };
-					value_source = create_source(['', ''], [outcome]);
+					value_source = hole_source(outcome);
 				}
 			} else {
 				value_source = generic_error;
@@ -1245,10 +1301,13 @@ class Session {
 
 			try {
 				let operation;
-				if (event.type === 'resolve') operation = source.descriptor.resolve(reference, value_source);
-				else if (event.type === 'reject') operation = source.descriptor.reject(reference, value_source);
+				if (event.type === 'resolve')
+					operation = source.descriptor.resolve(reference, value_source);
+				else if (event.type === 'reject')
+					operation = source.descriptor.reject(reference, value_source);
 				else if (event.type === 'next') operation = source.descriptor.next(reference, value_source);
-				else if (event.type === 'complete') operation = source.descriptor.complete(reference, value_source);
+				else if (event.type === 'complete')
+					operation = source.descriptor.complete(reference, value_source);
 				else operation = source.descriptor.error(reference, value_source);
 				if (!is_source(operation)) throw new TypeError('Invalid async descriptor operation');
 				if (anchor) {
@@ -1265,9 +1324,10 @@ class Session {
 					// The outcome's identities were assigned anchor references, so the anchor
 					// must still ship even though the operation falls back to a generic error.
 					if (anchor) operations.push(raw_source(anchor.write));
-					const fallback = source.type === 'sequence'
-						? source.descriptor.error(reference, generic_error)
-						: source.descriptor.reject(reference, generic_error);
+					const fallback =
+						source.type === 'sequence'
+							? source.descriptor.error(reference, generic_error)
+							: source.descriptor.reject(reference, generic_error);
 					if (!is_source(fallback)) throw new TypeError('Invalid async descriptor operation');
 					operations.push(fallback);
 					event.type = source.type === 'sequence' ? 'error' : 'reject';
@@ -1293,7 +1353,9 @@ class Session {
 			// definition is evaluated in the same block as (and before) its first use.
 			// Head-folded operations are resolved later by wrap_head instead.
 			const resolved = this.#resolve_runtime_declarations(body);
-			body = resolved.defs.length ? `${resolved.defs.join(';')};${resolved.source}` : resolved.source;
+			body = resolved.defs.length
+				? `${resolved.defs.join(';')};${resolved.source}`
+				: resolved.source;
 		}
 		return { source: prefix + body + (block ? '})' : rendered.length ? ';' : ''), close };
 	}
@@ -1302,21 +1364,25 @@ class Session {
 	 * Creates persistent client-slot aliases for repeated long paths when profitable in
 	 * this batch, then retains those aliases as the nodes' shortest references.
 	 *
-	 * @param {Array<{ source: string, tokens: Map<string, { node?: CapturedNode, reference?: ClientPath, source?: string }> }>} operations
+	 * @param {JavaScriptSource[]} operations
 	 * @param {Set<CapturedNode>} references
+	 * @returns {string[]}
 	 */
 	#render_operations(operations, references) {
+		/** @type {Map<CapturedNode, number>} */
 		const uses = new Map();
+		/** @type {Map<CapturedNode, ClientPath>} */
 		const imported_references = new Map();
 		for (const operation of operations) {
 			for (const value of source_holes(operation)) {
-				if (value?.type !== 'reference') continue;
+				if (!is_internal_hole(value) || value.type !== 'reference') continue;
 				uses.set(value.node, (uses.get(value.node) ?? 0) + 1);
 				if (value.reference && !imported_references.has(value.node)) {
 					imported_references.set(value.node, value.reference);
 				}
 			}
 		}
+		/** @type {{ node: CapturedNode, path: string, uses: number }[]} */
 		const candidates = [];
 		for (const node of references) {
 			const reference = this.#references.get(node);
@@ -1327,7 +1393,9 @@ class Session {
 			candidates.push({ node, path, uses: count });
 		}
 		candidates.sort((a, b) => b.path.length - a.path.length);
+		/** @type {Map<CapturedNode, string>} */
 		const aliases = new Map();
+		/** @type {string[]} */
 		const prefix = [];
 		for (const { node, path, uses } of candidates) {
 			const slot = `s.s[${this.#slot}]`;
@@ -1337,16 +1405,24 @@ class Session {
 			aliases.set(node, slot);
 			this.#references.set(node, { root: slot, segments: [] });
 		}
+		/**
+		 * @param {unknown} value
+		 * @returns {string}
+		 */
 		const render = (value) => {
-			if (value?.type === 'reference') {
-				return aliases.get(value.node) ?? render_reference(value.reference ?? this.#references.get(value.node));
+			if (is_internal_hole(value)) {
+				if (value.type === 'reference') {
+					return (
+						aliases.get(value.node) ??
+						render_reference(value.reference ?? this.#references.get(value.node))
+					);
+				}
+				if (value.type === 'capture') {
+					const source = render_fragment(value.source, render);
+					return `s.p[${value.pending}]=${needs_parentheses(source) ? `(${source})` : source}`;
+				}
+				return value.render ?? render_fragment(value.source, render);
 			}
-			if (value?.type === 'capture') {
-				const source = render_fragment(value.source, render);
-				return `s.p[${value.pending}]=${needs_parentheses(source) ? `(${source})` : source}`;
-			}
-			if (value?.type === 'outcome') return value.render ?? render_fragment(value.source, render);
-			if (value?.type === 'generated') return value.source;
 			return render_fragment_hole(value);
 		};
 		return prefix.concat(operations.map((operation) => render_fragment(operation, render)));
@@ -1382,7 +1458,7 @@ class Session {
 				if (pending) {
 					return Promise.reject(new TypeError('devalue: concurrent tail.next() is not supported'));
 				}
-				return advancing = advance();
+				return (advancing = advance());
 			},
 			async return() {
 				if (done) return { done: true, value: undefined };
@@ -1401,51 +1477,59 @@ class Session {
 
 		/** @returns {Promise<IteratorResult<string, void>>} */
 		async function advance() {
-				if (done) {
+			if (done) {
+				if (session.#failure) throw session.#failure;
+				return { done: true, value: undefined };
+			}
+			pending = true;
+			try {
+				while (
+					!session.#batch_ready &&
+					session.#active > 0 &&
+					!session.#failure &&
+					!session.#cancelled
+				) {
+					await new Promise(
+						/** @param {(value?: void | PromiseLike<void>) => void} resolve */ (resolve) =>
+							session.#waiters.push(resolve)
+					);
+				}
+				if (session.#failure) throw session.#failure;
+				if (session.#cancelled) {
+					await session.#cancelling;
+					done = true;
 					if (session.#failure) throw session.#failure;
 					return { done: true, value: undefined };
 				}
-				pending = true;
-				try {
-					while (!session.#batch_ready && session.#active > 0 && !session.#failure && !session.#cancelled) {
-						await new Promise(/** @param {(value?: void | PromiseLike<void>) => void} resolve */ (resolve) => session.#waiters.push(resolve));
-					}
-					if (session.#failure) throw session.#failure;
-					if (session.#cancelled) {
-						await session.#cancelling;
-						done = true;
-						if (session.#failure) throw session.#failure;
-						return { done: true, value: undefined };
-					}
-					if (!session.#batch_ready) {
-						done = true;
-						return { done: true, value: undefined };
-					}
-					const batch = { events: session.#batch };
-					session.#batch = [];
-					session.#batch_ready = false;
-					let block;
-					try {
-						block = session.#emit_batch(batch);
-					} catch (error) {
-						await session.#cancel(error);
-						throw session.#failure ?? error;
-					}
-					let close_failure;
-					for (const source of block.close) {
-						try {
-							await session.#close_sequence(source);
-						} catch (error) {
-							close_failure ??= error;
-						}
-					}
-					session.#start_unstarted();
-					session.#consume(batch);
-					if (close_failure) session.#fail(close_failure);
-					return { done: false, value: block.source };
-				} finally {
-					pending = false;
+				if (!session.#batch_ready) {
+					done = true;
+					return { done: true, value: undefined };
 				}
+				const batch = { events: session.#batch };
+				session.#batch = [];
+				session.#batch_ready = false;
+				let block;
+				try {
+					block = session.#emit_batch(batch);
+				} catch (error) {
+					await session.#cancel(error);
+					throw session.#failure ?? error;
+				}
+				let close_failure;
+				for (const source of block.close) {
+					try {
+						await session.#close_sequence(source);
+					} catch (error) {
+						close_failure ??= error;
+					}
+				}
+				session.#start_unstarted();
+				session.#consume(batch);
+				if (close_failure) session.#fail(close_failure);
+				return { done: false, value: block.source };
+			} finally {
+				pending = false;
+			}
 		}
 	}
 
@@ -1593,7 +1677,7 @@ function scalar(node, expression) {
 		case 'Temporal.ZonedDateTime':
 			return `${node.kind}.from(${stringify_string(node.data)})`;
 		default:
-			if (is_view(node.kind)) {
+			if (is_view(node)) {
 				return `new ${node.kind}(${expression(node.children[0])},${node.data.byteOffset},${node.data.length})`;
 			}
 			throw new Error(`Unknown stream node ${node.kind}`);
@@ -1601,23 +1685,24 @@ function scalar(node, expression) {
 }
 
 /**
- * Reports whether a walked node kind is an ArrayBuffer view.
+ * Reports whether a node is an ArrayBuffer view.
  *
- * @param {string} kind
- * @returns {boolean}
+ * @param {CapturedNode} node
+ * @returns {node is CapturedNode & { kind: ViewKind }}
  */
-function is_view(kind) {
-	return kind === 'DataView' || kind.endsWith('Array') && kind !== 'Array';
+function is_view(node) {
+	const kind = node.kind;
+	return kind === 'DataView' || (kind.endsWith('Array') && kind !== 'Array');
 }
 
 /**
  * Reports whether a node must be constructed after its represented children.
  *
- * @param {string} kind
+ * @param {CapturedNode} node
  * @returns {boolean}
  */
-function is_atomic(kind) {
-	return kind === 'Custom' || is_view(kind);
+function is_atomic(node) {
+	return node.kind === 'Custom' || is_view(node);
 }
 
 /** @param {object} value */
@@ -1644,15 +1729,27 @@ function prop(key) {
 	return /^[_$a-zA-Z][_$a-zA-Z0-9]*$/.test(key) ? `.${key}` : `[${stringify_string(key)}]`;
 }
 
+/**
+ * Wraps a single internal hole as a source with no surrounding text.
+ *
+ * @param {InternalHole} hole
+ * @returns {JavaScriptSource}
+ */
+function hole_source(hole) {
+	return create_source(['', ''], [hole]);
+}
+
 /** @param {CapturedNode} node @param {ClientPath | undefined} reference @returns {JavaScriptSource} */
 function source_reference(node, reference) {
-	return /** @type {JavaScriptSource} */ ({ [SOURCE]: true, strings: ['', ''], values: [{ type: 'reference', node, reference }] });
+	return hole_source({ type: 'reference', node, reference });
 }
 
 /** @param {{ source: string, tokens: Map<string, { node: CapturedNode, reference: ClientPath }> }} region */
 function region_source(region) {
 	if (region.tokens.size === 0) return raw_source(region.source);
+	/** @type {string[]} */
 	const strings = [];
+	/** @type {ReferenceHole[]} */
 	const values = [];
 	let index = 0;
 	for (const match of region.source.matchAll(TOKEN_PATTERN)) {
@@ -1667,8 +1764,14 @@ function region_source(region) {
 	return create_source(strings, values);
 }
 
-/** Returns ordinary value holes reachable through nested source fragments. @param {JavaScriptSource} source */
+/**
+ * Returns ordinary value holes reachable through nested source fragments.
+ *
+ * @param {JavaScriptSource} source
+ * @returns {unknown[]}
+ */
 function source_values(source) {
+	/** @type {unknown[]} */
 	const values = [];
 	for (const value of source.values) {
 		if (is_source(value)) values.push(...source_values(value));
@@ -1677,12 +1780,19 @@ function source_values(source) {
 	return values;
 }
 
-/** Returns every structural hole reachable through nested source fragments. @param {JavaScriptSource} source */
+/**
+ * Returns every hole reachable through nested source fragments, descending into outcomes.
+ *
+ * @param {JavaScriptSource} source
+ * @returns {unknown[]}
+ */
 function source_holes(source) {
+	/** @type {unknown[]} */
 	const values = [];
 	for (const value of source.values) {
 		if (is_source(value)) values.push(...source_holes(value));
-		else if (value?.type === 'outcome') values.push(...source_holes(value.source));
+		else if (is_internal_hole(value) && value.type === 'outcome')
+			values.push(...source_holes(value.source));
 		else values.push(value);
 	}
 	return values;
@@ -1698,27 +1808,38 @@ function count_source(source, target) {
 	return count;
 }
 
-/** @param {JavaScriptSource} source @param {(value: any) => string} render */
+/**
+ * @param {JavaScriptSource} source
+ * @param {(value: unknown) => string} render
+ * @returns {string}
+ */
 function render_fragment(source, render) {
-	let result = source.strings[0];
-	for (let i = 0; i < source.values.length; i++) {
-		const value = source.values[i];
+	const { strings, values } = source;
+	let result = strings[0];
+	for (let i = 0; i < values.length; i++) {
+		const value = values[i];
 		result += is_source(value) ? render_fragment(value, render) : render(value);
-		result += source.strings[i + 1];
+		result += strings[i + 1];
 	}
 	return result;
 }
 
-/** @param {any} value */
+/** @param {unknown} value */
 function render_fragment_hole(value) {
-	if (value?.type === 'reference') return render_reference(value.reference);
+	if (is_internal_hole(value) && value.type === 'reference')
+		return render_reference(value.reference);
 	if (is_primitive(value)) return stringify_primitive(value);
 	throw new TypeError('Invalid JavaScript source interpolation');
 }
 
-/** @param {unknown} value */
+/**
+ * @param {unknown} value
+ * @returns {value is InternalHole}
+ */
 function is_internal_hole(value) {
-	return typeof value === 'object' && value !== null && (value.type === 'reference' || value.type === 'capture' || value.type === 'generated' || value.type === 'outcome');
+	if (typeof value !== 'object' || value === null || !('type' in value)) return false;
+	const type = value.type;
+	return type === 'reference' || type === 'capture' || type === 'outcome';
 }
 
 /** @param {JavaScriptSource} source @param {(value: unknown) => string} expression */
@@ -1726,10 +1847,13 @@ function render_source(source, expression) {
 	return render_fragment(source, (value) => expression(value));
 }
 
-/** @param {JavaScriptSource} source */
+/**
+ * @param {JavaScriptSource} source
+ * @returns {string}
+ */
 function render_descriptor_source(source) {
 	return render_fragment(source, (value) => {
-		if (value?.type === 'capture') {
+		if (is_internal_hole(value) && value.type === 'capture') {
 			const captured = render_descriptor_source(value.source);
 			return `s.p[${value.pending}]=${needs_parentheses(captured) ? `(${captured})` : captured}`;
 		}
@@ -1801,7 +1925,8 @@ function reference_length(reference) {
  * The shared client queue runtime backing every reconstructed native AsyncIterable.
  * A session ships this text once; later sequences reference `s.f` directly.
  */
-const SEQUENCE_RUNTIME = '(c)=>{let q=[],w=[],d=0,e,r=(d,v)=>({done:!!d,value:v}),a,f=()=>{while(w.length&&(q.length||d)){a=w.shift();q.length?a[0](r(0,q.shift())):d<2?a[0](r(1,e)):a[1](e)}},g=(o,v)=>d||(o?(d=o,e=v):q.push(v),f());c(g);return{[Symbol.asyncIterator](){return this},async next(){if(q.length)return r(0,q.shift());if(d>1)throw e;return d?r(1,e):new Promise((a,b)=>w.push([a,b]))},async return(v){d||(d=1,e=v,q.length=0,f());return r(1,v)},async throw(v){d||(d=2,e=v,q.length=0,f());throw v}}}';
+const SEQUENCE_RUNTIME =
+	'(c)=>{let q=[],w=[],d=0,e,r=(d,v)=>({done:!!d,value:v}),a,f=()=>{while(w.length&&(q.length||d)){a=w.shift();q.length?a[0](r(0,q.shift())):d<2?a[0](r(1,e)):a[1](e)}},g=(o,v)=>d||(o?(d=o,e=v):q.push(v),f());c(g);return{[Symbol.asyncIterator](){return this},async next(){if(q.length)return r(0,q.shift());if(d>1)throw e;return d?r(1,e):new Promise((a,b)=>w.push([a,b]))},async return(v){d||(d=1,e=v,q.length=0,f());return r(1,v)},async throw(v){d||(d=2,e=v,q.length=0,f());throw v}}}';
 
 /**
  * Session helper definitions, shipped at most once per session, always in the same block
@@ -1852,7 +1977,22 @@ function empty_tail() {
 	return tail;
 }
 
-/** @typedef {{ node: CapturedNode, descriptor: any, type: 'value' | 'sequence' | 'native', started: boolean, terminal: boolean, cleaned: boolean, active: boolean, flushed_pending: number, iterator?: any, iterator_closed?: boolean, next?: Function, pulling?: boolean, pulled?: Promise<void>, pulled_resolve?: () => void, observer?: { active: boolean }, early?: ['resolve' | 'reject', unknown] }} Source */
+/** @typedef {{ node: AsyncNode, descriptor: any, type: 'value' | 'sequence' | 'native', started: boolean, terminal: boolean, cleaned: boolean, active: boolean, flushed_pending: number, iterator?: any, iterator_closed?: boolean, next?: Function, pulling?: boolean, pulled?: Promise<void>, pulled_resolve?: () => void, observer?: { active: boolean }, early?: ['resolve' | 'reject', unknown] }} Source */
 /** @typedef {{ source: Source, type: 'resolve' | 'reject' | 'next' | 'complete' | 'error', value: unknown, sequence: number, invalid: boolean }} Event */
 /** @typedef {{ events: Event[] }} Batch */
-/** @typedef {{ readonly [SOURCE]: true, readonly strings: readonly string[], readonly values: readonly unknown[] }} JavaScriptSource */
+/**
+ * A source hole that refers to a captured identity on the client. `reference` is the path
+ * fixed at creation, or undefined to resolve the node's shortest committed path at render time.
+ * @typedef {{ type: 'reference', node: CapturedNode, reference: ClientPath | undefined }} ReferenceHole
+ */
+/**
+ * A source hole produced by a descriptor's `capture` callback; renders as an assignment
+ * that stashes `source` into the pending-control table.
+ * @typedef {{ type: 'capture', pending: number, source: JavaScriptSource }} CaptureHole
+ */
+/**
+ * A source hole wrapping an async outcome's region. `render` is filled during batch emission
+ * once it is known whether the anchor write is folded into the single use site.
+ * @typedef {{ type: 'outcome', source: JavaScriptSource, anchored: string, folded: string, render?: string }} OutcomeHole
+ */
+/** Holes injected by the stream itself, as opposed to user values interpolated by a replacer. @typedef {ReferenceHole | CaptureHole | OutcomeHole} InternalHole */
