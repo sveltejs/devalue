@@ -428,7 +428,7 @@ export function uneval(value, replacer) {
 						//
 						// Object.assign is cheaper when:
 						//   (18 + A) + P * (d + 2) < L + 2
-						const populated_keys = valid_array_indices(/** @type {any[]} */ (thing));
+						const populated_keys = valid_array_indices(thing);
 						const population = populated_keys.length;
 						const d = String(thing.length).length;
 						const array = stringify_sparse_array(thing.length);
