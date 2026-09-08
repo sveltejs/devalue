@@ -59,17 +59,13 @@ class Session {
 	#batch = [];
 	/** Whether the current batch has been finalized and is ready to emit. @type {boolean} */
 	#batch_ready = false;
-	/** Resolvers for tail reads waiting for delivery or a lifecycle change. @type {Array<() => void>} */
-	#waiters = [];
-	/** Monotonic observation order assigned before events are batched. @type {number} */
-	#sequence = 0;
+	/** Wakes the tail generator when a batch is ready or the lifecycle changes. @type {(() => void) | undefined} */
+	#wake;
 	/** Number of async sources whose terminal client operation has not been generated. @type {number} */
 	#active = 0;
 	/** Whether a batch finalization is currently scheduled. @type {boolean} */
 	#flushing = false;
-	/** Whether server-side observation and queued delivery have been cancelled. @type {boolean} */
-	#cancelled = false;
-	/** In-flight cleanup shared by repeated cancellation requests. @type {Promise<void> | undefined} */
+	/** In-flight cleanup; defined once the session has been cancelled. @type {Promise<void> | undefined} */
 	#cancelling;
 	/** Fatal generation error, cancellation reason, or first cleanup failure. @type {unknown} */
 	#failure;
@@ -130,53 +126,37 @@ class Session {
 	/** @param {unknown} value @returns {Promise<UnevalStreamResult>} */
 	async serialize(value) {
 		try {
+			// walk the graph and capture the synchronous values and the first layer of async sources
 			this.#capture(value, true);
 			this.#active = this.#sources.length;
+			if (this.#cancelling) throw this.#failure;
 		} catch (error) {
 			await this.#cancel(error);
 			throw this.#failure ?? error;
-		}
-		if (this.#cancelled) {
-			await this.#cancel(this.#failure);
-			throw this.#failure;
 		}
 
 		if (this.#sources.length === 0) {
 			return { head: this.#emit_region(value, false).source, tail: empty_tail(), id: this.#id };
 		}
 
+		// start observing the async sources
 		this.#start_sources();
-		await this.#initial_window();
+		// give them a 1-task window in which they can resolve to be batched into the initial body.
+		// Sources settle in microtasks after this point, so always wait at least one macrotask,
+		// then keep waiting while a flush is scheduled so the window matches tail batching.
+		do await macrotask();
+		while (this.#flushing);
 		if (this.#failure) throw this.#failure;
 
 		try {
 			const head_region = this.#emit_region(value, true);
 			this.#assign_references(value, { root: 's.a[0]', segments: [] }, new Map());
-			let operations = '';
-			if (this.#batch_ready) {
-				const batch = { events: this.#batch };
-				const emitted = this.#emit_batch(batch, false);
-				operations += emitted.source;
-				this.#batch = [];
-				this.#batch_ready = false;
-				for (const source of emitted.close) {
-					try {
-						await this.#close_sequence(source);
-					} catch (error) {
-						await this.#cancel(error);
-						throw this.#failure ?? error;
-					}
-				}
-				this.#consume(batch);
-			}
-			this.#start_unstarted();
+			// anything that settled within the window is folded into the head rather than shipped as a block
+			const operations = this.#batch_ready ? await this.#deliver(this.#take_batch(), false) : '';
 
+			// if everything resolved in 1 task, then we ended up with a single batch, so we don't need to do anything else
 			if (this.#active === 0 && this.#batch.length === 0) {
-				return {
-					head: this.#wrap_head(head_region, operations + this.#cleanup_source()),
-					tail: empty_tail(),
-					id: this.#id
-				};
+				return { head: this.#wrap_head(head_region, operations + this.#cleanup_source()), tail: empty_tail(), id: this.#id };
 			}
 
 			this.#emit_dispatch = true;
@@ -308,8 +288,7 @@ class Session {
 		/** @param {CapturedNode} node */
 		const validate = (node) => {
 			if (this.#validated.has(node) || validated.has(node)) return;
-			if (validating.has(node))
-				throw this.#error('Cannot stringify an atomic custom cycle', node.value);
+			if (validating.has(node)) throw this.#error('Cannot stringify an atomic custom cycle', node.value);
 			validating.add(node);
 			for (const child of node.children) {
 				if (is_node(child) && child.kind === 'Custom') validate(child);
@@ -370,27 +349,29 @@ class Session {
 		if (typeof value === 'object' && value !== null) {
 			/** @type {{ active: boolean } | undefined} */
 			let observer;
-			if (is_native_promise(value))
-				try {
-					const current = (observer = { active: true });
-					/**
-					 * Forwards a native Promise fulfillment while its provisional observer is active.
-					 *
-					 * @param {unknown} result
-					 */
-					const resolve = (result) =>
-						current.active && this.#native_event(value, 'resolve', result);
-					/**
-					 * Forwards a native Promise rejection while its provisional observer is active.
-					 *
-					 * @param {unknown} reason
-					 */
-					const reject = (reason) => current.active && this.#native_event(value, 'reject', reason);
-					const observed = promise_then.call(value, resolve, reject);
-					promise_then.call(observed, undefined, () => {});
-				} catch {
-					observer = undefined;
-				}
+			if (is_native_promise(value)) try {
+				const current = observer = { active: true };
+				/**
+				 * Forwards a native Promise fulfillment while its provisional observer is active.
+				 *
+				 * @param {unknown} result
+				 */
+				const resolve = (result) => current.active && this.#native_event(value, 'resolve', result);
+				/**
+				 * Forwards a native Promise rejection while its provisional observer is active.
+				 *
+				 * @param {unknown} reason
+				 */
+				const reject = (reason) => current.active && this.#native_event(value, 'reject', reason);
+				const observed = promise_then.call(
+					value,
+					resolve,
+					reject
+				);
+				promise_then.call(observed, undefined, () => {});
+			} catch {
+				observer = undefined;
+			}
 			if (observer) {
 				const descriptor = this.#native_descriptor(/** @type {Promise<unknown>} */ (value));
 				try {
@@ -437,16 +418,7 @@ class Session {
 		// the mutation that TypeScript cannot follow.
 		const async_node = /** @type {AsyncNode} */ (node);
 		/** @type {Source} */
-		const state = {
-			node: async_node,
-			descriptor,
-			type,
-			started: false,
-			terminal: false,
-			cleaned: false,
-			active: true,
-			flushed_pending: 0
-		};
+		const state = { node: async_node, descriptor, type, started: false, terminal: false, cleaned: false, active: true };
 		async_node.kind = 'Async';
 		async_node.data = { source, pending, captured, state };
 		this.#sources.push(state);
@@ -517,10 +489,7 @@ class Session {
 	 * @param {any} descriptor
 	 */
 	#validate_value_descriptor(descriptor) {
-		if (
-			(typeof descriptor.source !== 'object' || descriptor.source === null) &&
-			typeof descriptor.source !== 'function'
-		) {
+		if ((typeof descriptor.source !== 'object' || descriptor.source === null) && typeof descriptor.source !== 'function') {
 			throw new TypeError('Invalid async-value source');
 		}
 		for (const key of ['construct', 'resolve', 'reject']) {
@@ -537,15 +506,11 @@ class Session {
 	 * @param {any} descriptor
 	 */
 	#validate_sequence_descriptor(descriptor) {
-		if (
-			(typeof descriptor.source !== 'object' || descriptor.source === null) &&
-			typeof descriptor.source !== 'function'
-		) {
+		if ((typeof descriptor.source !== 'object' || descriptor.source === null) && typeof descriptor.source !== 'function') {
 			throw new TypeError('Invalid async-sequence source');
 		}
 		for (const key of ['construct', 'next', 'complete', 'error']) {
-			if (typeof descriptor[key] !== 'function')
-				throw new TypeError(`Invalid async-sequence ${key}`);
+			if (typeof descriptor[key] !== 'function') throw new TypeError(`Invalid async-sequence ${key}`);
 		}
 		if (descriptor.cancel !== undefined && typeof descriptor.cancel !== 'function') {
 			throw new TypeError('Invalid async-sequence cancel');
@@ -575,7 +540,7 @@ class Session {
 	 * @param {Source} source
 	 */
 	#start(source) {
-		if (source.started || this.#cancelled) return;
+		if (source.started || this.#cancelling) return;
 		source.started = true;
 		if (source.type === 'sequence') {
 			this.#start_sequence(source);
@@ -635,7 +600,7 @@ class Session {
 		// `next` is set by #start_sequence before the first pull, and later pulls are only
 		// triggered by 'next' events, which require an earlier successful pull.
 		const next = source.next;
-		if (!next || source.terminal || source.pulling || this.#cancelled) return;
+		if (!next || source.terminal || source.pulling || this.#cancelling) return;
 		source.pulling = true;
 		source.pulled = new Promise((resolve) => {
 			source.pulled_resolve = resolve;
@@ -656,7 +621,7 @@ class Session {
 		Promise.resolve(result).then(
 			(result) => {
 				finish();
-				if (source.terminal || this.#cancelled) return;
+				if (source.terminal || this.#cancelling) return;
 				try {
 					if ((typeof result !== 'object' || result === null) && typeof result !== 'function') {
 						throw new TypeError('async iterator result is not an object');
@@ -683,11 +648,11 @@ class Session {
 	 * @param {unknown} value
 	 */
 	#event(source, type, value) {
-		if (source.terminal || this.#cancelled) return;
+		if (source.terminal || this.#cancelling) return;
 		if (type !== 'next') {
 			source.terminal = true;
 		}
-		const event = { source, type, value, sequence: this.#sequence++, invalid: false };
+		const event = { source, type, value, invalid: false };
 		const source_count = this.#sources.length;
 		try {
 			this.#capture(value);
@@ -709,36 +674,66 @@ class Session {
 	}
 
 	/**
-	 * Marks a batch's events as emitted or dequeued and resumes sequence pulling for
-	 * sources with no other undelivered events.
+	 * Marks a batch's events as emitted and resumes sequence pulling. A sequence only pulls
+	 * once its previous `next` event is consumed, so each sequence has at most one
+	 * unconsumed `next` event and every such event resumes exactly one pull.
 	 *
-	 * @param {Batch} batch
+	 * @param {Event[]} events
 	 */
-	#consume(batch) {
-		for (const event of batch.events) event.source.flushed_pending--;
-		for (const event of batch.events) {
-			if (event.type === 'next' && event.source.flushed_pending === 0) this.#pull(event.source);
+	#consume(events) {
+		for (const event of events) {
+			if (event.type === 'next') this.#pull(event.source);
 		}
 	}
 
-	/** Finalizes the current events as one ordered batch and wakes waiting tail reads. */
+	/** Finalizes the current events as one batch and wakes the tail. Events are already in observation order. */
 	#flush() {
 		this.#flushing = false;
-		if (this.#cancelled || this.#batch.length === 0) return;
-		this.#batch.sort((a, b) => a.sequence - b.sequence);
-		for (const event of this.#batch) event.source.flushed_pending++;
+		if (this.#cancelling || this.#batch.length === 0) return;
 		this.#batch_ready = true;
 		this.#notify();
 	}
 
-	/** Waits for the same scheduled flush window used by tail batches before freezing the head. */
-	#initial_window() {
-		return new Promise(
-			/** @param {(value?: void | PromiseLike<void>) => void} resolve */ (resolve) => {
-				const settle = () => setTimeout(() => (this.#flushing ? settle() : resolve()), 0);
-				settle();
+	/**
+	 * Detaches the finalized batch so new events accumulate separately while it is delivered.
+	 *
+	 * @returns {Event[]}
+	 */
+	#take_batch() {
+		const events = this.#batch;
+		this.#batch = [];
+		this.#batch_ready = false;
+		return events;
+	}
+
+	/**
+	 * Renders a batch, closes any sequences that failed within it, starts sources discovered by
+	 * it, and resumes pulling. Generation failures are fatal and cancel the session.
+	 *
+	 * @param {Event[]} events
+	 * @param {boolean} block whether to wrap the operations as a standalone tail block
+	 * @returns {Promise<string>}
+	 */
+	async #deliver(events, block) {
+		let emitted;
+		try {
+			emitted = this.#emit_batch(events, block);
+		} catch (error) {
+			await this.#cancel(error);
+			throw this.#failure ?? error;
+		}
+		for (const source of emitted.close) {
+			try {
+				await this.#close_sequence(source);
+			} catch (error) {
+				// The iterator already failed and its client error operation is in this batch, so a
+				// failing `return()` has nothing left to affect. Report it and keep streaming.
+				this.#report(error, source.descriptor.source);
 			}
-		);
+		}
+		this.#start_unstarted();
+		this.#consume(events);
+		return emitted.source;
 	}
 
 	/**
@@ -774,9 +769,7 @@ class Session {
 			}
 			node.position = order.push(node) - 1;
 		};
-		const root_node = is_primitive(value)
-			? undefined
-			: identities.get(/** @type {object} */ (value));
+		const root_node = is_primitive(value) ? undefined : identities.get(/** @type {object} */ (value));
 		if (root_node) visit(root_node);
 
 		// In-region use counts; a node used once can be inlined at its single use site.
@@ -925,12 +918,10 @@ class Session {
 			}
 		};
 		/** @param {Child} child */
-		const expression_child = (child) =>
-			is_node(child) ? expression_node(child) : stringify_primitive(child);
+		const expression_child = (child) => is_node(child) ? expression_node(child) : stringify_primitive(child);
 
 		/** @param {Child[]} children */
-		const set_literal = (children) =>
-			children.length ? `new Set([${children.map(expression_child).join(',')}])` : 'new Set';
+		const set_literal = (children) => children.length ? `new Set([${children.map(expression_child).join(',')}])` : 'new Set';
 		/** @param {Child[]} children */
 		const map_literal = (children) => {
 			if (children.length === 0) return 'new Map';
@@ -988,28 +979,20 @@ class Session {
 				switch (node.kind) {
 					case 'Array':
 						early_declarations.push(`${name}=Array(${node.data})`);
-						for (let i = 0; i < keys.length; i++)
-							fill.push(`${name}[${keys[i]}]=${expression_child(children[i])}`);
+						for (let i = 0; i < keys.length; i++) fill.push(`${name}[${keys[i]}]=${expression_child(children[i])}`);
 						break;
 					case 'Object':
 					case 'NullObject':
-						early_declarations.push(
-							`${name}=${node.kind === 'NullObject' ? 'Object.create(null)' : '{}'}`
-						);
-						for (let i = 0; i < keys.length; i++)
-							fill.push(`${name}${prop(keys[i])}=${expression_child(children[i])}`);
+						early_declarations.push(`${name}=${node.kind === 'NullObject' ? 'Object.create(null)' : '{}'}`);
+						for (let i = 0; i < keys.length; i++) fill.push(`${name}${prop(keys[i])}=${expression_child(children[i])}`);
 						break;
 					case 'Set':
 						early_declarations.push(`${name}=new Set`);
-						for (let i = 0; i < children.length; i++)
-							fill.push(`${name}.add(${expression_child(children[i])})`);
+						for (let i = 0; i < children.length; i++) fill.push(`${name}.add(${expression_child(children[i])})`);
 						break;
 					case 'Map':
 						early_declarations.push(`${name}=new Map`);
-						for (let i = 0; i < children.length; i += 2)
-							fill.push(
-								`${name}.set(${expression_child(children[i])},${expression_child(children[i + 1])})`
-							);
+						for (let i = 0; i < children.length; i += 2) fill.push(`${name}.set(${expression_child(children[i])},${expression_child(children[i + 1])})`);
 						break;
 					default:
 						throw this.#error('Cannot stringify value', node.value);
@@ -1024,8 +1007,7 @@ class Session {
 					case 'Array': {
 						if (is_sparse(node)) {
 							declarations.push(`${name}=Array(${node.data})`);
-							for (let i = 0; i < keys.length; i++)
-								fill.push(`${name}[${keys[i]}]=${expression_child(children[i])}`);
+							for (let i = 0; i < keys.length; i++) fill.push(`${name}[${keys[i]}]=${expression_child(children[i])}`);
 							break;
 						}
 						const parts = [];
@@ -1038,17 +1020,14 @@ class Session {
 							}
 						}
 						// A trailing elision needs one extra comma to preserve length.
-						declarations.push(
-							`${name}=[${parts.join(',')}${parts.length && parts[parts.length - 1] === '' ? ',' : ''}]`
-						);
+						declarations.push(`${name}=[${parts.join(',')}${parts.length && parts[parts.length - 1] === '' ? ',' : ''}]`);
 						break;
 					}
 					case 'Object': {
 						const embedded = [];
 						for (let i = 0; i < children.length; i++) {
 							const child = children[i];
-							if (available(child))
-								embedded.push(`${literal_key(keys[i])}:${expression_child(child)}`);
+							if (available(child)) embedded.push(`${literal_key(keys[i])}:${expression_child(child)}`);
 							else fill.push(`${name}${prop(keys[i])}=${expression_child(child)}`);
 						}
 						declarations.push(`${name}={${embedded.join(',')}}`);
@@ -1056,8 +1035,7 @@ class Session {
 					}
 					case 'NullObject': {
 						declarations.push(`${name}=Object.create(null)`);
-						for (let i = 0; i < keys.length; i++)
-							fill.push(`${name}${prop(keys[i])}=${expression_child(children[i])}`);
+						for (let i = 0; i < keys.length; i++) fill.push(`${name}${prop(keys[i])}=${expression_child(children[i])}`);
 						break;
 					}
 					case 'Set': {
@@ -1066,8 +1044,7 @@ class Session {
 							declarations.push(`${name}=${set_literal(children)}`);
 						} else {
 							declarations.push(`${name}=new Set`);
-							for (let i = 0; i < children.length; i++)
-								fill.push(`${name}.add(${expression_child(children[i])})`);
+							for (let i = 0; i < children.length; i++) fill.push(`${name}.add(${expression_child(children[i])})`);
 						}
 						break;
 					}
@@ -1076,10 +1053,7 @@ class Session {
 							declarations.push(`${name}=${map_literal(children)}`);
 						} else {
 							declarations.push(`${name}=new Map`);
-							for (let i = 0; i < children.length; i += 2)
-								fill.push(
-									`${name}.set(${expression_child(children[i])},${expression_child(children[i + 1])})`
-								);
+							for (let i = 0; i < children.length; i += 2) fill.push(`${name}.set(${expression_child(children[i])},${expression_child(children[i + 1])})`);
 						}
 						break;
 					}
@@ -1184,22 +1158,12 @@ class Session {
 		if (node.kind === 'Array') {
 			for (let i = 0; i < children.length; i++) {
 				const child = children[i];
-				if (is_node(child))
-					this.#assign_references_node(
-						child,
-						append_reference(reference, `[${node.keys[i]}]`),
-						seen
-					);
+				if (is_node(child)) this.#assign_references_node(child, append_reference(reference, `[${node.keys[i]}]`), seen);
 			}
 		} else if (node.kind === 'Object' || node.kind === 'NullObject') {
 			for (let i = 0; i < children.length; i++) {
 				const child = children[i];
-				if (is_node(child))
-					this.#assign_references_node(
-						child,
-						append_reference(reference, prop(node.keys[i])),
-						seen
-					);
+				if (is_node(child)) this.#assign_references_node(child, append_reference(reference, prop(node.keys[i])), seen);
 			}
 		} else if (is_view(node)) {
 			this.#assign_references_node(node.children[0], append_reference(reference, '.buffer'), seen);
@@ -1246,11 +1210,11 @@ class Session {
 	 * Generates ordered client operations for a finalized event batch. Failures here are
 	 * fatal to the session, so emission mutates session state directly.
 	 *
-	 * @param {Batch} batch
+	 * @param {Event[]} events
 	 * @param {boolean} block
 	 * @returns {{ source: string, close: Source[] }}
 	 */
-	#emit_batch(batch, block = true) {
+	#emit_batch(events, block = true) {
 		const prefix = block ? `;${this.#scope}[${stringify_string(this.#id)}].b((s,n)=>{` : '';
 		/** @type {JavaScriptSource[]} */
 		const operations = [];
@@ -1258,7 +1222,7 @@ class Session {
 		const references = new Set();
 		/** @type {Source[]} */
 		const close = [];
-		for (const event of batch.events) {
+		for (const event of events) {
 			const source = event.source;
 			const node = source.node;
 			references.add(node);
@@ -1300,12 +1264,7 @@ class Session {
 					// once, the write is folded into that use site. A helper call is a
 					// primary expression; only the assignment form needs parentheses.
 					/** @type {OutcomeHole} */
-					const outcome = {
-						type: 'outcome',
-						source: value_source,
-						anchored: name,
-						folded: use_helper ? write : `(${write})`
-					};
+					const outcome = { type: 'outcome', source: value_source, anchored: name, folded: use_helper ? write : `(${write})` };
 					anchor = { source: outcome, write, folded: outcome.folded };
 					value_source = hole_source(outcome);
 				}
@@ -1315,13 +1274,10 @@ class Session {
 
 			try {
 				let operation;
-				if (event.type === 'resolve')
-					operation = source.descriptor.resolve(reference, value_source);
-				else if (event.type === 'reject')
-					operation = source.descriptor.reject(reference, value_source);
+				if (event.type === 'resolve') operation = source.descriptor.resolve(reference, value_source);
+				else if (event.type === 'reject') operation = source.descriptor.reject(reference, value_source);
 				else if (event.type === 'next') operation = source.descriptor.next(reference, value_source);
-				else if (event.type === 'complete')
-					operation = source.descriptor.complete(reference, value_source);
+				else if (event.type === 'complete') operation = source.descriptor.complete(reference, value_source);
 				else operation = source.descriptor.error(reference, value_source);
 				if (!is_source(operation)) throw new TypeError('Invalid async descriptor operation');
 				if (anchor) {
@@ -1338,10 +1294,9 @@ class Session {
 					// The outcome's identities were assigned anchor references, so the anchor
 					// must still ship even though the operation falls back to a generic error.
 					if (anchor) operations.push(raw_source(anchor.write));
-					const fallback =
-						source.type === 'sequence'
-							? source.descriptor.error(reference, generic_error)
-							: source.descriptor.reject(reference, generic_error);
+					const fallback = source.type === 'sequence'
+						? source.descriptor.error(reference, generic_error)
+						: source.descriptor.reject(reference, generic_error);
 					if (!is_source(fallback)) throw new TypeError('Invalid async descriptor operation');
 					operations.push(fallback);
 					event.type = source.type === 'sequence' ? 'error' : 'reject';
@@ -1367,9 +1322,7 @@ class Session {
 			// definition is evaluated in the same block as (and before) its first use.
 			// Head-folded operations are resolved later by wrap_head instead.
 			const resolved = this.#resolve_runtime_declarations(body);
-			body = resolved.defs.length
-				? `${resolved.defs.join(';')};${resolved.source}`
-				: resolved.source;
+			body = resolved.defs.length ? `${resolved.defs.join(';')};${resolved.source}` : resolved.source;
 		}
 		return { source: prefix + body + (block ? '})' : rendered.length ? ';' : ''), close };
 	}
@@ -1457,111 +1410,89 @@ class Session {
 	 */
 	#tail() {
 		const session = this;
-		let pending = false;
-		/** @type {Promise<IteratorResult<string, void>> | undefined} */
-		let advancing;
+		const generator = this.#blocks();
+		// Tracks whether the generator has completed, so that `return()` after completion is a
+		// no-op like any other async generator instead of re-running cancellation.
 		let done = false;
-		return {
+		/** @param {Promise<IteratorResult<string, void>>} result */
+		const track = (result) =>
+			result.then(
+				(result) => {
+					if (result.done) done = true;
+					return result;
+				},
+				(error) => {
+					done = true;
+					throw error;
+				}
+			);
+		/** @type {UnevalStreamTail} */
+		const tail = {
 			[Symbol.asyncIterator]() {
 				return this;
 			},
-			next() {
-				if (pending) {
-					return Promise.reject(new TypeError('devalue: concurrent tail.next() is not supported'));
-				}
-				return (advancing = advance());
-			},
-			async return() {
-				if (done) return { done: true, value: undefined };
+			next: () => track(generator.next()),
+			return: async () => {
+				if (done) return generator.return();
 				done = true;
+				// An async generator queues `return()` behind an in-flight `next()`, and `next()`
+				// may be parked waiting on a source that never settles. Cancelling first wakes the
+				// generator so the pending `next()` completes and the queued `return()` can run.
 				const cancelling = session.#cancel();
-				if (advancing) {
-					try {
-						await advancing;
-					} catch {}
-				}
+				const result = await generator.return();
 				await cancelling;
 				if (session.#failure) throw session.#failure;
-				return { done: true, value: undefined };
+				return result;
 			}
 		};
+		return tail;
+	}
 
-		/** @returns {Promise<IteratorResult<string, void>>} */
-		async function advance() {
-			if (done) {
-				if (session.#failure) throw session.#failure;
-				return { done: true, value: undefined };
+	/**
+	 * Yields each finalized batch as an executable block, waiting for sources between
+	 * batches. Ends once every source has emitted its terminal operation, or once the session
+	 * is cancelled — after cleanup finishes, so consumers observe cleanup failures.
+	 *
+	 * @returns {AsyncGenerator<string, void, void>}
+	 */
+	async *#blocks() {
+		while (true) {
+			while (!this.#batch_ready && this.#active > 0 && !this.#cancelling) await this.#sleep();
+			if (this.#cancelling) {
+				await this.#cancelling;
+				if (this.#failure) throw this.#failure;
+				return;
 			}
-			pending = true;
-			try {
-				while (
-					!session.#batch_ready &&
-					session.#active > 0 &&
-					!session.#failure &&
-					!session.#cancelled
-				) {
-					await new Promise(
-						/** @param {(value?: void | PromiseLike<void>) => void} resolve */ (resolve) =>
-							session.#waiters.push(resolve)
-					);
-				}
-				if (session.#failure) throw session.#failure;
-				if (session.#cancelled) {
-					await session.#cancelling;
-					done = true;
-					if (session.#failure) throw session.#failure;
-					return { done: true, value: undefined };
-				}
-				if (!session.#batch_ready) {
-					done = true;
-					return { done: true, value: undefined };
-				}
-				const batch = { events: session.#batch };
-				session.#batch = [];
-				session.#batch_ready = false;
-				let block;
-				try {
-					block = session.#emit_batch(batch);
-				} catch (error) {
-					await session.#cancel(error);
-					throw session.#failure ?? error;
-				}
-				let close_failure;
-				for (const source of block.close) {
-					try {
-						await session.#close_sequence(source);
-					} catch (error) {
-						close_failure ??= error;
-					}
-				}
-				session.#start_unstarted();
-				session.#consume(batch);
-				if (close_failure) session.#fail(close_failure);
-				return { done: false, value: block.source };
-			} finally {
-				pending = false;
-			}
+			if (this.#active === 0) return;
+			yield await this.#deliver(this.#take_batch(), true);
 		}
 	}
 
-	/** Wakes every tail read currently waiting for delivery or lifecycle state to change. */
+	/** Suspends the tail generator until the next `#notify`. The generator is the only waiter. */
+	#sleep() {
+		return new Promise(/** @param {(value?: void | PromiseLike<void>) => void} resolve */ (resolve) => {
+			this.#wake = resolve;
+		});
+	}
+
+	/** Wakes the tail generator if it is waiting for delivery or a lifecycle change. */
 	#notify() {
-		const waiters = this.#waiters;
-		this.#waiters = [];
-		for (const resolve of waiters) resolve();
+		const wake = this.#wake;
+		this.#wake = undefined;
+		wake?.();
 	}
 
 	/**
 	 * Idempotently starts server-side cleanup and returns the shared cleanup operation.
+	 * `#cancelling` doubles as the cancelled flag for source callbacks and the tail.
 	 *
 	 * @param {unknown} [reason]
 	 * @returns {Promise<void>}
 	 */
-	async #cancel(reason) {
+	#cancel(reason) {
 		if (this.#cancelling) return this.#cancelling;
-		this.#cancelled = true;
-		this.#notify();
 		this.#cancelling = this.#cleanup(reason);
+		this.#notify();
 		return this.#cancelling;
 	}
 
@@ -1609,8 +1540,12 @@ class Session {
 			return;
 		}
 		const returned = Promise.resolve().then(() => method.call(source.iterator));
-		if (source.pulled) await Promise.all([source.pulled, returned]);
-		else await returned;
+    if (source.pulled) {
+      await Promise.all([source.pulled, returned]);
+    }
+    else {
+      await returned;
+    }
 	}
 
 	/**
@@ -1703,7 +1638,7 @@ function scalar(node, expression) {
  */
 function is_view(node) {
 	const kind = node.kind;
-	return kind === 'DataView' || (kind.endsWith('Array') && kind !== 'Array');
+	return kind === 'DataView' || kind.endsWith('Array') && kind !== 'Array';
 }
 
 /**
@@ -1802,8 +1737,7 @@ function source_holes(source) {
 	const values = [];
 	for (const value of source.values) {
 		if (is_source(value)) values.push(...source_holes(value));
-		else if (is_internal_hole(value) && value.type === 'outcome')
-			values.push(...source_holes(value.source));
+		else if (is_internal_hole(value) && value.type === 'outcome') values.push(...source_holes(value.source));
 		else values.push(value);
 	}
 	return values;
@@ -1939,8 +1873,7 @@ function reference_length(reference) {
  * The shared client queue runtime backing every reconstructed native AsyncIterable.
  * A session ships this text once; later sequences reference `s.f` directly.
  */
-const SEQUENCE_RUNTIME =
-	'(c)=>{let q=[],w=[],d=0,e,r=(d,v)=>({done:!!d,value:v}),a,f=()=>{while(w.length&&(q.length||d)){a=w.shift();q.length?a[0](r(0,q.shift())):d<2?a[0](r(1,e)):a[1](e)}},g=(o,v)=>d||(o?(d=o,e=v):q.push(v),f());c(g);return{[Symbol.asyncIterator](){return this},async next(){if(q.length)return r(0,q.shift());if(d>1)throw e;return d?r(1,e):new Promise((a,b)=>w.push([a,b]))},async return(v){d||(d=1,e=v,q.length=0,f());return r(1,v)},async throw(v){d||(d=2,e=v,q.length=0,f());throw v}}}';
+const SEQUENCE_RUNTIME = '(c)=>{let q=[],w=[],d=0,e,r=(d,v)=>({done:!!d,value:v}),a,f=()=>{while(w.length&&(q.length||d)){a=w.shift();q.length?a[0](r(0,q.shift())):d<2?a[0](r(1,e)):a[1](e)}},g=(o,v)=>d||(o?(d=o,e=v):q.push(v),f());c(g);return{[Symbol.asyncIterator](){return this},async next(){if(q.length)return r(0,q.shift());if(d>1)throw e;return d?r(1,e):new Promise((a,b)=>w.push([a,b]))},async return(v){d||(d=1,e=v,q.length=0,f());return r(1,v)},async throw(v){d||(d=2,e=v,q.length=0,f());throw v}}}';
 
 /**
  * Session helper definitions, shipped at most once per session, always in the same block
@@ -1976,24 +1909,16 @@ function create_session_id() {
 
 /** Returns a completed tail iterator for graphs with no asynchronous work. */
 function empty_tail() {
-	/** @type {UnevalStreamTail} */
-	const tail = {
-		[Symbol.asyncIterator]() {
-			return this;
-		},
-		async next() {
-			return { done: true, value: undefined };
-		},
-		async return() {
-			return { done: true, value: undefined };
-		}
-	};
-	return tail;
+	return (async function* () {})();
 }
 
-/** @typedef {{ node: AsyncNode, descriptor: any, type: 'value' | 'sequence' | 'native', started: boolean, terminal: boolean, cleaned: boolean, active: boolean, flushed_pending: number, iterator?: AsyncIterator<unknown>, iterator_closed?: boolean, next?: AsyncIterator<unknown>['next'], pulling?: boolean, pulled?: Promise<void>, pulled_resolve?: () => void, observer?: { active: boolean }, early?: ['resolve' | 'reject', unknown] }} Source */
-/** @typedef {{ source: Source, type: 'resolve' | 'reject' | 'next' | 'complete' | 'error', value: unknown, sequence: number, invalid: boolean }} Event */
-/** @typedef {{ events: Event[] }} Batch */
+/** Resolves in a fresh macrotask, after any flush already scheduled with `setTimeout(..., 0)`. */
+function macrotask() {
+	return new Promise(/** @param {(value?: void | PromiseLike<void>) => void} resolve */ (resolve) => setTimeout(resolve, 0));
+}
+
+/** @typedef {{ node: AsyncNode, descriptor: any, type: 'value' | 'sequence' | 'native', started: boolean, terminal: boolean, cleaned: boolean, active: boolean, iterator?: AsyncIterator<unknown>, iterator_closed?: boolean, next?: AsyncIterator<unknown>['next'], pulling?: boolean, pulled?: Promise<void>, pulled_resolve?: () => void, observer?: { active: boolean }, early?: ['resolve' | 'reject', unknown] }} Source */
+/** @typedef {{ source: Source, type: 'resolve' | 'reject' | 'next' | 'complete' | 'error', value: unknown, invalid: boolean }} Event */
 /**
  * A source hole that refers to a captured identity on the client. `reference` is the path
  * fixed at creation, or undefined to resolve the node's shortest committed path at render time.
