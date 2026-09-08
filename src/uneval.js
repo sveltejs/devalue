@@ -1,12 +1,10 @@
 /** @import { UnevalReplacer } from './types.js' */
 
-import { MAX_ARRAY_INDEX } from './constants.js';
 import {
 	DevalueError,
 	enumerable_symbols,
 	escaped,
 	get_type,
-	is_buffer,
 	is_plain_object,
 	is_primitive,
 	stringify_key,
@@ -16,10 +14,7 @@ import {
 import { is_source, js, render_source, visit_source } from './javascript-source.js';
 
 const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$';
-// Short strings have bounded escaping/output costs per reference, so they cannot
-// cause quadratic expansion. Keep them on the original fast path rather than
-// paying for deduplication on common values such as names, IDs and status fields.
-const MIN_STRING_LENGTH = 128;
+const MAX_IIFE_PARAMS = 65534;
 const unsafe_chars = /[<\b\f\n\r\t\0\u2028\u2029]/g;
 const reserved =
 	/^(?:do|if|in|for|int|let|new|try|var|byte|case|char|else|enum|goto|long|this|void|with|await|break|catch|class|const|final|float|short|super|throw|while|yield|delete|double|export|import|native|return|switch|throws|typeof|boolean|default|extends|finally|package|private|abstract|continue|debugger|function|volatile|interface|protected|transient|implements|instanceof|synchronized)$/;
@@ -36,31 +31,18 @@ export function uneval(value, replacer) {
 	const keys = [];
 
 	const custom = new Map();
+	/** @type {Map<any, any[]>} */
+	const dependencies = new Map();
 
-	// Only allocate a literal cache when we need to reuse an expensive primitive,
-	// including long Map keys rendered in error paths during the walk.
-	/** @type {Map<string | bigint, string> | undefined} */
-	let primitives;
-
-	/** @param {any} thing */
-	function stringify_cached_primitive(thing) {
-		if (
-			(typeof thing === 'string' && thing.length >= MIN_STRING_LENGTH) ||
-			typeof thing === 'bigint'
-		) {
-			primitives ??= new Map();
-			let literal = primitives.get(thing);
-			if (literal === undefined) {
-				literal = stringify_primitive(thing);
-				primitives.set(thing, literal);
-			}
-			return literal;
+	/**
+	 * @param {any} thing
+	 * @param {any[]} [parent_dependencies]
+	 */
+	function walk(thing, parent_dependencies) {
+		if (replacer && parent_dependencies !== undefined && !is_primitive(thing)) {
+			parent_dependencies.push(thing);
 		}
-		return stringify_primitive(thing);
-	}
 
-	/** @param {any} thing */
-	function walk(thing) {
 		if (!is_primitive(thing)) {
 			if (counts.has(thing)) {
 				counts.set(thing, counts.get(thing) + 1);
@@ -68,16 +50,21 @@ export function uneval(value, replacer) {
 			}
 
 			counts.set(thing, 1);
+			/** @type {any[] | undefined} */
+			const own_dependencies = replacer ? [] : undefined;
+			if (own_dependencies) dependencies.set(thing, own_dependencies);
 
 			if (replacer) {
 				const source = replacer(thing, js);
 
 				if (is_source(source)) {
 					custom.set(thing, source);
-					visit_source(source, walk);
+					visit_source(source, (value) => walk(value, own_dependencies));
 					return;
 				}
-				if (source !== undefined) throw new TypeError('Invalid uneval replacer result');
+				if (source !== undefined && source !== null && source !== false) {
+					throw new TypeError('Invalid uneval replacer result');
+				}
 			}
 
 			if (typeof thing === 'function') {
@@ -87,12 +74,9 @@ export function uneval(value, replacer) {
 			const type = get_type(thing);
 
 			switch (type) {
+				case 'Number':
 				case 'BigInt':
 				case 'String':
-					walk(thing.valueOf());
-					return;
-
-				case 'Number':
 				case 'Boolean':
 				case 'Date':
 				case 'RegExp':
@@ -101,25 +85,22 @@ export function uneval(value, replacer) {
 					return;
 
 				case 'Array':
-					// forEach scans the logical length of dictionary-backed sparse
-					// arrays. Visit own enumerable indices without doing work for
-					// every hole.
-					for (const i of valid_array_indices(thing)) {
+					/** @type {any[]} */ (thing).forEach((value, i) => {
 						keys.push(`[${i}]`);
-						walk(thing[i]);
+						walk(value, own_dependencies);
 						keys.pop();
-					}
+					});
 					break;
 
 				case 'Set':
-					Array.from(thing).forEach(walk);
+					Array.from(thing).forEach((value) => walk(value, own_dependencies));
 					break;
 
 				case 'Map':
 					for (const [key, value] of thing) {
-						keys.push(`.get(${is_primitive(key) ? stringify_cached_primitive(key) : '...'})`);
-						walk(key);
-						walk(value);
+						keys.push(`.get(${is_primitive(key) ? stringify_primitive(key) : '...'})`);
+						walk(key, own_dependencies);
+						walk(value, own_dependencies);
 						keys.pop();
 					}
 					break;
@@ -137,9 +118,7 @@ export function uneval(value, replacer) {
 				case 'BigInt64Array':
 				case 'BigUint64Array':
 				case 'DataView':
-					// A Node Buffer's backing store may be a shared pool. It must
-					// never be visited or hoisted just because a Buffer uses it.
-					if (!is_buffer(thing)) walk(thing.buffer);
+					walk(thing.buffer, own_dependencies);
 					return;
 
 				case 'ArrayBuffer':
@@ -175,62 +154,503 @@ export function uneval(value, replacer) {
 						}
 
 						keys.push(stringify_key(key));
-						walk(thing[key]);
+						walk(thing[key], own_dependencies);
 						keys.pop();
 					}
 			}
 		} else if (typeof thing === 'symbol') {
 			throw new DevalueError(`Cannot stringify a Symbol primitive`, keys, thing, value);
-		} else if (
-			(typeof thing === 'string' && thing.length >= MIN_STRING_LENGTH) ||
-			typeof thing === 'bigint'
-		) {
-			counts.set(thing, (counts.get(thing) || 0) + 1);
 		}
 	}
 
 	walk(value);
 
-	const names = new Map();
+	return new Renderer(counts, custom, dependencies).render(value);
+}
 
-	/** @type {Array<[any, number]>} */
-	const repeated = [];
-	// Avoid allocating entries for all the values that will never be hoisted.
-	counts.forEach((count, thing) => {
-		if (count > 1) repeated.push([thing, count]);
-	});
-
-	repeated
-		.sort((a, b) => b[1] - a[1])
-		.forEach(([thing, count]) => {
-			const name = get_name(names.size);
-
-			if (is_primitive(thing)) {
-				const length = stringify_cached_primitive(thing).length;
-				// Hoisting costs one literal, a parameter and a reference per occurrence.
-				// Allow for the IIFE wrapper and separators even if one already exists,
-				// so inexpensive repetitions stay inline.
-				if (length * count <= length + (count + 1) * name.length + 25) return;
-			}
-
-			names.set(thing, name);
-		});
+class Renderer {
+	/** @type {Map<any, number>} */
+	#counts;
+	/** @type {Map<any, any>} */
+	#custom;
+	/** @type {Map<any, any[]>} */
+	#dependencies;
+	/** @type {Map<any, string>} */
+	#names;
 
 	/**
+	 * @param {Map<any, number>} counts
+	 * @param {Map<any, any>} custom
+	 * @param {Map<any, any[]>} dependencies
+	 */
+	constructor(counts, custom, dependencies) {
+		this.#counts = counts;
+		this.#custom = custom;
+		this.#dependencies = dependencies;
+		this.#names = new Map();
+	}
+
+	/**
+	 * @param {any} value
+	 * @returns {string}
+	 */
+	render(value) {
+		this.#assign_names();
+
+		if (this.#custom.size > 0) {
+			const analysis = new DependencyAnalyzer(this.#dependencies, this.#names).analyze();
+			if (this.#names.size > 0) return this.#render_custom(value, analysis);
+		} else if (this.#names.size > 0) {
+			return this.#render_compact(value);
+		}
+
+		return this.#reference(value);
+	}
+
+	/** Assigns identifiers to values that must preserve shared identity. */
+	#assign_names() {
+		Array.from(this.#counts)
+			.filter((entry) => entry[1] > 1)
+			.sort((a, b) => b[1] - a[1])
+			.forEach((entry, i) => {
+				this.#names.set(entry[0], get_name(i));
+			});
+	}
+
+	/**
+	 * Renders a graph containing custom values. Mutable containers are created
+	 * empty. For each group of values that may refer to one another, we then fill
+	 * data needed immediately, create the remaining named values, and finally
+	 * connect references within the group.
+	 *
+	 * @param {any} value
+	 * @param {{ group_by_value: Map<any, number>, dependency_groups: any[][] }} analysis
+	 * @returns {string}
+	 */
+	#render_custom(value, { group_by_value, dependency_groups }) {
+		/** @type {string[]} */
+		const params = [];
+		/** @type {string[]} */
+		const values = [];
+		/** @type {string[]} */
+		const declarations = [];
+		/** @type {string[]} */
+		const statements = [];
+		const initialized_as_arguments = new Set();
+		const dependency_states = new Map();
+
+		// IIFE arguments are evaluated before its body. Empty mutable containers are
+		// always safe there. Other values are safe only when their creation expression
+		// does not refer to a name that will become available inside the IIFE.
+		for (const [thing, name] of this.#names) {
+			const mutable = this.#is_mutable(thing);
+			const can_initialize =
+				mutable || !this.#depends_on_name(thing, dependency_states);
+      if (can_initialize) {
+        initialized_as_arguments.add(thing);
+				// this says "put this name into the parameters list"
+        params.push(name);
+				// this says "call the IIFE with this value", which "assigns" it to the parameter name
+				values.push(mutable ? this.#allocate(thing) : this.#construct(thing));
+			} else {
+				declarations.push(name);
+			}
+		}
+
+		for (let group = 0; group < dependency_groups.length; group += 1) {
+			const group_values = /** @type {any[]} */ (dependency_groups[group]);
+
+			// First fill references to earlier groups. A custom creation expression may
+			// inspect this data, so it must already be present when that expression runs.
+			for (const thing of group_values) {
+				if (this.#names.has(thing) && this.#is_mutable(thing)) {
+					this.#populate(thing, group, false, group_by_value, statements);
+				}
+			}
+
+			const initializing = new Set();
+			const initialized = new Set();
+			for (const thing of group_values) {
+				this.#initialize_group_value(
+					thing,
+					group,
+					group_by_value,
+					initialized_as_arguments,
+					initializing,
+					initialized,
+					statements,
+					value
+				);
+			}
+
+			// Then connect references within this group. Waiting until now means every
+			// named value in the cycle exists before a container points to it.
+			for (const thing of group_values) {
+				if (this.#names.has(thing) && this.#is_mutable(thing)) {
+					this.#populate(thing, group, true, group_by_value, statements);
+				}
+			}
+		}
+
+		statements.push(`return ${this.#reference(value)}`);
+		return this.#emit_iife(params, values, declarations, statements);
+	}
+
+	/**
+	 * Renders a named graph without custom constructions using the compact path.
+	 *
+	 * @param {any} value
+	 * @returns {string}
+	 */
+	#render_compact(value) {
+		/** @type {string[]} */
+		const params = [];
+		/** @type {string[]} */
+		const values = [];
+		/** @type {string[]} */
+		const reconstructions = [];
+		/** @type {string[]} */
+		const statements = [];
+
+		this.#names.forEach((name, thing) => {
+			params.push(name);
+
+			if (is_primitive(thing)) {
+				values.push(stringify_primitive(thing));
+				return;
+			}
+
+			const type = get_type(thing);
+			switch (type) {
+				case 'Number':
+				case 'String':
+				case 'Boolean':
+				case 'BigInt':
+					values.push(`Object(${this.#reference(thing.valueOf())})`);
+					break;
+
+				case 'RegExp': {
+					const { source, flags } = thing;
+					values.push(
+						flags
+							? `new RegExp(${stringify_string(source)},"${flags}")`
+							: `new RegExp(${stringify_string(source)})`
+					);
+					break;
+				}
+
+				case 'Date':
+					values.push(`new Date(${thing.getTime()})`);
+					break;
+
+				case 'URL':
+					values.push(`new URL(${stringify_string(thing.toString())})`);
+					break;
+
+				case 'URLSearchParams':
+					values.push(`new URLSearchParams(${stringify_string(thing.toString())})`);
+					break;
+
+				case 'Array':
+					values.push(`Array(${thing.length})`);
+					/** @type {any[]} */ (thing).forEach((item, i) => {
+						statements.push(`${name}[${i}]=${this.#reference(item)}`);
+					});
+					break;
+
+				case 'Set': {
+					values.push('new Set');
+					const adds = Array.from(thing).map((item) => `.add(${this.#reference(item)})`);
+					if (adds.length > 0) statements.push(name + adds.join(''));
+					break;
+				}
+
+				case 'Map': {
+					values.push('new Map');
+					const sets = Array.from(thing).map(
+						([key, item]) => `.set(${this.#reference(key)}, ${this.#reference(item)})`
+					);
+					if (sets.length > 0) statements.push(name + sets.join(''));
+					break;
+				}
+
+				case 'Int8Array':
+				case 'Uint8Array':
+				case 'Uint8ClampedArray':
+				case 'Int16Array':
+				case 'Uint16Array':
+				case 'Float16Array':
+				case 'Int32Array':
+				case 'Uint32Array':
+				case 'Float32Array':
+				case 'Float64Array':
+				case 'BigInt64Array':
+				case 'BigUint64Array': {
+					let expression = `new ${type}`;
+					if (!this.#names.has(thing.buffer)) {
+						expression += `([${stringify_typed_array_elements(type, thing.buffer)}])`;
+					} else {
+						expression += `(${this.#reference(thing.buffer)})`;
+					}
+					if (thing.byteLength !== thing.buffer.byteLength) {
+						const start = thing.byteOffset / thing.BYTES_PER_ELEMENT;
+						const end = start + thing.length;
+						expression += `.subarray(${start},${end})`;
+					}
+					values.push('{}');
+					reconstructions.push(`${name}=${expression}`);
+					break;
+				}
+
+				case 'DataView': {
+					let expression = 'new DataView';
+					if (!this.#names.has(thing.buffer)) {
+						expression += `(new Uint8Array([${new Uint8Array(thing.buffer)}]).buffer`;
+					} else {
+						expression += `(${this.#reference(thing.buffer)}`;
+					}
+					if (thing.byteLength !== thing.buffer.byteLength) {
+						expression += `,${thing.byteOffset},${thing.byteLength}`;
+					}
+					values.push('{}');
+					reconstructions.push(`${name}=${expression})`);
+					break;
+				}
+
+				case 'ArrayBuffer':
+					values.push(`new Uint8Array([${new Uint8Array(thing)}]).buffer`);
+					break;
+
+				case 'Temporal.Duration':
+				case 'Temporal.Instant':
+				case 'Temporal.PlainDate':
+				case 'Temporal.PlainTime':
+				case 'Temporal.PlainDateTime':
+				case 'Temporal.PlainMonthDay':
+				case 'Temporal.PlainYearMonth':
+				case 'Temporal.ZonedDateTime':
+					values.push(`${type}.from(${stringify_string(thing.toString())})`);
+					break;
+
+				default:
+					values.push(Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}');
+					Object.keys(thing).forEach((key) => {
+						statements.push(`${name}${safe_prop(key)}=${this.#reference(thing[key])}`);
+					});
+			}
+		});
+
+		statements.push(`return ${this.#reference(value)}`);
+		return this.#emit_iife(params, values, [], [...reconstructions, ...statements]);
+	}
+
+	/**
+	 * Wraps named values and their initialization statements in an IIFE.
+	 * Uses an array argument when the engine's parameter limit would be exceeded.
+	 *
+	 * @param {string[]} params
+	 * @param {string[]} values
+	 * @param {string[]} declarations
+	 * @param {string[]} statements
+	 * @returns {string}
+	 */
+	#emit_iife(params, values, declarations, statements) {
+		const declaration = declarations.length > 0 ? `var ${declarations.join(',')};` : '';
+		const body = declaration + statements.join(';');
+		if (params.length > MAX_IIFE_PARAMS) {
+			return `(function(){var[${params.join(',')}]=arguments[0];${body}}([${values.join(',')}]))`;
+		}
+		return `(function(${params.join(',')}){${body}}(${values.join(',')}))`;
+	}
+
+	/**
+	 * Whether a value can be allocated empty and populated after construction.
+	 *
+	 * @param {any} thing
+	 * @returns {boolean}
+	 */
+	#is_mutable(thing) {
+		if (this.#custom.has(thing)) return false;
+		const type = get_type(thing);
+		return type === 'Array' || type === 'Set' || type === 'Map' || is_plain_object(thing);
+	}
+
+	/**
+	 * Renders an empty shell for a mutable value involved in a named graph.
+	 *
 	 * @param {any} thing
 	 * @returns {string}
 	 */
-	function stringify(thing) {
-		if (names.has(thing)) {
-			return names.get(thing);
+	#allocate(thing) {
+		switch (get_type(thing)) {
+			case 'Array':
+				return `Array(${thing.length})`;
+			case 'Set':
+				return 'new Set';
+			case 'Map':
+				return 'new Map';
+			default:
+				return Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}';
+		}
+	}
+
+	/**
+	 * Checks whether an atomic value's dependency closure reaches a named value.
+	 * Such values must be constructed inside the IIFE rather than as arguments.
+	 *
+	 * @param {any} thing
+	 * @param {Map<any, boolean>} states
+	 */
+  #depends_on_name(thing, states) {
+    // this looks like it might be really inefficient, but because of memoization it's
+    // actually linear in terms of both time and memory
+		if (states.has(thing)) return states.get(thing);
+		states.set(thing, false);
+		for (const dependency of /** @type {any[]} */ (this.#dependencies.get(thing))) {
+			if (this.#names.has(dependency) || this.#depends_on_name(dependency, states)) {
+				states.set(thing, true);
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Emits assignments that fill a mutable container. References outside the
+	 * current group are filled first; references within it are filled only after
+	 * every named value in that group has been created.
+	 *
+	 * @param {any} thing
+	 * @param {number} group
+	 * @param {boolean} within_group
+	 * @param {Map<any, number>} group_by_value
+	 * @param {string[]} statements
+	 */
+	#populate(thing, group, within_group, group_by_value, statements) {
+		const name = this.#names.get(thing);
+		/**
+		 * @param {string} statement
+		 * @param {any[]} values
+		 */
+		const add = (statement, values) => {
+			const belongs_to_group = values.some(
+				(value) => !is_primitive(value) && group_by_value.get(value) === group
+			);
+			if (belongs_to_group === within_group) statements.push(statement);
+		};
+
+		switch (get_type(thing)) {
+			case 'Array':
+				/** @type {any[]} */ (thing).forEach((value, i) => {
+					add(`${name}[${i}]=${this.#reference(value)}`, [value]);
+				});
+				break;
+			case 'Set':
+				for (const value of thing) add(`${name}.add(${this.#reference(value)})`, [value]);
+				break;
+			case 'Map':
+				for (const [key, value] of thing) {
+					add(`${name}.set(${this.#reference(key)},${this.#reference(value)})`, [key, value]);
+				}
+				break;
+			default:
+				for (const key of Object.keys(thing)) {
+					const value = thing[key];
+					add(`${name}${safe_prop(key)}=${this.#reference(value)}`, [value]);
+				}
+		}
+	}
+
+	/**
+	 * Creates a named non-mutable value after any non-mutable values it needs from
+	 * the same group. Re-entering a value means the cycle has no mutable container
+	 * that can be created empty and filled later.
+	 *
+	 * @param {any} thing
+	 * @param {number} group
+	 * @param {Map<any, number>} group_by_value
+	 * @param {Set<any>} initialized_as_arguments
+	 * @param {Set<any>} initializing
+	 * @param {Set<any>} initialized
+	 * @param {string[]} statements
+	 * @param {any} root
+	 */
+	#initialize_group_value(
+		thing,
+		group,
+		group_by_value,
+		initialized_as_arguments,
+		initializing,
+		initialized,
+		statements,
+		root
+	) {
+		if (
+			!this.#names.has(thing) ||
+			this.#is_mutable(thing) ||
+			initialized_as_arguments.has(thing)
+		) {
+			return;
+		}
+		if (initialized.has(thing)) return;
+		if (initializing.has(thing)) {
+			throw new DevalueError(
+				'Cannot stringify a circular chain of atomic values',
+				[],
+				thing,
+				root
+			);
 		}
 
+		initializing.add(thing);
+		for (const dependency of /** @type {any[]} */ (this.#dependencies.get(thing))) {
+			if (group_by_value.get(dependency) === group && !this.#is_mutable(dependency)) {
+				this.#initialize_group_value(
+					dependency,
+					group,
+					group_by_value,
+					initialized_as_arguments,
+					initializing,
+					initialized,
+					statements,
+					root
+				);
+			}
+		}
+		statements.push(`${this.#names.get(thing)}=${this.#construct(thing)}`);
+		initializing.delete(thing);
+		initialized.add(thing);
+	}
+
+	/**
+	 * Renders a named reference when identity must be preserved, or constructs
+	 * an unnamed value inline.
+	 *
+	 * @param {any} thing
+	 * @returns {string}
+	 */
+	#reference = (thing) => {
+		if (this.#names.has(thing)) {
+			return /** @type {string} */ (this.#names.get(thing));
+		}
+
+		return this.#construct(thing);
+	};
+
+	/**
+	 * Renders the expression that creates `thing` itself. Child values still go
+	 * through `this.#reference`, so shared dependencies are rendered as references.
+	 *
+	 * @param {any} thing
+	 * @returns {string}
+	 */
+	#construct(thing) {
 		if (is_primitive(thing)) {
 			return stringify_primitive(thing);
 		}
 
-		if (custom.has(thing)) {
-			return render_source(custom.get(thing), stringify);
+		if (this.#custom.has(thing)) {
+			return `(${render_source(this.#custom.get(thing), this.#reference)})`;
 		}
 
 		const type = get_type(thing);
@@ -240,7 +660,7 @@ export function uneval(value, replacer) {
 			case 'String':
 			case 'Boolean':
 			case 'BigInt':
-				return `Object(${stringify(thing.valueOf())})`;
+				return `Object(${this.#reference(thing.valueOf())})`;
 
 			case 'RegExp':
 				const { source, flags } = thing;
@@ -259,10 +679,10 @@ export function uneval(value, replacer) {
 
 			case 'Array': {
 				// For dense arrays (no holes), we iterate normally.
-				// When we encounter the first hole, we collect own indices
+				// When we encounter the first hole, we call Object.keys
 				// to determine the sparseness, then decide between:
 				//   - Array literal with holes: [,"a",,] (default)
-				//   - Object.assign with a sparse-safe allocator (for very sparse arrays)
+				//   - Object.assign: Object.assign(Array(n),{...}) (for very sparse arrays)
 				// Only the Object.assign path avoids iterating every slot, which
 				// is what protects against the DoS of e.g. `arr[1000000] = 1`.
 				let has_holes = false;
@@ -273,7 +693,7 @@ export function uneval(value, replacer) {
 					if (i > 0) result += ',';
 
 					if (Object.hasOwn(thing, i)) {
-						result += stringify(thing[i]);
+						result += this.#reference(thing[i]);
 					} else if (!has_holes) {
 						// Decide between array literal and Object.assign.
 						//
@@ -283,11 +703,10 @@ export function uneval(value, replacer) {
 						//
 						// Object.assign: populated indices are listed explicitly.
 						// For example, [, "a", ,] would be written as
-						// Object.assign(sparse(3),{1:"a"}), where sparse(n) stands
-						// for the expression emitted by stringify_sparse_array(n).
-						// This avoids paying per-hole, but has a large fixed
-						// overhead for the allocator and Object.assign wrapper,
-						// and each element costs extra chars for its index and colon.
+						// Object.assign(Array(3),{1:"a"}). This avoids paying
+						// per-hole, but has a large fixed overhead for the
+						// "Object.assign(Array(n),{...})" wrapper, and each
+						// element costs extra chars for its index and colon.
 						//
 						// The serialized values are the same size either way, so
 						// the choice comes down to the structural overhead:
@@ -298,32 +717,30 @@ export function uneval(value, replacer) {
 						//     = L + 2
 						//
 						//   Object.assign overhead:
-						//     "Object.assign("      — 14 chars
-						//     + allocator expression — A chars
-						//     + ",{"                 — 2 chars
+						//     "Object.assign(Array(" — 20 chars
+						//     + length              — d chars
+						//     + "),{"               — 3 chars
 						//     + for each populated element:
-						//       index + ":" + ","     — (d + 2) chars
-						//     + "})"                 — 2 chars
-						//     = (18 + A) + P * (d + 2)
+						//       index + ":" + ","   — (d + 2) chars
+						//     + "})"                — 2 chars
+						//     = (25 + d) + P * (d + 2)
 						//
 						// where L is the array length, P is the number of
-						// populated elements, A is the allocator expression's
-						// length, and d is the number of digits in L (an upper
-						// bound on the digits in any index).
+						// populated elements, and d is the number of digits
+						// in L (an upper bound on the digits in any index).
 						//
 						// Object.assign is cheaper when:
-						//   (18 + A) + P * (d + 2) < L + 2
-						const populated_keys = valid_array_indices(thing);
+						//   (25 + d) + P * (d + 2) < L + 2
+						const populated_keys = valid_array_indices(/** @type {any[]} */ (thing));
 						const population = populated_keys.length;
 						const d = String(thing.length).length;
-						const array = stringify_sparse_array(thing.length);
 
 						const hole_cost = thing.length + 2;
-						const sparse_cost = array.length + 18 + population * (d + 2);
+						const sparse_cost = 25 + d + population * (d + 2);
 
 						if (hole_cost > sparse_cost) {
-							const entries = populated_keys.map((k) => `${k}:${stringify(thing[k])}`).join(',');
-							return `Object.assign(${array},{${entries}})`;
+							const entries = populated_keys.map((k) => `${k}:${this.#reference(thing[k])}`).join(',');
+							return `Object.assign(Array(${thing.length}),{${entries}})`;
 						}
 
 						has_holes = true;
@@ -332,13 +749,13 @@ export function uneval(value, replacer) {
 					// (the comma separator is all we need — no content for this position)
 				}
 
-				const tail = thing.length === 0 || Object.hasOwn(thing, thing.length - 1) ? '' : ',';
+				const tail = thing.length === 0 || thing.length - 1 in thing ? '' : ',';
 				return result + tail + ']';
 			}
 
 			case 'Set':
 			case 'Map':
-				return `new ${type}([${Array.from(thing).map(stringify).join(',')}])`;
+				return `new ${type}([${Array.from(thing).map(this.#reference).join(',')}])`;
 
 			case 'Int8Array':
 			case 'Uint8Array':
@@ -352,14 +769,12 @@ export function uneval(value, replacer) {
 			case 'Float64Array':
 			case 'BigInt64Array':
 			case 'BigUint64Array': {
-				if (is_buffer(thing)) thing = new Uint8Array(thing);
-
 				let str = `new ${type}`;
 
-				if (!names.has(thing.buffer)) {
+				if (!this.#names.has(thing.buffer)) {
 					str += `([${stringify_typed_array_elements(type, thing.buffer)}])`;
 				} else {
-					str += `(${stringify(thing.buffer)})`;
+					str += `(${this.#reference(thing.buffer)})`;
 				}
 
 				// handle subarrays
@@ -375,10 +790,10 @@ export function uneval(value, replacer) {
 			case 'DataView': {
 				let str = `new DataView`;
 
-				if (!names.has(thing.buffer)) {
+				if (!this.#names.has(thing.buffer)) {
 					str += `(new Uint8Array([${new Uint8Array(thing.buffer)}]).buffer`;
 				} else {
-					str += `(${stringify(thing.buffer)}`;
+					str += `(${this.#reference(thing.buffer)}`;
 				}
 
 				// handle subviews
@@ -406,7 +821,7 @@ export function uneval(value, replacer) {
 
 			default:
 				const keys = Object.keys(thing);
-				const obj = keys.map((key) => `${safe_key(key)}:${stringify(thing[key])}`).join(',');
+				const obj = keys.map((key) => `${safe_key(key)}:${this.#reference(thing[key])}`).join(',');
 				const proto = Object.getPrototypeOf(thing);
 				if (proto === null) {
 					return keys.length > 0 ? `{${obj},__proto__:null}` : `{__proto__:null}`;
@@ -415,215 +830,130 @@ export function uneval(value, replacer) {
 				return `{${obj}}`;
 		}
 	}
-
-	const str = stringify(value);
-
-	if (names.size) {
-		/** @type {string[]} */
-		const params = [];
-
-		/** @type {string[]} */
-		const statements = [];
-
-		/** @type {string[]} */
-		const values = [];
-
-		// Reconstructions (e.g. `b = new Uint8Array(...)`) reassign a placeholder
-		// parameter. They must run before the `statements` that reference them,
-		// otherwise those statements capture the placeholder. They only depend on
-		// IIFE arguments (never on each other), so emitting them first is safe.
-		/** @type {string[]} */
-		const reconstructions = [];
-
-		names.forEach((name, thing) => {
-			params.push(name);
-
-			if (custom.has(thing)) {
-				values.push(render_source(custom.get(thing), stringify));
-				return;
-			}
-
-			if (is_primitive(thing)) {
-				values.push(stringify_cached_primitive(thing));
-				return;
-			}
-
-			const type = get_type(thing);
-
-			switch (type) {
-				case 'Number':
-				case 'String':
-				case 'Boolean':
-				case 'BigInt': {
-					const primitive = thing.valueOf();
-					if (names.has(primitive)) {
-						// A hoisted primitive is only in scope inside the IIFE, not in
-						// its arguments. Reconstruct the box before assigning references.
-						values.push('{}');
-						reconstructions.push(`${name}=Object(${stringify(primitive)})`);
-					} else {
-						values.push(`Object(${stringify(primitive)})`);
-					}
-					break;
-				}
-
-				case 'RegExp':
-					const { source, flags } = thing;
-					const regexp = flags
-						? `new RegExp(${stringify_string(source)},"${flags}")`
-						: `new RegExp(${stringify_string(source)})`
-					values.push(regexp);
-					break;
-
-				case 'Date':
-					values.push(`new Date(${thing.getTime()})`);
-					break;
-
-				case 'URL':
-					values.push(`new URL(${stringify_string(thing.toString())})`);
-					break;
-
-				case 'URLSearchParams':
-					values.push(`new URLSearchParams(${stringify_string(thing.toString())})`);
-					break;
-
-				case 'Array': {
-					const populated_keys = valid_array_indices(thing);
-					// Only preallocate when the length is bounded by the number
-					// of populated elements, plus a small constant for short arrays.
-					values.push(
-						thing.length > 32 + 2 * populated_keys.length
-							? stringify_sparse_array(thing.length)
-							: `Array(${thing.length})`
-					);
-					for (const i of populated_keys) {
-						statements.push(`${name}[${i}]=${stringify(thing[i])}`);
-					}
-					break;
-				}
-
-				case 'Set': {
-					values.push(`new Set`);
-					const adds = Array.from(thing).map((v) => `.add(${stringify(v)})`);
-					// An empty Set is fully built by `new Set`; a chained statement would
-					// otherwise be a dangling `name.`.
-					if (adds.length > 0) statements.push(name + adds.join(''));
-					break;
-				}
-
-				case 'Map': {
-					values.push(`new Map`);
-					const sets = Array.from(thing).map(
-						([k, v]) => `.set(${stringify(k)}, ${stringify(v)})`
-					);
-					if (sets.length > 0) statements.push(name + sets.join(''));
-					break;
-				}
-
-				case 'Int8Array':
-				case 'Uint8Array':
-				case 'Uint8ClampedArray':
-				case 'Int16Array':
-				case 'Uint16Array':
-				case 'Float16Array':
-				case 'Int32Array':
-				case 'Uint32Array':
-				case 'Float32Array':
-				case 'Float64Array':
-				case 'BigInt64Array':
-				case 'BigUint64Array': {
-					if (is_buffer(thing)) thing = new Uint8Array(thing);
-
-					let str = `new ${type}`;
-
-					if (!names.has(thing.buffer)) {
-						str += `([${stringify_typed_array_elements(type, thing.buffer)}])`;
-					} else {
-						str += `(${stringify(thing.buffer)})`;
-					}
-
-					// handle subarrays
-					if (thing.byteLength !== thing.buffer.byteLength) {
-						const start = thing.byteOffset / thing.BYTES_PER_ELEMENT;
-						const end = start + thing.length;
-						str += `.subarray(${start},${end})`;
-					}
-
-					values.push(`{}`);
-					reconstructions.push(`${name}=${str}`);
-					break;
-				}
-
-				case 'DataView': {
-					let str = `new DataView`;
-
-					if (!names.has(thing.buffer)) {
-						str += `(new Uint8Array([${new Uint8Array(thing.buffer)}]).buffer`;
-					} else {
-						str += `(${stringify(thing.buffer)}`;
-					}
-
-					// handle subviews
-					if (thing.byteLength !== thing.buffer.byteLength) {
-						str += `,${thing.byteOffset},${thing.byteLength}`;
-					}
-
-					str += ')';
-
-					values.push(`{}`);
-					reconstructions.push(`${name}=${str}`);
-					break;
-				}
-
-				case 'ArrayBuffer':
-					values.push(`new Uint8Array([${new Uint8Array(thing)}]).buffer`);
-					break;
-
-				case 'Temporal.Duration':
-				case 'Temporal.Instant':
-				case 'Temporal.PlainDate':
-				case 'Temporal.PlainTime':
-				case 'Temporal.PlainDateTime':
-				case 'Temporal.PlainMonthDay':
-				case 'Temporal.PlainYearMonth':
-				case 'Temporal.ZonedDateTime':
-					values.push(`${type}.from(${stringify_string(thing.toString())})`);
-					break;
-
-				default:
-					values.push(Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}');
-					Object.keys(thing).forEach((key) => {
-						statements.push(`${name}${safe_prop(key)}=${stringify(thing[key])}`);
-					});
-			}
-		});
-
-		statements.push(`return ${str}`);
-
-		const body = [...reconstructions, ...statements].join(';');
-		// A function may have at most 65535 parameters (and a call at most that
-		// many arguments). For very large graphs, pass the hoisted values as a
-		// single array argument and destructure them into the placeholder names,
-		// so the emitted code stays within the engine limit (#93).
-		if (params.length > 65534) {
-			return `(function(){var[${params.join(',')}]=arguments[0];${body}}([${values.join(',')}]))`;
-		}
-
-		return `(function(${params.join(',')}){${body}}(${values.join(',')}))`;
-	} else {
-		return str;
-	}
 }
 
 /**
- * Emit an array whose storage is not proportional to its declared length.
- * As in the default parse operations, touching and deleting the largest valid
- * index forces V8 into dictionary-elements mode before setting the length.
- * Merely starting with [] and assigning .length still eagerly allocates.
- * @param {number} length
+ * Splits values into mutually reachable dependency groups. A group with
+ * multiple values (or a value that depends on itself) represents a cycle.
+ * Groups are completed with dependencies before dependants, which is also the
+ * construction order the emitter needs.
  */
-function stringify_sparse_array(length) {
-	return `(function(a){a[${MAX_ARRAY_INDEX}]=0;delete a[${MAX_ARRAY_INDEX}];a.length=${length};return a}([]))`;
+class DependencyAnalyzer {
+	/** @type {Map<any, any[]>} */
+	#dependencies;
+	/** @type {Map<any, string>} */
+	#names;
+	/** @type {Map<any, number>} */
+	#group_by_value;
+	/** @type {any[][]} */
+	#dependency_groups;
+	/** @type {number} */
+	#index;
+	/** @type {Map<any, number>} */
+	#indices;
+	/** @type {Map<any, number>} */
+	#lowlinks;
+	/** @type {any[]} */
+	#active_stack;
+	/** @type {Set<any>} */
+	#active_values;
+
+	/**
+	 * @param {Map<any, any[]>} dependencies
+	 * @param {Map<any, string>} names
+	 */
+	constructor(dependencies, names) {
+		this.#dependencies = dependencies;
+		this.#names = names;
+		// Map each value to the dependency group that will construct it.
+		this.#group_by_value = new Map();
+		// Groups are completed in dependency-first order.
+		this.#dependency_groups = [];
+		// Give each newly discovered value the next traversal index.
+		this.#index = 0;
+		// Record when each value was first encountered in the depth-first search.
+		this.#indices = new Map();
+		// Record the earliest active index reachable from each value.
+		this.#lowlinks = new Map();
+
+		// Keep unresolved values in traversal order, plus a set for fast lookup.
+		this.#active_stack = [];
+		this.#active_values = new Set();
+	}
+
+	analyze() {
+		// Start another search for any values not reached by an earlier root.
+		for (const thing of this.#dependencies.keys()) {
+			if (!this.#indices.has(thing)) this.#connect(thing);
+		}
+
+		// Cyclic values need names even when they occur only once in the input.
+		for (const group_values of this.#dependency_groups) {
+			const cyclic =
+				group_values.length > 1 ||
+				/** @type {any[]} */ (this.#dependencies.get(group_values[0])).includes(group_values[0]);
+			if (cyclic) {
+				for (const thing of group_values) {
+					if (!this.#names.has(thing)) this.#names.set(thing, get_name(this.#names.size));
+				}
+			}
+		}
+
+		return {
+			group_by_value: this.#group_by_value,
+			dependency_groups: this.#dependency_groups
+		};
+	}
+
+	/** @param {any} thing */
+	#connect(thing) {
+		// Mark the value as discovered and part of the unresolved search.
+		this.#indices.set(thing, this.#index);
+		// A value's lowlink starts at its index and is lowered when we find
+		// connections to values discovered before it.
+		this.#lowlinks.set(thing, this.#index);
+		this.#index += 1;
+		this.#active_stack.push(thing);
+		this.#active_values.add(thing);
+
+		for (const dependency of /** @type {any[]} */ (this.#dependencies.get(thing))) {
+			if (!this.#indices.has(dependency)) {
+				// Discover the dependency, then carry its earliest connection back.
+				this.#connect(dependency);
+				this.#lowlinks.set(
+					thing,
+					Math.min(
+						/** @type {number} */ (this.#lowlinks.get(thing)),
+						/** @type {number} */ (this.#lowlinks.get(dependency))
+					)
+				);
+			} else if (this.#active_values.has(dependency)) {
+				// A previously visited active value closes a path within this group.
+				this.#lowlinks.set(
+					thing,
+					Math.min(
+						/** @type {number} */ (this.#lowlinks.get(thing)),
+						/** @type {number} */ (this.#indices.get(dependency))
+					)
+				);
+			}
+			// A visited inactive dependency belongs to a completed group.
+		}
+
+		// Reaching no earlier active value means this value starts a complete group.
+		if (this.#lowlinks.get(thing) === this.#indices.get(thing)) {
+			const group_values = [];
+			let member = thing;
+			// Pop every mutually reachable value through the group root.
+			do {
+				member = /** @type {any} */ (this.#active_stack.pop());
+				this.#active_values.delete(member);
+				this.#group_by_value.set(member, this.#dependency_groups.length);
+				group_values.push(member);
+			} while (member !== thing);
+			this.#dependency_groups.push(group_values);
+		}
+	}
 }
 
 /**
