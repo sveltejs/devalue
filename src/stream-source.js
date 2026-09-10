@@ -56,6 +56,18 @@ export function expression_source(source) {
 	return typeof source === 'string' ? `(${source})` : instruction_source(brand({ type: 'expression', source }));
 }
 
+/** Protects generated closing syntax after a complete user expression. @param {Emission} source */
+export function complete_expression_source(source) {
+	return typeof source === 'string'
+		? `(${source}\n)`
+		: instruction_source(brand({ type: 'expression', source, complete: true }));
+}
+
+/** Protects generated separators and closing syntax after a complete user operation. @param {Emission} source */
+export function complete_statement_source(source) {
+	return join_sources([source, '\n']);
+}
+
 /**
  * @param {keyof typeof RUNTIMES} key
  * @returns {JavaScriptSource}
@@ -320,7 +332,7 @@ export function render_stream_source(source, definitions = []) {
 			case 'capture':
 				return `(s.p[${instruction.pending}]=(${render(instruction.source)}))`;
 			case 'expression':
-				return `(${render(instruction.source)})`;
+				return `(${render(instruction.source)}${instruction.complete ? '\n' : ''})`;
 			case 'runtime':
 				return `s.${instruction.key}`;
 			case 'promise':
@@ -371,22 +383,6 @@ function interpolation_error(value, context) {
 }
 
 /**
-<<<<<<< HEAD
- * @param {JavaScriptSource} source
- * @param {(value: unknown, index: number) => void} callback
- */
-function walk_source(source, callback) {
-	const values = source.values;
-	for (let i = 0; i < values.length; i++) {
-		const value = values[i];
-		if (is_source(value)) walk_source(value, callback);
-		else callback(value, i);
-	}
-}
-
-/**
-=======
->>>>>>> a51c784 (restore hole serialization)
  * @param {Emission} source
  * @param {(instruction: StreamInstruction) => void} callback
  */
@@ -519,7 +515,7 @@ export const RUNTIMES = {
 /** @typedef {import('./graph.js').ClientPath} ClientPath */
 /** @typedef {{ type: 'reference', node: CapturedNode, path: ClientPath | undefined }} ReferenceInstruction */
 /** @typedef {{ type: 'capture', pending: number, source: Emission }} CaptureInstruction */
-/** @typedef {{ type: 'expression', source: Emission }} ExpressionInstruction */
+/** @typedef {{ type: 'expression', source: Emission, complete?: boolean }} ExpressionInstruction */
 /** @typedef {{ type: 'runtime', key: keyof typeof RUNTIMES }} RuntimeInstruction */
 /** @typedef {{ type: 'promise', pending: number }} PromiseInstruction */
 /** @typedef {{ type: 'definitions' }} DefinitionsInstruction */
