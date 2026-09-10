@@ -42,10 +42,11 @@ export function reference_source(node, path) {
 /**
  * @param {number} pending
  * @param {Emission} source
+ * @param {boolean} [compact]
  * @returns {JavaScriptSource}
  */
-export function capture_source(pending, source) {
-	return instruction_source(brand({ type: 'capture', pending, source }));
+export function capture_source(pending, source, compact = false) {
+	return instruction_source(brand({ type: 'capture', pending, source, compact }));
 }
 
 /**
@@ -58,9 +59,7 @@ export function expression_source(source) {
 
 /** Protects generated closing syntax after a complete user expression. @param {Emission} source */
 export function complete_expression_source(source) {
-	return typeof source === 'string'
-		? `(${source}\n)`
-		: instruction_source(brand({ type: 'expression', source, complete: true }));
+	return typeof source === 'string' ? `(${source}\n)` : instruction_source(brand({ type: 'expression', source, complete: true }));
 }
 
 /** Protects generated separators and closing syntax after a complete user operation. @param {Emission} source */
@@ -87,27 +86,6 @@ export function promise_source(pending) {
 /** Marks the position where definitions for this final source are emitted. @returns {JavaScriptSource} */
 export function definitions_source() {
 	return instruction_source(brand({ type: 'definitions' }));
-}
-
-/**
- * @param {Emission} source
- * @param {Emission} anchored
- * @param {Emission} folded
- */
-export function outcome_source(source, anchored, folded) {
-	return instruction_source(brand({ type: 'outcome', source, anchored, folded, mode: 'source' }));
-}
-
-/**
- * @param {JavaScriptSource} source
- * @param {'anchored' | 'folded'} mode
- */
-export function select_outcome_source(source, mode) {
-	const instruction = source.values[0];
-	if (!is_stream_instruction(instruction) || instruction.type !== 'outcome') {
-		throw new TypeError('Invalid outcome source: select_outcome_source() expects the fragment returned by outcome_source(), not an arbitrary JavaScriptSource');
-	}
-	instruction.mode = mode;
 }
 
 /**
@@ -146,27 +124,7 @@ export function join_sources(sources, separator = '') {
  * @returns {Emission}
  */
 export function map_source(source, map) {
-	const { strings, values } = source;
-	let text = strings[0];
-	/** @type {string[] | undefined} */
-	let output_strings;
-	/** @type {JavaScriptSource[] | undefined} */
-	let output_values;
-	for (let i = 0; i < values.length; i++) {
-		const value = values[i];
-		const mapped = is_source(value) ? map_source(value, map)
-			: is_stream_instruction(value) ? instruction_source(value) : map(value);
-		if (typeof mapped === 'string') text += mapped;
-		else {
-			(output_strings ??= []).push(text);
-			(output_values ??= []).push(mapped);
-			text = '';
-		}
-		text += strings[i + 1];
-	}
-	if (!output_strings) return text;
-	output_strings.push(text);
-	return create_source(output_strings, /** @type {JavaScriptSource[]} */ (output_values));
+	return map_fragment(source, (value) => map(value), preserve_instruction);
 }
 
 /**
@@ -179,6 +137,18 @@ export function map_source(source, map) {
  * @returns {Emission}
  */
 export function map_descriptor_source(source, map) {
+	return map_fragment(source, map, map_descriptor_instruction);
+}
+
+/**
+ * Reconstructs nested template fragments while delegating the only policy difference:
+ * whether a branded instruction is opaque or has a reachable source child.
+ * @param {JavaScriptSource} source
+ * @param {(value: unknown, index: number) => Emission} map
+ * @param {(instruction: StreamInstruction, map: (value: unknown, index: number) => Emission) => JavaScriptSource} map_instruction
+ * @returns {Emission}
+ */
+function map_fragment(source, map, map_instruction) {
 	const { strings, values } = source;
 	let text = strings[0];
 	/** @type {string[] | undefined} */
@@ -187,8 +157,8 @@ export function map_descriptor_source(source, map) {
 	let output_values;
 	for (let i = 0; i < values.length; i++) {
 		const value = values[i];
-		const mapped = is_source(value) ? map_descriptor_source(value, map)
-			: is_stream_instruction(value) ? map_descriptor_instruction(value, map) : map(value, i);
+		const mapped = is_source(value) ? map_fragment(value, map, map_instruction)
+			: is_stream_instruction(value) ? map_instruction(value, map) : map(value, i);
 		if (typeof mapped === 'string') text += mapped;
 		else {
 			(output_strings ??= []).push(text);
@@ -202,6 +172,11 @@ export function map_descriptor_source(source, map) {
 	return create_source(output_strings, /** @type {JavaScriptSource[]} */ (output_values));
 }
 
+/** @param {StreamInstruction} instruction */
+function preserve_instruction(instruction) {
+	return instruction_source(instruction);
+}
+
 /**
  * @param {StreamInstruction} instruction
  * @param {(value: unknown, index: number) => Emission} map
@@ -211,7 +186,7 @@ function map_descriptor_instruction(instruction, map) {
 	if (instruction.type !== 'capture') return instruction_source(instruction);
 	const source = typeof instruction.source === 'string'
 		? instruction.source
-		: map_descriptor_source(instruction.source, map);
+		: map_fragment(instruction.source, map, map_descriptor_instruction);
 	return instruction_source(brand({ ...instruction, source }));
 }
 
@@ -247,6 +222,7 @@ export function descriptor_source_values(source) {
 	const values = [];
 	/** @param {JavaScriptSource} fragment @param {boolean} capture */
 	const walk = (fragment, capture) => {
+		if (is_identifier(fragment)) return;
 		const source_values = fragment.values;
 		for (let i = 0; i < source_values.length; i++) {
 			const value = source_values[i];
@@ -261,29 +237,6 @@ export function descriptor_source_values(source) {
 }
 
 /**
- * @param {Emission} source
- * @returns {StreamInstruction[]}
- */
-export function source_instructions(source) {
-	/** @type {StreamInstruction[]} */
-	const found = [];
-	visit(source, (instruction) => found.push(instruction));
-	return found;
-}
-
-/**
- * @param {JavaScriptSource} source
- * @param {JavaScriptSource} target
- */
-export function count_source(source, target) {
-	let count = 0;
-	visit_sources(source, (fragment) => {
-		if (fragment === target) count++;
-	});
-	return count;
-}
-
-/**
  * Collects reachable helper dependencies without rendering or mutating session state.
  * @param {Emission} source
  * @returns {(keyof typeof RUNTIMES)[]}
@@ -292,7 +245,7 @@ export function source_helpers(source) {
 	/** @type {(keyof typeof RUNTIMES)[]} */
 	const helpers = [];
 	const seen = new Set();
-	visit(source, (instruction) => {
+	visit_source_instructions(source, (instruction) => {
 		const key = instruction.type === 'runtime' ? instruction.key : instruction.type === 'promise' ? 'w' : undefined;
 		if (key && !seen.has(key)) {
 			seen.add(key);
@@ -309,11 +262,25 @@ export function source_helpers(source) {
  * @param {(keyof typeof RUNTIMES)[]} [definitions]
  */
 export function render_stream_source(source, definitions = []) {
+	return render_stream_source_with_names(source, definitions, 's', () => {
+		throw new TypeError('Unresolved stream identifier: no generated name was assigned before rendering (internal emitter error)');
+	});
+}
+
+/**
+ * Renders structured stream source with the coordinated session binding and identifier allocator.
+ * @param {Emission} source
+ * @param {(keyof typeof RUNTIMES)[]} definitions
+ * @param {string} session
+ * @param {(identifier: JavaScriptSource) => string} render_identifier
+ */
+export function render_stream_source_with_names(source, definitions, session, render_identifier) {
 	if (typeof source === 'string') return source;
-	const definition_source = definitions.map((key) => `s.${key}=${RUNTIMES[key]}`).join(';');
+	const definition_source = definitions.map((key) => `${session}.${key}=${render_runtime(key, session)}`).join(';');
 	/** @param {Emission} fragment */
 	const render = (fragment) => {
 		if (typeof fragment === 'string') return fragment;
+		if (is_identifier(fragment)) return render_identifier(fragment);
 		const { strings, values } = fragment;
 		let result = strings[0];
 		for (let i = 0; i < values.length; i++) {
@@ -328,19 +295,17 @@ export function render_stream_source(source, definitions = []) {
 		switch (instruction.type) {
 			case 'reference':
 				if (!instruction.path) throw new TypeError('Unresolved stream reference: a client identity has no assigned anchor, slot, or collection path before rendering (internal emitter error)');
-				return render_reference(instruction.path);
+				return render_reference(instruction.path, session);
 			case 'capture':
-				return `(s.p[${instruction.pending}]=(${render(instruction.source)}))`;
+				return `(${session}.p[${instruction.pending}]=(${render(instruction.source)}${instruction.compact ? '' : '\n'}))`;
 			case 'expression':
 				return `(${render(instruction.source)}${instruction.complete ? '\n' : ''})`;
 			case 'runtime':
-				return `s.${instruction.key}`;
+				return `${session}.${instruction.key}`;
 			case 'promise':
-				return `s.w(${instruction.pending})`;
+				return `${session}.w(${instruction.pending})`;
 			case 'definitions':
 				return definition_source;
-			case 'outcome':
-				return render(instruction.mode === 'folded' ? instruction.folded : instruction.mode === 'anchored' ? instruction.anchored : instruction.source);
 		}
 	};
 	return render(source);
@@ -386,43 +351,21 @@ function interpolation_error(value, context) {
  * @param {Emission} source
  * @param {(instruction: StreamInstruction) => void} callback
  */
-function visit(source, callback) {
+export function visit_source_instructions(source, callback) {
 	if (typeof source === 'string') return;
+	if (is_identifier(source)) return;
 	for (const value of source.values) {
-		if (is_source(value)) visit(value, callback);
+		if (is_source(value)) visit_source_instructions(value, callback);
 		else if (is_stream_instruction(value)) {
 			callback(value);
-			if (value.type === 'capture' || value.type === 'expression') visit(value.source, callback);
-			else if (value.type === 'outcome') {
-				const selected = value.mode === 'folded' ? value.folded : value.mode === 'anchored' ? value.anchored : value.source;
-				visit(selected, callback);
-			}
-		}
-	}
-}
-
-/**
- * @param {Emission} source
- * @param {(source: JavaScriptSource) => void} callback
- */
-function visit_sources(source, callback) {
-	if (typeof source === 'string') return;
-	callback(source);
-	for (const value of source.values) {
-		if (is_source(value)) visit_sources(value, callback);
-		else if (is_stream_instruction(value)) {
-			if (value.type === 'capture' || value.type === 'expression') visit_sources(value.source, callback);
-			else if (value.type === 'outcome') {
-				const selected = value.mode === 'folded' ? value.folded : value.mode === 'anchored' ? value.anchored : value.source;
-				visit_sources(selected, callback);
-			}
+			if (value.type === 'capture' || value.type === 'expression') visit_source_instructions(value.source, callback);
 		}
 	}
 }
 
 /** @param {ClientPath} reference */
-export function render_reference(reference) {
-	return `s.${reference.kind[0]}[${reference.index}]` + reference.segments.join('');
+export function render_reference(reference, session = 's') {
+	return `${session}.${reference.kind[0]}[${reference.index}]` + reference.segments.join('');
 }
 
 /** @param {ClientPath} reference */
@@ -509,17 +452,24 @@ export const RUNTIMES = {
 	v: 'v=>(s.a.push(v),v)'
 };
 
+/** @param {keyof typeof RUNTIMES} key @param {string} session */
+function render_runtime(key, session) {
+	if (key === 'w') return `i=>{let p=new Promise((c,d)=>{${session}.p[i]=[c,d]});p.catch(()=>{});return p}`;
+	if (key === 'r') return `(i,j,v)=>(${session}.p[i][j](v),delete ${session}.p[i])`;
+	if (key === 'v') return `v=>(${session}.a.push(v),v)`;
+	return RUNTIMES[key];
+}
+
 /** @typedef {import('./javascript-source.js').JavaScriptSource} JavaScriptSource */
 /** Generated text or a fragment carrying unresolved semantics. Not a user interpolation type. @typedef {string | JavaScriptSource} Emission */
 /** @typedef {import('./graph.js').CapturedNode} CapturedNode */
 /** @typedef {import('./graph.js').ClientPath} ClientPath */
 /** @typedef {{ type: 'reference', node: CapturedNode, path: ClientPath | undefined }} ReferenceInstruction */
-/** @typedef {{ type: 'capture', pending: number, source: Emission }} CaptureInstruction */
+/** @typedef {{ type: 'capture', pending: number, source: Emission, compact: boolean }} CaptureInstruction */
 /** @typedef {{ type: 'expression', source: Emission, complete?: boolean }} ExpressionInstruction */
 /** @typedef {{ type: 'runtime', key: keyof typeof RUNTIMES }} RuntimeInstruction */
 /** @typedef {{ type: 'promise', pending: number }} PromiseInstruction */
 /** @typedef {{ type: 'definitions' }} DefinitionsInstruction */
-/** @typedef {{ type: 'outcome', source: Emission, anchored: Emission, folded: Emission, mode: 'source' | 'anchored' | 'folded' }} OutcomeInstruction */
-/** @typedef {ReferenceInstruction | CaptureInstruction | ExpressionInstruction | RuntimeInstruction | PromiseInstruction | DefinitionsInstruction | OutcomeInstruction} UnbrandedStreamInstruction */
+/** @typedef {ReferenceInstruction | CaptureInstruction | ExpressionInstruction | RuntimeInstruction | PromiseInstruction | DefinitionsInstruction} UnbrandedStreamInstruction */
 /** @typedef {{ readonly [INSTRUCTION]: true }} InstructionBrand */
 /** @typedef {UnbrandedStreamInstruction & InstructionBrand} StreamInstruction */
