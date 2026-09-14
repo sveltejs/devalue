@@ -525,7 +525,7 @@ class Session {
 		visit_source_instructions(source, (instruction) => {
 			if (instruction.type === 'capture' && instruction.pending === pending) contains_capture = true;
 		});
-		async_node.data.captured = capture_called && (descriptor.manages_pending || contains_capture);
+		async_node.data.captured = capture_called && (type === 'native' || contains_capture);
 		this.#new_custom.push(async_node);
 		if (this.#signal?.aborted) throw this.#signal.reason;
 		return state;
@@ -613,7 +613,7 @@ class Session {
 
 	/**
 	 * @param {Promise<unknown>} promise
-	 * @returns {AsyncValueDescriptor & { manages_pending: true }}
+	 * @returns {AsyncValueDescriptor}
 	 */
 	#native_descriptor(promise) {
 		let pending = -1;
@@ -632,7 +632,6 @@ class Session {
 		return {
 			type: 'async-value',
 			source: promise,
-			manages_pending: true,
 			construct: (capture) => {
 				capture(js`[a,b]`);
 				pending = this.#pending;
@@ -825,7 +824,7 @@ class Session {
 		};
 		let result;
 		try {
-			result = next.call(source.iterator);
+			result = Reflect.apply(next, source.iterator, []);
 		} catch (error) {
 			finish();
 			this.#event(source, 'error', error);
@@ -1641,7 +1640,7 @@ class Session {
 					throw error;
 				}
 			}
-			if (event.type !== 'next' && node.data.captured && !source.descriptor.manages_pending) {
+			if (event.type !== 'next' && node.data.captured && source.type !== 'native') {
 				operations.push(`delete s.p[${node.data.pending}]`);
 			}
 			if (event.type !== 'next') {
@@ -1986,7 +1985,7 @@ class Session {
 				operation.settle({ ok: true });
 				return operation;
 			}
-			this.#settle_invocation(operation, method.call(source.iterator));
+			this.#settle_invocation(operation, Reflect.apply(method, source.iterator, []));
 		} catch (error) {
 			operation.settle({ ok: false, error });
 		}
@@ -2008,7 +2007,7 @@ class Session {
 				operation.settle({ ok: true });
 				return operation;
 			}
-			this.#settle_invocation(operation, cancel.call(source.descriptor));
+			this.#settle_invocation(operation, Reflect.apply(cancel, source.descriptor, []));
 		} catch (error) {
 			operation.settle({ ok: false, error });
 		}
