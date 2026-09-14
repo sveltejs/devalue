@@ -1,7 +1,7 @@
 import { suite } from 'uvu';
 import * as assert from 'uvu/assert';
 import vm from 'node:vm';
-import { SOURCE, js, raw_source } from './javascript-source.js';
+import { js, raw_source } from './javascript-source.js';
 import { stringify_primitive } from './utils.js';
 import {
 	capture_source,
@@ -24,10 +24,17 @@ import {
 
 const test = suite('structured stream source');
 
+/** Test convenience for the real name-aware renderer with its ordinary session binding. */
+function render_stream_source(source, definitions = []) {
+	return render_stream_source_with_names(source, definitions, 's', () => {
+		throw new TypeError('Unresolved stream identifier: no generated name was assigned before rendering (internal emitter error)');
+	});
+}
+
 test('brands instructions with a private non-enumerable symbol rather than shape', () => {
 	const node = /** @type {any} */ ({});
 	const source = reference_source(node, { kind: 'anchor', index: 0, segments: [] });
-	const instruction = source[SOURCE].values[0];
+	const instruction = source.values[0];
 	assert.ok(is_stream_instruction(instruction));
 	assert.equal(Object.keys(instruction), ['type', 'node', 'path']);
 	const [brand] = Object.getOwnPropertySymbols(instruction);
@@ -73,6 +80,30 @@ test('renders helper definitions before structured uses', () => {
 	assert.ok(rendered.indexOf('s.r=') < rendered.indexOf('s.r(12'));
 	assert.is((rendered.match(/s\.w=/g) ?? []).length, 1);
 	assert.is((rendered.match(/\.catch\(\(\)=>\{\}\)/g) ?? []).length, 1);
+});
+
+test('renders and executes authoritative helpers for short and long session bindings', async () => {
+	for (const session of ['s', 'sessionBinding']) {
+		const source = join_sources([
+			definitions_source(),
+			';globalThis.promise=', promise_source(0),
+			';', runtime_source('r'), '(0,0,42)',
+			';globalThis.anchor=', runtime_source('v'), '("x")'
+		]);
+		const definitions = source_helpers(source);
+		assert.equal(definitions, ['w', 'r', 'v']);
+		const rendered = render_stream_source_with_names(source, definitions, session, () => {
+			assert.unreachable('rendered an identifier');
+		});
+		const context = vm.createContext({ [session]: { a: [], p: [] } });
+		context.globalThis = context;
+		vm.runInContext(rendered, context);
+		assert.is(await context.promise, 42);
+		assert.is(context.anchor, 'x');
+		assert.equal(Array.from(context[session].a), ['x']);
+		assert.ok(rendered.indexOf(`${session}.w=`) < rendered.indexOf(`${session}.w(0)`));
+		assert.match(rendered, /new Promise\(\(c,d\)=>/);
+	}
 });
 
 test('groups capture assignments', () => {
@@ -135,8 +166,8 @@ test('keeps resolved emission as strings, including expressions and statements',
 test('retains only structured children when joining text and instructions', () => {
 	const pending = promise_source(12);
 	const source = join_sources(['{text:', '"0"', ',pending:', pending, ',other:', '"001"', '}']);
-	assert.equal(source[SOURCE].strings, ['{text:"0",pending:', ',other:"001"}']);
-	assert.equal(source[SOURCE].values, [pending]);
+	assert.equal(source.strings, ['{text:"0",pending:', ',other:"001"}']);
+	assert.equal(source.values, [pending]);
 	assert.equal(source_helpers(source), ['w']);
 	assert.is(render_stream_source(source), '{text:"0",pending:s.w(12),other:"001"}');
 	assert.is(render_stream_source(join_sources([pending, '"0"', pending], ',')), 's.w(12),"0",s.w(12)');
