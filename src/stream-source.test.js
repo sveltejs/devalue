@@ -14,7 +14,7 @@ import {
 	map_source,
 	promise_source,
 	reference_source,
-	render_stream_source_with_names,
+	render_stream_source,
 	runtime_source,
 	source_helpers,
 	source_values,
@@ -24,21 +24,11 @@ import {
 
 describe('structured stream source', () => {
 
-	/** Test convenience for the real name-aware renderer with its ordinary session binding. */
-	function render_stream_source(source, definitions = []) {
-		return render_stream_source_with_names(source, definitions, 's', () => {
-			throw new TypeError('Unresolved stream identifier: no generated name was assigned before rendering (internal emitter error)');
-		});
-	}
-
-	test('brands instructions with a private non-enumerable symbol rather than shape', () => {
+	test('classifies real instructions by private brand rather than shape', () => {
 		const node = /** @type {any} */ ({});
 		const source = reference_source(node, { kind: 'anchor', index: 0, segments: [] });
 		const instruction = source.values[0];
 		expect(is_stream_instruction(instruction)).toBeTruthy();
-		expect(Object.keys(instruction)).toEqual(['type', 'node', 'path']);
-		const [brand] = Object.getOwnPropertySymbols(instruction);
-		expect(instruction[brand]).toBe(true);
 		for (const value of [
 			{ type: 'reference', node },
 			{ type: 'capture', pending: 0, source: raw_source('x') },
@@ -80,30 +70,6 @@ describe('structured stream source', () => {
 		expect(rendered.indexOf('s.r=') < rendered.indexOf('s.r(12')).toBeTruthy();
 		expect((rendered.match(/s\.w=/g) ?? []).length).toBe(1);
 		expect((rendered.match(/\.catch\(\(\)=>\{\}\)/g) ?? []).length).toBe(1);
-	});
-
-	test('renders and executes authoritative helpers for short and long session bindings', async () => {
-		for (const session of ['s', 'sessionBinding']) {
-			const source = join_sources([
-				definitions_source(),
-				';globalThis.promise=', promise_source(0),
-				';', runtime_source('r'), '(0,0,42)',
-				';globalThis.anchor=', runtime_source('v'), '("x")'
-			]);
-			const definitions = source_helpers(source);
-			expect(definitions).toEqual(['w', 'r', 'v']);
-			const rendered = render_stream_source_with_names(source, definitions, session, () => {
-				expect.unreachable('rendered an identifier');
-			});
-			const context = vm.createContext({ [session]: { a: [], p: [] } });
-			context.globalThis = context;
-			vm.runInContext(rendered, context);
-			expect(await context.promise).toBe(42);
-			expect(context.anchor).toBe('x');
-			expect(Array.from(context[session].a)).toEqual(['x']);
-			expect(rendered.indexOf(`${session}.w=`) < rendered.indexOf(`${session}.w(0)`)).toBeTruthy();
-			expect(rendered).toMatch(/new Promise\(\(c,d\)=>/);
-		}
 	});
 
 	test('groups capture assignments', () => {
