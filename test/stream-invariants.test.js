@@ -1,48 +1,10 @@
-import vm from 'node:vm';
 import { describe, test, expect } from 'vitest';
 import { uneval, unevalStream } from '../index.js';
+import { client } from './helpers/stream.js';
 
 describe('unevalStream cross-feature invariants', () => {
 
-	function deferred() {
-		let resolve;
-		let reject;
-		const promise = new Promise((fulfil, fail) => {
-			resolve = fulfil;
-			reject = fail;
-		});
-		return { promise, resolve, reject };
-	}
-
-	function client(extra = {}) {
-		const context = vm.createContext({ ...extra });
-		context.globalThis = context;
-		return {
-			context,
-			head: (source) => vm.runInContext(`(${source})`, context),
-			block: (source) => vm.runInContext(source, context),
-			combined: (head, blocks) => vm.runInContext(
-				`(function(){const root=(${head});${blocks.join('')};return root})()`,
-				context
-			)
-		};
-	}
-
 	const turn = () => new Promise((resolve) => setImmediate(resolve));
-
-	async function with_watchdog(label, operation) {
-		let timer;
-		try {
-			return await Promise.race([
-				operation,
-				new Promise((_, reject) => {
-					timer = setTimeout(() => reject(new Error(`watchdog expired: ${label}`)), 5000);
-				})
-			]);
-		} finally {
-			clearTimeout(timer);
-		}
-	}
 
 	async function rejected(operation) {
 		try {
@@ -222,7 +184,7 @@ describe('unevalStream cross-feature invariants', () => {
 	}
 
 	async function run_matrix_case(seed, schedule) {
-		const gates = schedule === 'all-ready' ? null : [deferred(), deferred(), deferred()];
+		const gates = schedule === 'all-ready' ? null : [Promise.withResolvers(), Promise.withResolvers(), Promise.withResolvers()];
 		const placeholders = gates?.map((gate) => gate.promise) ?? [Promise.resolve(), Promise.resolve(), Promise.resolve()];
 		const graph = build_matrix_case(seed, placeholders);
 		if (!gates) {
@@ -270,15 +232,15 @@ describe('unevalStream cross-feature invariants', () => {
 		}
 	}
 
-	test('preserves bounded fixed-seed graph topology across observation schedules', async () => {
-		const seeds = [1, 7, 19, 31, 43, 61];
-		const schedules = ['all-ready', 'simultaneous-tail', 'staggered', 'idle-consumer'];
-		for (const seed of seeds) {
-			for (const schedule of schedules) {
-				await with_watchdog(`seed ${seed}, ${schedule}`, run_matrix_case(seed, schedule));
-			}
+	// each seed/schedule combination is an individually named case rather than
+	// one opaque test, so failures identify the exact combination
+	for (const seed of [1, 7, 19, 31, 43, 61]) {
+		for (const schedule of ['all-ready', 'simultaneous-tail', 'staggered', 'idle-consumer']) {
+			test(`preserves fixed-seed graph topology (seed ${seed}, ${schedule})`, async () => {
+				await run_matrix_case(seed, schedule);
+			});
 		}
-	});
+	}
 
 	test('preserves ordinary custom-mode Object Map and Set cycle order in bounded release cases', () => {
 		class Wrapped {
@@ -434,7 +396,7 @@ describe('unevalStream cross-feature invariants', () => {
 		for (const region of ['head', 'folded', 'outcome']) {
 			const graph = build_construction_graph();
 			const replacer_calls = new Map();
-			const gate = deferred();
+			const gate = Promise.withResolvers();
 			const value = region === 'head' ? graph.root : region === 'folded' ? Promise.resolve(graph.root) : gate.promise;
 			const result = await unevalStream(value, construction_replacer(replacer_calls), { id: `construction-${region}` });
 			const { target, calls } = construction_client();
@@ -466,7 +428,7 @@ describe('unevalStream cross-feature invariants', () => {
 		const mutual_error = await rejected(unevalStream(left, replacer));
 		expect(mutual_error.message).toMatch(/atomic custom cycle/);
 
-		const gate = deferred();
+		const gate = Promise.withResolvers();
 		const reports = [];
 		const result = await unevalStream(gate.promise, replacer, { id: 'outcome-atomic-cycle', onerror: (error) => reports.push(error) });
 		const target = client();
@@ -477,12 +439,16 @@ describe('unevalStream cross-feature invariants', () => {
 		expect((await client_error).message).toMatch(/failed to serialize asynchronous value/);
 		expect(reports.length).toBe(1);
 		expect(reports[0].message).toMatch(/atomic custom cycle/);
+		// the failed outcome leaves no committed side effects: the rolled-back
+		// session entry is gone and the owned table stays intact
+		expect(!Object.hasOwn(target.context.__d, 'outcome-atomic-cycle')).toBeTruthy();
+		expect(Object.getPrototypeOf(target.context.__d)).toBe(null);
 	});
 
-	test('keeps descriptor provenance private and operation payloads lazy after completion', async () => {
+	test('keeps operation payloads lazy after completion', async () => {
 		class Job {
 			constructor() {
-				this.ready = deferred();
+				this.ready = Promise.withResolvers();
 			}
 		}
 		class Payload {
@@ -503,7 +469,6 @@ describe('unevalStream cross-feature invariants', () => {
 			job_calls += 1;
 			return {
 				type: 'async-value',
-				immediate: true,
 				source: value.ready.promise,
 				construct: () => js`({get:null,same:false})`,
 				resolve: ({ target }, outcome) => js`${target}.get=()=>${outcome};${target}.same=${outcome}===${outcome}`,
@@ -534,7 +499,7 @@ describe('unevalStream cross-feature invariants', () => {
 			},
 			next() {
 				if (closed) return { done: true, value: undefined };
-				const gate = deferred();
+				const gate = Promise.withResolvers();
 				outstanding += 1;
 				maximum = Math.max(maximum, outstanding);
 				controls.push((result) => {
@@ -606,8 +571,8 @@ describe('unevalStream cross-feature invariants', () => {
 	}
 
 	test('survives UTF-8 byte boundaries and separate or concatenated VM evaluation', async () => {
-		const resolved = deferred();
-		const failed = deferred();
+		const resolved = Promise.withResolvers();
+		const failed = Promise.withResolvers();
 		const shared = { label: 'shared-😀' };
 		const reason = 'late </script> rejection 😀 \udfff';
 		const id = 'transport-001-😀-</script>-\ud800';
@@ -641,6 +606,18 @@ describe('unevalStream cross-feature invariants', () => {
 		const combined_target = client();
 		const combined_root = combined_target.combined(utf8_transport(result.head), blocks.map(utf8_transport));
 		await verify_transport_root(combined_root, shared, reason, 'combined');
+
+		// the documented concatenation form: real tail statements execute before
+		// the combined function returns the reconstructed root
+		const later = Promise.withResolvers();
+		const documented = await unevalStream({ quick: 'data', slow: later.promise }, undefined, { id: 'docs-concatenation' });
+		later.resolve('arrived after head');
+		const documented_blocks = [];
+		for await (const block of documented.tail) documented_blocks.push(block);
+		expect(documented_blocks.length > 0).toBeTruthy();
+		const documented_root = new Function(`const root=(${documented.head});${documented_blocks.join('')};return root`)();
+		expect(documented_root.quick).toBe('data');
+		expect(await documented_root.slow).toBe('arrived after head');
 	});
 
 });

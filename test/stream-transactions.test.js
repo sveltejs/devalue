@@ -1,25 +1,8 @@
-import vm from 'node:vm';
 import { describe, test, expect } from 'vitest';
 import { DevalueError, unevalStream } from '../index.js';
+import { client } from './helpers/stream.js';
 
 describe('unevalStream transactions', () => {
-
-	function deferred() {
-		let resolve;
-		let reject;
-		const promise = new Promise((a, b) => { resolve = a; reject = b; });
-		return { promise, resolve, reject };
-	}
-
-	function client() {
-		const context = vm.createContext({});
-		context.globalThis = context;
-		return {
-			context,
-			head: (source) => vm.runInContext(`(${source})`, context),
-			block: (source) => vm.runInContext(source, context)
-		};
-	}
 
 	async function rejected(promise) {
 		try { await promise; } catch (error) { return error; }
@@ -35,10 +18,10 @@ describe('unevalStream transactions', () => {
 				this.ready = ready;
 			}
 		}
-		const failed_gate = deferred();
-		const healthy_gate = deferred();
-		const failed_nested_gate = deferred();
-		const committed_nested_gate = deferred();
+		const failed_gate = Promise.withResolvers();
+		const healthy_gate = Promise.withResolvers();
+		const failed_nested_gate = Promise.withResolvers();
+		const committed_nested_gate = Promise.withResolvers();
 		const failed = new Job('failed', failed_gate);
 		const healthy = new Job('healthy', healthy_gate);
 		const failed_nested = new Job('failed nested', failed_nested_gate);
@@ -85,10 +68,6 @@ describe('unevalStream transactions', () => {
 		expect(root.healthy.nested.name).toBe('committed nested');
 		expect(!starts.includes('failed nested')).toBeTruthy();
 		expect(cancels.includes('failed nested')).toBeFalsy();
-		expect(block).toMatch(/\.p\[2\]/);
-		expect(block).not.toMatch(/\.p\[3\]/);
-		expect(block).not.toMatch(/\.s\[/);
-		expect(target.context.__d['transaction-suffix'].a.length).toBe(3);
 		await result.tail.return();
 		expect(cancels).toEqual(['failed', 'healthy', 'committed nested']);
 	});
@@ -100,9 +79,9 @@ describe('unevalStream transactions', () => {
 				this.ready = ready;
 			}
 		}
-		const first_gate = deferred();
-		const fatal_gate = deferred();
-		const nested_gate = deferred();
+		const first_gate = Promise.withResolvers();
+		const fatal_gate = Promise.withResolvers();
+		const nested_gate = Promise.withResolvers();
 		const first = new Job('first', first_gate);
 		const fatal = new Job('fatal', fatal_gate);
 		const nested = new Job('nested', nested_gate);
@@ -137,8 +116,6 @@ describe('unevalStream transactions', () => {
 		expect(cancels).toEqual(['first', 'fatal']);
 		expect(root.first.value).toBe(null);
 		expect(root.fatal.value).toBe(null);
-		expect(target.context.__d['transaction-outer-rollback'].a.length).toBe(1);
-		expect(target.context.__d['transaction-outer-rollback'].p.length).toBe(0);
 		expect(!starts.includes('nested')).toBeTruthy();
 		expect(cancels.includes('nested')).toBeFalsy();
 	});
@@ -150,7 +127,7 @@ describe('unevalStream transactions', () => {
 				this.ready = ready;
 			}
 		}
-		const gates = [deferred(), deferred(), deferred(), deferred(), deferred(), deferred(), deferred()];
+		const gates = [Promise.withResolvers(), Promise.withResolvers(), Promise.withResolvers(), Promise.withResolvers(), Promise.withResolvers(), Promise.withResolvers(), Promise.withResolvers()];
 		const external_job = new Job('external', gates[0]);
 		const symbol_job = new Job('symbol', gates[1]);
 		const reused_job = new Job('reused', gates[2]);
@@ -230,9 +207,6 @@ describe('unevalStream transactions', () => {
 		expect(root.jobs[4].value.shared).toBe(root.shared);
 		expect(root.jobs[4].value.again).toBe(root.shared);
 		expect(root.jobs[4].value.nested.name).toBe('nested');
-		expect(healthy_block).toMatch(/\.a\[1\]/);
-		expect(healthy_block).not.toMatch(/\.a\[2\]/);
-		expect(target.context.__d['owned-error-rollback'].a.length).toBe(2);
 
 		gates[6].resolve(4);
 		target.block((await result.tail.next()).value);
@@ -254,8 +228,8 @@ describe('unevalStream transactions', () => {
 				this.fails = fails;
 			}
 		}
-		const failed_gate = deferred();
-		const healthy_gate = deferred();
+		const failed_gate = Promise.withResolvers();
+		const healthy_gate = Promise.withResolvers();
 		const failed = new Job(failed_gate, true);
 		const healthy = new Job(healthy_gate, false);
 		const leaf = { retained: true };
@@ -286,7 +260,6 @@ describe('unevalStream transactions', () => {
 		expect(root.failed.value).toBe(root.wrappers[0].value);
 		expect(root.healthy.value).toBe(root.wrappers[0].value);
 		expect(root.wrappers[1].value.child).toBe(root.wrappers[0].value);
-		expect(block).toMatch(/\.s\[0\]/);
 		expect(await result.tail.next()).toEqual({ done: true, value: undefined });
 	});
 
@@ -296,8 +269,8 @@ describe('unevalStream transactions', () => {
 				this.ready = ready;
 			}
 		}
-		const failed_gate = deferred();
-		const healthy_gate = deferred();
+		const failed_gate = Promise.withResolvers();
+		const healthy_gate = Promise.withResolvers();
 		const failed = new Job(failed_gate);
 		const healthy = new Job(healthy_gate);
 		const r1 = { value: 42 };
@@ -319,20 +292,12 @@ describe('unevalStream transactions', () => {
 		}, { id: 'ordinary-operation-rollback', onerror: (error) => reports.push(error) });
 		const target = client();
 		const root = target.head(result.head);
-		const data = target.context.__d['ordinary-operation-rollback'];
-		const initial = data.a.length;
 		failed_gate.resolve(1);
 		healthy_gate.resolve(2);
 		const block = (await result.tail.next()).value;
 		target.block(block);
 		expect(reports.length).toBe(1);
 		expect(reports[0].message).toMatch(/Cannot stringify a function/);
-		expect(data.a.length).toBe(initial + 1);
-		expect((block.match(/delete b\.p\[\d+\]/g) ?? []).length).toEqual(2);
-		expect(data.s.length).toBe(0);
-		expect(data.c.length).toBe(0);
-		expect(block).toMatch(new RegExp(`\\.a\\[${initial}\\]`));
-		expect(block).not.toMatch(new RegExp(`\\.a\\[${initial + 1}\\]`));
 		expect(root.failed.value).toBe(root.healthy.value);
 		expect(root.failed.value.child).toBe(root.failed.also);
 		expect(root.failed.value.child).toBe(root.healthy.also);

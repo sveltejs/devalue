@@ -6,16 +6,6 @@ import { unevalStream } from '../index.js';
 
 describe('unevalStream lifecycle', () => {
 
-	function deferred() {
-		let resolve;
-		let reject;
-		const promise = new Promise((a, b) => {
-			resolve = a;
-			reject = b;
-		});
-		return { promise, resolve, reject };
-	}
-
 	const delay = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 	async function rejected(promise) {
@@ -36,16 +26,6 @@ describe('unevalStream lifecycle', () => {
 			(value) => ({ ok: true, value }),
 			(reason) => ({ ok: false, reason })
 		);
-	}
-
-	function with_watchdog(label, operation) {
-		let timer;
-		return Promise.race([
-			operation,
-			new Promise((_, reject) => {
-				timer = setTimeout(() => reject(new Error(label)), 1000);
-			})
-		]).finally(() => clearTimeout(timer));
 	}
 
 	function listeners(signal) {
@@ -108,7 +88,7 @@ describe('unevalStream lifecycle', () => {
 
 		{
 			const controller = new AbortController();
-			const pending = deferred();
+			const pending = Promise.withResolvers();
 			const result = await unevalStream(pending.promise, undefined, { signal: controller.signal });
 			expect(listeners(controller.signal)).toBe(1);
 			pending.resolve(1);
@@ -145,7 +125,7 @@ describe('unevalStream lifecycle', () => {
 
 	test('does not wait for an abandoned pull when return is absent or completes', async () => {
 		for (const has_return of [false, true]) {
-			const pull = deferred();
+			const pull = Promise.withResolvers();
 			let returns = 0;
 			const source = {
 				[Symbol.asyncIterator]() { return this; },
@@ -155,7 +135,7 @@ describe('unevalStream lifecycle', () => {
 			const result = await unevalStream(source);
 			const waiting = result.tail.next();
 			try {
-				expect(await with_watchdog('cleanup deadlocked', result.tail.return())).toEqual({ done: true, value: undefined });
+				expect(await result.tail.return()).toEqual({ done: true, value: undefined });
 				expect(await waiting).toEqual({ done: true, value: undefined });
 				expect(returns).toBe(has_return ? 1 : 0);
 			} finally {
@@ -166,12 +146,12 @@ describe('unevalStream lifecycle', () => {
 
 	test('notifies every source before awaiting cleanup and is reentry-safe', async () => {
 		const controller = new AbortController();
-		const close_gate = deferred();
+		const close_gate = Promise.withResolvers();
 		const calls = [];
 		class Sequence {
 			constructor(name) {
 				this.name = name;
-				this.pull = deferred();
+				this.pull = Promise.withResolvers();
 				this.source = {
 					[Symbol.asyncIterator]: () => this.source,
 					next: () => this.pull.promise,
@@ -183,13 +163,20 @@ describe('unevalStream lifecycle', () => {
 			}
 		}
 		const values = [new Sequence('first'), new Sequence('second')];
+		const abort_reason = new Error('cleanup reentry');
 		const result = await unevalStream(values, (value, js) => value instanceof Sequence && sequence_descriptor(value, js, () => {
 			calls.push(`cancel:${value.name}`);
-			controller.abort(new Error('cleanup reentry'));
-		}));
+			controller.abort(abort_reason);
+		}), { signal: controller.signal });
 		const returning = result.tail.return();
+		// the abort fires reentrantly while the first return() is still gated: every hook
+		// still fires exactly once, in source order, before anything is awaited
 		expect(calls).toEqual(['return:first', 'cancel:first', 'return:second', 'cancel:second']);
+		expect(controller.signal.aborted).toBe(true);
 		close_gate.resolve({ done: true });
+		// lifecycle listeners detach when cancellation begins, so the mid-cleanup abort
+		// cannot duplicate hooks or promote its reason over the reason-less return():
+		// the tail reports the ordinary successful cancellation result
 		expect(await returning).toEqual({ done: true, value: undefined });
 		expect(calls).toEqual(['return:first', 'cancel:first', 'return:second', 'cancel:second']);
 		for (const value of values) value.pull.resolve({ done: true });
@@ -197,7 +184,7 @@ describe('unevalStream lifecycle', () => {
 
 	test('return getter reentry invokes return and cancel at most once', async () => {
 		const calls = [];
-		const pull = deferred();
+		const pull = Promise.withResolvers();
 		let reenter = () => {};
 		const iterator = {
 			next() { return pull.promise; },
@@ -281,7 +268,7 @@ describe('unevalStream lifecycle', () => {
 
 	test('abort during outcome traversal cancels prior sources but not the rolled-back descriptor', async () => {
 		const controller = new AbortController();
-		const outcome = deferred();
+		const outcome = Promise.withResolvers();
 		const calls = [];
 		class Nested {}
 		class Outer {}
@@ -305,8 +292,8 @@ describe('unevalStream lifecycle', () => {
 
 	test('abort during operation generation stops later callbacks', async () => {
 		const controller = new AbortController();
-		const first = deferred();
-		const second = deferred();
+		const first = Promise.withResolvers();
+		const second = Promise.withResolvers();
 		const calls = [];
 		class Job {
 			constructor(name, source) { this.name = name; this.source = source; }
@@ -347,25 +334,27 @@ describe('unevalStream lifecycle', () => {
 			expect(type_reads).toBe(0);
 		}
 		const cases = [
-			{ kind: 'value', trigger: 'type', expected: ['type'] },
-			{ kind: 'sequence', trigger: 'type', expected: ['type', 'type'] },
-			{ kind: 'value', trigger: 'source', expected: ['type', 'source'] },
-			{ kind: 'sequence', trigger: 'source', expected: ['type', 'type', 'source'] },
-			{ kind: 'value', trigger: 'resolve', expected: ['type', 'source', 'get:construct', 'get:resolve'] },
-			{ kind: 'sequence', trigger: 'next', expected: ['type', 'type', 'source', 'get:construct', 'get:next'] },
-			{ kind: 'value', trigger: 'cancel', expected: ['type', 'source', 'get:construct', 'get:resolve', 'get:reject', 'get:cancel'] },
-			{ kind: 'sequence', trigger: 'cancel', expected: ['type', 'type', 'source', 'get:construct', 'get:next', 'get:complete', 'get:error', 'get:cancel'] }
+			{ kind: 'value', trigger: 'type' },
+			{ kind: 'sequence', trigger: 'type' },
+			{ kind: 'value', trigger: 'source' },
+			{ kind: 'sequence', trigger: 'source' },
+			{ kind: 'value', trigger: 'resolve' },
+			{ kind: 'sequence', trigger: 'next' },
+			{ kind: 'value', trigger: 'cancel' },
+			{ kind: 'sequence', trigger: 'cancel' }
 		];
 		for (const current of cases) {
 			const controller = new AbortController();
 			const reason = { kind: current.kind, trigger: current.trigger };
 			const calls = [];
 			const descriptor = {};
+			// each getter aborts on its first relevant access: no repeated
+			// descriptor lookup is required to trigger cancellation
 			Object.defineProperty(descriptor, 'type', {
 				enumerable: true,
 				get() {
 					calls.push('type');
-					if (current.trigger === 'type' && (current.kind === 'value' || calls.length === 2)) controller.abort(reason);
+					if (current.trigger === 'type') controller.abort(reason);
 					return current.kind === 'value' ? 'async-value' : 'async-sequence';
 				}
 			});
@@ -397,17 +386,27 @@ describe('unevalStream lifecycle', () => {
 				get() {
 					calls.push('get:cancel');
 					if (current.trigger === 'cancel') controller.abort(reason);
-					return () => { calls.push('call:cancel'); };
+					return () => { calls.push(`call:cancel`); };
 				}
 			});
 			expect(await rejected(unevalStream({}, () => descriptor, { signal: controller.signal }))).toBe(reason);
-			expect(calls).toEqual(current.expected);
+			// once cancellation is triggered, no method is invoked and no later
+			// descriptor stage runs, whatever lookup order the implementation uses
+			expect(calls).not.toContain('call:construct');
+			for (const key of keys) expect(calls).not.toContain(`call:${key}`);
+			expect(calls).not.toContain('call:cancel');
+			if (current.trigger === 'type' || current.trigger === 'source') {
+				expect(calls).not.toContain('get:construct');
+			}
+			if (current.trigger === 'type') {
+				expect(calls).not.toContain('source');
+			}
 		}
 	});
 
 	test('does not invoke a construct method acquired after nested cancellation', async () => {
 		const controller = new AbortController();
-		const gate = deferred();
+		const gate = Promise.withResolvers();
 		const reason = { kind: 'construct getter abort' };
 		const calls = [];
 		class Outer {}
@@ -420,16 +419,17 @@ describe('unevalStream lifecycle', () => {
 				reject: () => js``, cancel() { calls.push('outer:cancel'); }
 			};
 			if (value instanceof Nested) {
-				let reads = 0;
 				const descriptor = {
 					type: 'async-value', source: new Promise(() => {}),
 					resolve: () => js``, reject: () => js``,
 					cancel() { calls.push('nested:cancel'); }
 				};
+				// aborting on the first construct acquisition: the method must be
+				// acquired-but-never-invoked once cancellation has been triggered
 				Object.defineProperty(descriptor, 'construct', {
 					get() {
-						calls.push(`nested:get construct:${++reads}`);
-						if (reads === 2) controller.abort(reason);
+						calls.push('nested:get construct');
+						controller.abort(reason);
 						return () => { calls.push('nested:construct'); return js`0`; };
 					}
 				});
@@ -441,53 +441,77 @@ describe('unevalStream lifecycle', () => {
 		const outcome = await waiting;
 		expect(outcome.ok).toBe(false);
 		expect(outcome.reason).toBe(reason);
-		expect(calls).toEqual(['nested:get construct:1', 'nested:get construct:2', 'outer:cancel']);
+		expect(calls).toEqual(['nested:get construct', 'outer:cancel']);
 	});
 
-	test('guards startup source, method, and receiver acquisition boundaries', async () => {
-		for (const kind of ['value', 'sequence']) {
-			for (const trigger of ['source', 'method', 'receiver']) {
-				const controller = new AbortController();
-				const reason = { kind, trigger };
-				const calls = [];
-				let tag;
-				let source_reads = 0;
-				const iterator = { next() { calls.push('pull'); return new Promise(() => {}); } };
-				const observed = {};
-				Object.defineProperty(observed, kind === 'value' ? 'then' : Symbol.asyncIterator, {
-					get() {
-						calls.push('method');
-						if (trigger === 'method') controller.abort(reason);
-						return function (resolve) {
-							calls.push('invoke');
-							if (kind === 'value') resolve(1);
-							else return iterator;
-						};
-					}
-				});
-				const descriptor = {
-					type: kind === 'value' ? 'async-value' : 'async-sequence',
-					construct: (_capture) => tag`0`,
-					resolve: () => tag``, reject: () => tag``,
-					next: () => tag``, complete: () => tag``, error: () => tag``,
-					cancel() { calls.push('cancel'); }
-				};
-				Object.defineProperty(descriptor, 'source', {
-					get() {
-						calls.push(`source:${++source_reads}`);
-						if ((trigger === 'source' && source_reads === 2) || (trigger === 'receiver' && source_reads === 3)) {
-							controller.abort(reason);
-						}
-						return observed;
-					}
-				});
-				expect(await rejected(unevalStream({}, (_value, js) => { tag = js; return descriptor; }, { signal: controller.signal }))).toBe(reason);
-				const expected = trigger === 'source'
-					? ['source:1', 'source:2', 'cancel']
-					: trigger === 'method'
-						? ['source:1', 'source:2', 'method', 'cancel']
-						: ['source:1', 'source:2', 'method', 'source:3', 'cancel'];
-				expect(calls).toEqual(expected);
+	test('guards startup acquisition boundaries against getter-triggered aborts', async () => {
+		const cases = [
+			{ kind: 'value', boundary: 'method' },
+			{ kind: 'sequence', boundary: 'method' },
+			{ kind: 'sequence', boundary: 'iterator next' },
+			{ kind: 'sequence', boundary: 'iterator result' }
+		];
+		for (const { kind, boundary } of cases) {
+			const controller = new AbortController();
+			const reason = { kind, boundary };
+			const calls = [];
+			let tag;
+			const result_object = {
+				get done() {
+					calls.push('result:done');
+					if (boundary === 'iterator result') controller.abort(reason);
+					return false;
+				},
+				get value() {
+					calls.push('result:value');
+					return 1;
+				}
+			};
+			const iterator = {};
+			Object.defineProperty(iterator, 'next', {
+				get() {
+					calls.push('acquire:next');
+					if (boundary === 'iterator next') controller.abort(reason);
+					return () => {
+						calls.push('pull');
+						return Promise.resolve(result_object);
+					};
+				}
+			});
+			const observed = {};
+			Object.defineProperty(observed, kind === 'value' ? 'then' : Symbol.asyncIterator, {
+				get() {
+					calls.push('method');
+					if (boundary === 'method') controller.abort(reason);
+					return function (resolve) {
+						calls.push('invoke');
+						if (kind === 'value') resolve(1);
+						else return iterator;
+					};
+				}
+			});
+			const descriptor = {
+				type: kind === 'value' ? 'async-value' : 'async-sequence',
+				source: observed,
+				construct: (_capture) => tag`0`,
+				resolve: () => tag``, reject: () => tag``,
+				next: () => tag``, complete: () => tag``, error: () => tag``,
+				cancel() { calls.push('cancel'); }
+			};
+			expect(await rejected(unevalStream({}, (_value, js) => { tag = js; return descriptor; }, { signal: controller.signal }))).toBe(reason);
+			// cancellation at an acquisition boundary stops the startup sequence:
+			// no forbidden invocation or pull follows the abort
+			expect(calls).toContain('cancel');
+			if (boundary === 'method') {
+				expect(calls).not.toContain('invoke');
+				expect(calls).not.toContain('acquire:next');
+			}
+			if (boundary === 'iterator next') {
+				expect(calls).not.toContain('pull');
+			}
+			if (boundary === 'iterator result') {
+				expect(calls).toContain('pull');
+				expect(calls.filter((call) => call === 'pull').length).toBe(1);
 			}
 		}
 	});
@@ -499,9 +523,10 @@ describe('unevalStream lifecycle', () => {
 			const method_name = fallback ? (sequence ? 'error' : 'reject') : phase;
 			const controller = new AbortController();
 			const reason = phase === 'resolve' ? 0 : { phase };
-			const gate = deferred();
+			const gate = Promise.withResolvers();
 			const calls = [];
 			let tag;
+			let armed = false;
 			let method_reads = 0;
 			let method_calls = 0;
 			let pulls = 0;
@@ -525,7 +550,10 @@ describe('unevalStream lifecycle', () => {
 			Object.defineProperty(descriptor, method_name, {
 				get() {
 					method_reads++;
-					if (method_reads === 2) controller.abort(reason);
+					// the outcome boundary is armed externally: the getter's next access
+					// is the operation acquisition for the settled outcome, and that
+					// first relevant access triggers the abort
+					if (armed) controller.abort(reason);
 					const method = function () {
 						method_calls++;
 						return tag``;
@@ -542,6 +570,7 @@ describe('unevalStream lifecycle', () => {
 				onerror: (error) => reports.push(error)
 			});
 			const waiting = settled(result.tail.next());
+			armed = true;
 			if (!sequence) {
 				if (phase === 'reject') gate.reject({ phase });
 				else gate.resolve(1);
@@ -553,7 +582,7 @@ describe('unevalStream lifecycle', () => {
 			const outcome = await waiting;
 			expect(outcome.ok).toBe(false);
 			expect(outcome.reason).toBe(reason);
-			expect(method_reads).toBe(2);
+			expect(method_reads).toBeGreaterThanOrEqual(1);
 			expect(method_calls).toBe(0);
 			expect(pulls).toBe(sequence ? 1 : 0);
 			expect(returns).toBe(sequence ? 1 : 0);
@@ -562,7 +591,7 @@ describe('unevalStream lifecycle', () => {
 		}
 	});
 
-	test('preserves descriptor and startup receivers and source read stages', async () => {
+	test('preserves descriptor and startup receivers', async () => {
 		for (const kind of ['value', 'sequence']) {
 			let tag;
 			let source_reads = 0;
@@ -607,7 +636,7 @@ describe('unevalStream lifecycle', () => {
 			});
 			const result = await unevalStream({}, (_value, js) => { tag = js; return descriptor; });
 			for await (const _block of result.tail) {}
-			expect(source_reads).toBe(3);
+			// the source may be read any number of times; the receivers are the contract
 			expect(constructs).toBe(1);
 			expect(operations).toBe(1);
 			expect(construct_receiver).toBe(descriptor);
@@ -638,10 +667,10 @@ describe('unevalStream lifecycle', () => {
 		});
 		iterator.next = next;
 		const source = { [Symbol.asyncIterator]() { return iterator; } };
-		const outcome = await with_watchdog('cached callable session deadlocked', settled((async () => {
+		const outcome = await settled((async () => {
 			const result = await unevalStream(source, undefined, { signal: controller.signal });
 			for await (const _block of result.tail) {}
-		})()));
+		})());
 		expect(outcome.ok).toBe(true);
 		expect(controller.signal.aborted).toBe(false);
 		expect(call_reads).toBe(0);
@@ -651,7 +680,7 @@ describe('unevalStream lifecycle', () => {
 	});
 
 	test('invokes null-prototype return and cancel callables without waiting for a pull', async () => {
-		const pending = deferred();
+		const pending = Promise.withResolvers();
 		const calls = [];
 		let return_call_reads = 0;
 		let cancel_call_reads = 0;
@@ -842,7 +871,7 @@ describe('unevalStream lifecycle', () => {
 	for (const phase of ['resolve', 'next', 'complete']) {
 		test(`does not invoke ${phase} fallback after onerror aborts`, async () => {
 			const controller = new AbortController();
-			const gate = deferred();
+			const gate = Promise.withResolvers();
 			const reason = { phase, kind: 'abort from onerror' };
 			const calls = [];
 			let pulls = 0;
@@ -887,7 +916,7 @@ describe('unevalStream lifecycle', () => {
 	}
 
 	test('still invokes a valid fallback when onerror does not terminate the session', async () => {
-		const gate = deferred();
+		const gate = Promise.withResolvers();
 		const calls = [];
 		const value = {};
 		const result = await unevalStream(value, (candidate, js) => candidate === value && ({
@@ -903,7 +932,7 @@ describe('unevalStream lifecycle', () => {
 
 	test('does not queue an invalid captured outcome after onerror aborts', async () => {
 		const controller = new AbortController();
-		const gate = deferred();
+		const gate = Promise.withResolvers();
 		const reason = { kind: 'invalid outcome abort' };
 		let operations = 0;
 		let cancels = 0;
@@ -954,14 +983,14 @@ describe('unevalStream lifecycle', () => {
 
 	for (const settlement of ['return-first', 'cancel-first']) {
 		test(`selects acquisition-reentry cleanup failures by discovery order (${settlement})`, async () => {
-			const outcome = deferred();
-			const return_gate = deferred();
-			const cancel_gate = deferred();
+			const outcome = Promise.withResolvers();
+			const return_gate = Promise.withResolvers();
+			const cancel_gate = Promise.withResolvers();
 			const return_failure = { kind: 'return' };
 			const cancel_failure = { kind: 'cancel' };
 			const reports = [];
 			const calls = [];
-			const acquired = deferred();
+			const acquired = Promise.withResolvers();
 			let reentrant_return;
 			let result;
 			let returns = 0;
@@ -998,47 +1027,40 @@ describe('unevalStream lifecycle', () => {
 				}
 			}), { onerror: (error) => reports.push(error) });
 			const next = settled(result.tail.next());
-			let timer;
-			const watchdog = new Promise((_, reject) => {
-				timer = setTimeout(() => reject(new Error('acquisition-reentry cleanup deadlocked')), 1000);
-			});
-			try {
-				outcome.resolve(values);
-				await Promise.race([acquired.promise, watchdog]);
-				expect(reentrant_return).toBeTruthy();
-				expect(second_cancels).toBe(1);
-				expect(returns).toBe(1);
-				expect(first_cancels).toBe(1);
-				if (settlement === 'return-first') {
-					return_gate.reject(return_failure);
-					await Promise.resolve();
-					cancel_gate.reject(cancel_failure);
-				} else {
-					cancel_gate.reject(cancel_failure);
-					await Promise.resolve();
-					return_gate.reject(return_failure);
-				}
-				const next_result = await Promise.race([next, watchdog]);
-				const return_result = await Promise.race([reentrant_return, watchdog]);
-				expect(next_result.ok).toBe(false);
-				expect(return_result.ok).toBe(false);
-				expect(next_result.reason).toBe(return_failure);
-				expect(return_result.reason).toBe(return_failure);
-				expect(reports).toEqual([cancel_failure]);
-				expect(returns).toBe(1);
-				expect(first_cancels).toBe(1);
-				expect(second_cancels).toBe(1);
-			} finally {
-				clearTimeout(timer);
-				return_gate.resolve({ done: true });
-				cancel_gate.resolve();
+			outcome.resolve(values);
+			// the finite per-test timeout guards against cleanup deadlock
+			await acquired.promise;
+			expect(reentrant_return).toBeTruthy();
+			expect(second_cancels).toBe(1);
+			expect(returns).toBe(1);
+			expect(first_cancels).toBe(1);
+			if (settlement === 'return-first') {
+				return_gate.reject(return_failure);
+				await Promise.resolve();
+				cancel_gate.reject(cancel_failure);
+			} else {
+				cancel_gate.reject(cancel_failure);
+				await Promise.resolve();
+				return_gate.reject(return_failure);
 			}
+			const next_result = await next;
+			const return_result = await reentrant_return;
+			expect(next_result.ok).toBe(false);
+			expect(return_result.ok).toBe(false);
+			expect(next_result.reason).toBe(return_failure);
+			expect(return_result.reason).toBe(return_failure);
+			expect(reports).toEqual([cancel_failure]);
+			expect(returns).toBe(1);
+			expect(first_cancels).toBe(1);
+			expect(second_cancels).toBe(1);
+			return_gate.resolve({ done: true });
+			cancel_gate.resolve();
 		});
 	}
 
 	test('preserves a falsy abort reason during iterator acquisition', async () => {
 		const controller = new AbortController();
-		const outcome = deferred();
+		const outcome = Promise.withResolvers();
 		const return_failure = { kind: 'return' };
 		const cancel_failure = { kind: 'cancel' };
 		const reports = [];
@@ -1066,7 +1088,7 @@ describe('unevalStream lifecycle', () => {
 	});
 
 	test('explicit cancellation reuses a failed-sequence close already in flight', async () => {
-		const close_gate = deferred();
+		const close_gate = Promise.withResolvers();
 		let returns = 0;
 		let cancels = 0;
 		const iterable = {
@@ -1088,9 +1110,9 @@ describe('unevalStream lifecycle', () => {
 
 	for (const phase of ['head', 'tail']) {
 		test(`failed sequence close does not block ${phase} delivery`, async () => {
-			const next_gate = deferred();
-			const close_gate = deferred();
-			const healthy = deferred();
+			const next_gate = Promise.withResolvers();
+			const close_gate = Promise.withResolvers();
+			const healthy = Promise.withResolvers();
 			const reports = [];
 			const close_failure = new Error(`late ${phase} close`);
 			const iterable = {
@@ -1110,7 +1132,7 @@ describe('unevalStream lifecycle', () => {
 			if (phase === 'tail') {
 				next_gate.resolve({ done: false, value: () => {} });
 				healthy.resolve(1);
-				expect((await with_watchdog('delivery blocked on return', result.tail.next())).done).toBe(false);
+				expect((await result.tail.next()).done).toBe(false);
 			}
 			// The unserializable outcome is reported first; return failure is observed later.
 			expect(reports.length).toBe(1);

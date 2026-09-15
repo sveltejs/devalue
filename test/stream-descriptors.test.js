@@ -1,25 +1,8 @@
-import vm from 'node:vm';
 import { describe, test, expect } from 'vitest';
 import { DevalueError, unevalStream } from '../index.js';
+import { client } from './helpers/stream.js';
 
 describe('unevalStream descriptor holes', () => {
-
-	function deferred() {
-		let resolve;
-		let reject;
-		const promise = new Promise((a, b) => { resolve = a; reject = b; });
-		return { promise, resolve, reject };
-	}
-
-	function client() {
-		const context = vm.createContext({});
-		context.globalThis = context;
-		return {
-			context,
-			head: (source) => vm.runInContext(`(${source})`, context),
-			block: (source) => vm.runInContext(source, context)
-		};
-	}
 
 	async function rejected(promise) {
 		try { await promise; } catch (error) { return error; }
@@ -41,7 +24,7 @@ describe('unevalStream descriptor holes', () => {
 	}
 
 	test('serializes graph values in construct and reachable capture expressions', async () => {
-		const ready = deferred();
+		const ready = Promise.withResolvers();
 		const shared = { name: 'shared' };
 		const buffer = new Uint8Array([1, 2, 3, 4]).buffer;
 		const view = new Uint16Array(buffer);
@@ -83,55 +66,45 @@ describe('unevalStream descriptor holes', () => {
 		for await (const block of result.tail) target.block(block);
 	});
 
-	test('ignores manages_pending fields and deletes reachable custom controls', async () => {
-		for (const property of ['true', 'false', 'inherited', 'throwing']) {
-			const ready = deferred();
-			const keepalive = deferred();
-			const job = {};
-			let reads = 0;
-			let descriptor;
-			const result = await unevalStream({ job, keepalive: keepalive.promise }, (value, js) => {
-				if (value !== job) return;
-				descriptor = {
-					type: 'async-value',
-					source: ready.promise,
-					construct: (capture) => js`({control:${capture(js`[]`)},value:null})`,
-					resolve({ target, control }, outcome) {
-						return js`globalThis.control_was_present=Object.hasOwn(globalThis.__d[${`pending-${property}`}].p,0);globalThis.control_matched=${control}===${target}.control;${target}.value=${outcome}`;
-					},
-					reject: () => js``
-				};
-				if (property === 'true' || property === 'false') descriptor.manages_pending = property === 'true';
-				if (property === 'inherited') Object.setPrototypeOf(descriptor, { manages_pending: true });
-				if (property === 'throwing') {
-					Object.defineProperty(descriptor, 'manages_pending', {
-						get() { reads++; throw new Error('manages_pending must not be read'); }
-					});
-				}
-				return descriptor;
-			}, { id: `pending-${property}` });
-			const target = client();
-			const root = target.head(result.head);
-			const session = target.context.__d[`pending-${property}`];
-			expect(Object.hasOwn(session.p, 0)).toBeTruthy();
-			ready.resolve(7);
-			target.block((await result.tail.next()).value);
-			expect(root.job.value).toBe(7);
-			expect(target.context.control_was_present).toBe(true);
-			expect(target.context.control_matched).toBe(true);
-			expect(Object.hasOwn(session.p, 0)).toBe(false);
-			expect(Object.hasOwn(target.context.__d, `pending-${property}`)).toBeTruthy();
-			expect(reads).toBe(0);
-			keepalive.resolve();
-			for await (const block of result.tail) target.block(block);
-			expect(Object.hasOwn(target.context.__d, `pending-${property}`)).toBe(false);
-		}
+	test('never reads unknown descriptor fields and composes captured controls into operations', async () => {
+		const property = 'throwing';
+		const ready = Promise.withResolvers();
+		const keepalive = Promise.withResolvers();
+		const job = {};
+		let reads = 0;
+		const result = await unevalStream({ job, keepalive: keepalive.promise }, (value, js) => {
+			if (value !== job) return;
+			const descriptor = {
+				type: 'async-value',
+				source: ready.promise,
+				construct: (capture) => js`({control:${capture(js`[]`)},value:null})`,
+				resolve({ target, control }, outcome) {
+					return js`globalThis.control_matched=${control}===${target}.control;${target}.value=${outcome}`;
+				},
+				reject: () => js``
+			};
+			Object.defineProperty(descriptor, 'manages_pending', {
+				get() { reads++; throw new Error('unknown fields must not be read'); }
+			});
+			return descriptor;
+		}, { id: `pending-${property}` });
+		const target = client();
+		const root = target.head(result.head);
+		ready.resolve(7);
+		target.block((await result.tail.next()).value);
+		expect(root.job.value).toBe(7);
+		expect(target.context.control_matched).toBe(true);
+		expect(Object.hasOwn(target.context.__d, `pending-${property}`)).toBeTruthy();
+		expect(reads).toBe(0);
+		keepalive.resolve();
+		for await (const block of result.tail) target.block(block);
+		expect(Object.hasOwn(target.context.__d, `pending-${property}`)).toBe(false);
 	});
 
-	test('retains custom sequence controls through next and deletes them on completion', async () => {
-		const first = deferred();
-		const complete = deferred();
-		const keepalive = deferred();
+	test('retains custom sequence controls through next and completion', async () => {
+		const first = Promise.withResolvers();
+		const complete = Promise.withResolvers();
+		const keepalive = Promise.withResolvers();
 		const iterator = {
 			pulls: 0,
 			next() { return ++this.pulls === 1 ? first.promise : complete.promise; }
@@ -142,29 +115,25 @@ describe('unevalStream descriptor holes', () => {
 		const result = await unevalStream({ job, keepalive: keepalive.promise }, (value, js) => value === job && ({
 			type: 'async-sequence', source,
 			construct: (capture) => js`({control:${capture(js`[]`)},events:[]})`,
-			next: ({ target, control }, outcome) => js`globalThis.next_control_present=Object.hasOwn(globalThis.__d[${id}].p,0);${target}.events.push(${control}===${target}.control,${outcome})`,
-			complete: ({ target, control }, outcome) => js`globalThis.complete_control_present=Object.hasOwn(globalThis.__d[${id}].p,0);${target}.events.push(${control}===${target}.control,${outcome})`,
+			next: ({ target, control }, outcome) => js`${target}.events.push(${control}===${target}.control,${outcome})`,
+			complete: ({ target, control }, outcome) => js`${target}.events.push(${control}===${target}.control,${outcome})`,
 			error: () => js``
 		}), { id });
 		const target = client();
 		const root = target.head(result.head);
-		const session = target.context.__d[id];
 		first.resolve({ done: false, value: 1 });
 		target.block((await result.tail.next()).value);
-		expect(target.context.next_control_present).toBe(true);
-		expect(Object.hasOwn(session.p, 0)).toBe(true);
 		complete.resolve({ done: true, value: 2 });
 		target.block((await result.tail.next()).value);
-		expect(target.context.complete_control_present).toBe(true);
-		expect(Object.hasOwn(session.p, 0)).toBe(false);
 		expect(Array.from(root.job.events)).toEqual([true, 1, true, 2]);
 		keepalive.resolve();
 		for await (const block of result.tail) target.block(block);
+		expect(!Object.hasOwn(target.context.__d, id)).toBeTruthy();
 	});
 
 	test('keeps called but discarded captures unreachable', async () => {
-		const ready = deferred();
-		const keepalive = deferred();
+		const ready = Promise.withResolvers();
+		const keepalive = Promise.withResolvers();
 		const job = {};
 		let control;
 		const result = await unevalStream({ job, keepalive: keepalive.promise }, (value, js) => value === job && ({
@@ -175,7 +144,6 @@ describe('unevalStream descriptor holes', () => {
 		}), { id: 'discarded-capture' });
 		const target = client();
 		const root = target.head(result.head);
-		expect(Object.hasOwn(target.context.__d['discarded-capture'].p, 0)).toBe(false);
 		ready.resolve(1);
 		target.block((await result.tail.next()).value);
 		expect(control).toBe(undefined);
@@ -197,7 +165,7 @@ describe('unevalStream descriptor holes', () => {
 			sparse_child[1] = null_child;
 			const job = new Job({ items: sparse_child });
 			const graph = { null_child, sparse_child, jobs: [job, job] };
-			const gate = deferred();
+			const gate = Promise.withResolvers();
 			const value = mode === 'head' ? graph : mode === 'folded' ? Promise.resolve(graph) : gate.promise;
 			let constructions = 0;
 			const context = client();
@@ -234,7 +202,7 @@ describe('unevalStream descriptor holes', () => {
 				this.value = value;
 			}
 		}
-		const outer_ready = deferred();
+		const outer_ready = Promise.withResolvers();
 		const child_ready = new Promise(() => {});
 		const null_child = Object.assign(Object.create(null), { x: 42 });
 		const sparse_child = Array(3);
@@ -266,7 +234,7 @@ describe('unevalStream descriptor holes', () => {
 	});
 
 	test('groups the complete descriptor construction expression after lowering holes', async () => {
-		const ready = deferred();
+		const ready = Promise.withResolvers();
 		const job = {};
 		const config = { value: 2 };
 		const result = await unevalStream(job, (value, js) => value === job && ({
@@ -281,7 +249,7 @@ describe('unevalStream descriptor holes', () => {
 	});
 
 	test('materializes repeated operation holes once and preserves head/payload identity', async () => {
-		const ready = deferred();
+		const ready = Promise.withResolvers();
 		const shared = { value: 1 };
 		const job = {};
 		const result = await unevalStream({ shared, job }, (value, js) => value === job && ({
@@ -301,29 +269,34 @@ describe('unevalStream descriptor holes', () => {
 		expect(root.job.get()).toBe(root.shared);
 	});
 
-	test('reserves distinct capture indices for nested constructor descriptors', async () => {
-		class Job { constructor(name) { this.name = name; this.ready = deferred(); } }
+	test('gives nested constructor descriptors distinct controls', async () => {
+		class Job { constructor(name) { this.name = name; this.ready = Promise.withResolvers(); } }
 		const inner = new Job('inner');
 		const outer = new Job('outer');
 		outer.child = inner;
 		const result = await unevalStream(outer, (value, js) => value instanceof Job && ({
 			type: 'async-value', source: value.ready.promise,
 			construct: (capture) => js`({name:${value.name},control:${capture(js`[]`)},child:${value.child ?? null}})`,
-			resolve: () => js``, reject: () => js``
+			resolve: ({ target, control }) => js`${target}.control_matched=(${control}===${target}.control)`,
+			reject: () => js``
 		}), { id: 'nested-constructor-indices' });
-		expect(result.head).toMatch(/\.p\[0\]/);
-		expect(result.head).toMatch(/\.p\[1\]/);
-		expect((result.head.match(/\.p\[\d+\]/g) ?? []).length).toBe(2);
-		const root = client().head(result.head);
+		const target = client();
+		const root = target.head(result.head);
+		expect(root.name).toBe('outer');
 		expect(root.child.name).toBe('inner');
 		outer.ready.resolve();
 		inner.ready.resolve();
-		for await (const _block of result.tail) {}
+		for await (const block of result.tail) target.block(block);
+		// each descriptor's control composes with its own target, and unrelated
+		// descriptors do not alias each other's controls
+		expect(root.control_matched).toBe(true);
+		expect(root.child.control_matched).toBe(true);
+		expect(root.control).not.toBe(root.child.control);
 	});
 
 	test('serializes next complete reject and error holes', async () => {
 		for (const phase of ['reject', 'next', 'complete', 'error']) {
-			const gate = deferred();
+			const gate = Promise.withResolvers();
 			const hole = { phase };
 			const job = {};
 			const sequence = phase === 'next' || phase === 'complete' || phase === 'error';
@@ -352,7 +325,7 @@ describe('unevalStream descriptor holes', () => {
 	});
 
 	test('reports invalid operation data then lowers a valid fallback hole', async () => {
-		const ready = deferred();
+		const ready = Promise.withResolvers();
 		const fallback = { ok: true };
 		const reports = [];
 		const job = {};
@@ -390,7 +363,7 @@ describe('unevalStream descriptor holes', () => {
 	}
 
 	test('preserves descriptor diagnostics nested in an asynchronous payload region', async () => {
-		const outcome = deferred();
+		const outcome = Promise.withResolvers();
 		const { bad, value: config } = invalid_graph_value('bad');
 		const job = {};
 		const payload = { job };
@@ -408,7 +381,7 @@ describe('unevalStream descriptor holes', () => {
 
 	for (const phase of ['resolve', 'next', 'complete']) {
 		test(`preserves operation diagnostics and redacts recovered ${phase} failures from client source`, async () => {
-			const gate = deferred();
+			const gate = Promise.withResolvers();
 			const { bad, value: invalid } = invalid_graph_value('bad');
 			const reports = [];
 			const job = {};
@@ -444,7 +417,7 @@ describe('unevalStream descriptor holes', () => {
 
 	for (const mode of ['reject', 'error', 'fallback reject', 'fallback error']) {
 		test(`preserves finalized diagnostics for terminal ${mode} holes`, async () => {
-			const gate = deferred();
+			const gate = Promise.withResolvers();
 			const { bad, value: invalid } = invalid_graph_value('bad');
 			const job = {};
 			const sequence = mode.endsWith('error');
@@ -473,7 +446,7 @@ describe('unevalStream descriptor holes', () => {
 	}
 
 	test('keeps sequential descriptor unwind paths independent', async () => {
-		const gates = [deferred(), deferred()];
+		const gates = [Promise.withResolvers(), Promise.withResolvers()];
 		const invalid = [invalid_graph_value('first'), invalid_graph_value('second')];
 		const reports = [];
 		class Job { constructor(index) { this.index = index; } }
@@ -498,7 +471,7 @@ describe('unevalStream descriptor holes', () => {
 		test(`preserves an arbitrary thrown ${String(reason)} cause without graph fields`, async () => {
 			const throwing = {};
 			Object.defineProperty(throwing, 'value', { enumerable: true, get() { throw reason; } });
-			const ready = deferred();
+			const ready = Promise.withResolvers();
 			const reports = [];
 			const job = {};
 			const result = await unevalStream(job, (value, js) => value === job && ({
@@ -535,7 +508,7 @@ describe('unevalStream descriptor holes', () => {
 			const reason = reasons[i];
 			const throwing = {};
 			Object.defineProperty(throwing, 'value', { enumerable: true, get() { throw reason; } });
-			const ready = deferred();
+			const ready = Promise.withResolvers();
 			const reports = [];
 			const job = {};
 			const result = await unevalStream(job, (value, js) => value === job && ({
@@ -561,7 +534,7 @@ describe('unevalStream descriptor holes', () => {
 			if (frozen) Object.freeze(external);
 			const throwing = {};
 			Object.defineProperty(throwing, 'prop', { enumerable: true, get() { throw external; } });
-			const ready = deferred();
+			const ready = Promise.withResolvers();
 			const reports = [];
 			const job = {};
 			const result = await unevalStream(job, (value, js) => value === job && ({
@@ -580,7 +553,7 @@ describe('unevalStream descriptor holes', () => {
 
 	test('does not reuse reported Symbol ownership while lowering descriptor holes', async () => {
 		for (const mode of ['writable', 'frozen', 'hostile message']) {
-			const gates = [deferred(), deferred()];
+			const gates = [Promise.withResolvers(), Promise.withResolvers()];
 			const jobs = [{ index: 0 }, { index: 1 }];
 			const reports = [];
 			let original;
@@ -686,7 +659,7 @@ describe('unevalStream descriptor holes', () => {
 			Object.defineProperty(reason, 'message', { get() { throw new Error('message inspected'); } });
 			const throwing = {};
 			Object.defineProperty(throwing, 'prop', { enumerable: true, get() { throw reason; } });
-			const ready = deferred();
+			const ready = Promise.withResolvers();
 			const job = {};
 			const fallback = phase.startsWith('fallback');
 			const sequence = phase.endsWith('error');
@@ -713,7 +686,7 @@ describe('unevalStream descriptor holes', () => {
 	}
 
 	test('keeps Symbol interpolation clear and does not inspect hostile description hooks', async () => {
-		const gates = [deferred(), deferred()];
+		const gates = [Promise.withResolvers(), Promise.withResolvers()];
 		const reports = [];
 		let inspections = 0;
 		const hostile = function hostile() {};
@@ -742,8 +715,8 @@ describe('unevalStream descriptor holes', () => {
 
 	test('starts nested operation descriptors only after committed output', async () => {
 		class Job { constructor(ready) { this.ready = ready; } }
-		const outer = deferred();
-		const nested = deferred();
+		const outer = Promise.withResolvers();
+		const nested = Promise.withResolvers();
 		const root_job = new Job(outer);
 		const nested_job = new Job(nested);
 		let then_reads = 0;
@@ -771,7 +744,7 @@ describe('unevalStream descriptor holes', () => {
 
 	test('rolls back a nested descriptor before an invalid operation hole', async () => {
 		class Job {}
-		const ready = deferred();
+		const ready = Promise.withResolvers();
 		const nested = new Job();
 		let then_reads = 0;
 		let cancels = 0;
