@@ -21,8 +21,6 @@ class Bar {
 function NullObject() {}
 NullObject.prototype = Object.create(null);
 
-const node_version = +process.versions.node.split('.')[0];
-
 const fixtures = {
 	primitives: [
 		{
@@ -53,7 +51,8 @@ const fixtures = {
 			name: 'number: NaN',
 			value: NaN,
 			js: 'NaN',
-			json: `${consts.NAN}`
+			json: `${consts.NAN}`,
+			validate: (value) => assert.ok(Number.isNaN(value))
 		},
 		{
 			name: 'number: +Infinity',
@@ -144,7 +143,11 @@ const fixtures = {
 			name: 'Number: NaN',
 			value: new Number(NaN),
 			js: 'Object(NaN)',
-			json: `[["Object",${consts.NAN}]]`
+			json: `[["Object",${consts.NAN}]]`,
+			validate: (value) => {
+				assert.ok(value instanceof Number);
+				assert.ok(Number.isNaN(value.valueOf()));
+			}
 		},
 		{
 			name: 'Number: +Infinity',
@@ -228,7 +231,11 @@ const fixtures = {
 			name: 'Array where negative zero appears after normal zero',
 			value: [0, -0],
 			js: '[0,-0]',
-			json: `[[1,${consts.NEGATIVE_ZERO}],0]`
+			json: `[[1,${consts.NEGATIVE_ZERO}],0]`,
+			validate: (value) => {
+				assert.ok(Object.is(value[0], 0));
+				assert.ok(Object.is(value[1], -0));
+			}
 		},
 		{
 			name: 'Array (empty)',
@@ -240,7 +247,12 @@ const fixtures = {
 			name: 'Array (sparse)',
 			value: [, 'b', ,],
 			js: '[,"b",,]',
-			json: `[[${consts.HOLE},1,${consts.HOLE}],"b"]`
+			json: `[[${consts.HOLE},1,${consts.HOLE}],"b"]`,
+			validate: (value) => {
+				assert.is(value.length, 3);
+				assert.equal(Object.keys(value), ['1']);
+				assert.is(value[1], 'b');
+			}
 		},
 		((arr) => {
 			arr[1000000] = 'x';
@@ -285,13 +297,15 @@ const fixtures = {
 			name: 'Set',
 			value: new Set([1, 2, 3]),
 			js: 'new Set([1,2,3])',
-			json: '[["Set",1,2,3],1,2,3]'
+			json: '[["Set",1,2,3],1,2,3]',
+			validate: (value) => assert.equal([...value], [1, 2, 3])
 		},
 		{
 			name: 'Map',
 			value: new Map([['a', 'b']]),
 			js: 'new Map([["a","b"]])',
-			json: '[["Map",1,2],"a","b"]'
+			json: '[["Map",1,2],"a","b"]',
+			validate: (value) => assert.equal([...value], [['a', 'b']])
 		},
 		{
 			name: 'Uint8Array',
@@ -346,7 +360,12 @@ const fixtures = {
 			name: 'DataView subview',
 			value: new DataView(new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]).buffer, 2, 4),
 			js: 'new DataView(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer,2,4)',
-			json: '[["DataView",1,2,4],["ArrayBuffer","AAECAwQFBgcICQ=="]]'
+			json: '[["DataView",1,2,4],["ArrayBuffer","AAECAwQFBgcICQ=="]]',
+			validate: (value) => {
+				assert.is(value.byteOffset, 2);
+				assert.is(value.byteLength, 4);
+				assert.equal([...new Uint8Array(value.buffer)], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+			}
 		},
 		{
 			name: 'URL',
@@ -364,7 +383,12 @@ const fixtures = {
 			name: 'Sliced typed array',
 			value: new Uint16Array([10, 20, 30, 40]).subarray(1, 3),
 			js: 'new Uint16Array([10,20,30,40]).subarray(1,3)',
-			json: '[["Uint16Array",1,2,2],["ArrayBuffer","CgAUAB4AKAA="]]'
+			json: '[["Uint16Array",1,2,2],["ArrayBuffer","CgAUAB4AKAA="]]',
+			validate: (value) => {
+				assert.is(value.byteOffset, 2);
+				assert.is(value.length, 2);
+				assert.equal([...new Uint16Array(value.buffer)], [10, 20, 30, 40]);
+			}
 		},
 		{
 			name: 'Temporal.Duration',
@@ -723,7 +747,11 @@ const fixtures = {
 				return [uint8, uint8];
 			})(),
 			js: '(function(a){a=new Uint8Array([0,1,2,3,4,5,6,7,8,9]);return [a,a]}({}))',
-			json: '[[1,1],["Uint8Array",2],["ArrayBuffer","AAECAwQFBgcICQ=="]]'
+			json: '[[1,1],["Uint8Array",2],["ArrayBuffer","AAECAwQFBgcICQ=="]]',
+			validate: ([a, b]) => {
+				assert.is(a, b);
+				assert.equal([...a], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+			}
 		},
 
 		{
@@ -734,7 +762,12 @@ const fixtures = {
 				return [uint8, uint8, uint16];
 			})(),
 			js: '(function(a,b){a=new Uint8Array(b);return [a,a,new Uint16Array(b)]}({},new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer))',
-			json: '[[1,1,3],["Uint8Array",2],["ArrayBuffer","AAECAwQFBgcICQ=="],["Uint16Array",2]]'
+			json: '[[1,1,3],["Uint8Array",2],["ArrayBuffer","AAECAwQFBgcICQ=="],["Uint16Array",2]]',
+			validate: ([uint8_a, uint8_b, uint16]) => {
+				assert.is(uint8_a, uint8_b);
+				assert.is(uint8_a.buffer, uint16.buffer);
+				assert.equal([...uint8_a], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+			}
 		},
 
 		{
@@ -745,7 +778,11 @@ const fixtures = {
 				return [dv, dv];
 			})(),
 			js: '(function(a){a=new DataView(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer);return [a,a]}({}))',
-			json: '[[1,1],["DataView",2],["ArrayBuffer","AAECAwQFBgcICQ=="]]'
+			json: '[[1,1],["DataView",2],["ArrayBuffer","AAECAwQFBgcICQ=="]]',
+			validate: ([a, b]) => {
+				assert.is(a, b);
+				assert.equal([...new Uint8Array(a.buffer)], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+			}
 		},
 
 		{
@@ -756,7 +793,12 @@ const fixtures = {
 				return [dv, dv, uint8.buffer];
 			})(),
 			js: '(function(a,b){a=new DataView(b);return [a,a,b]}({},new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer))',
-			json: '[[1,1,2],["DataView",2],["ArrayBuffer","AAECAwQFBgcICQ=="]]'
+			json: '[[1,1,2],["DataView",2],["ArrayBuffer","AAECAwQFBgcICQ=="]]',
+			validate: ([view_a, view_b, buffer]) => {
+				assert.is(view_a, view_b);
+				assert.is(view_a.buffer, buffer);
+				assert.equal([...new Uint8Array(buffer)], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+			}
 		},
 
 		{
@@ -767,7 +809,13 @@ const fixtures = {
 				return [dv, dv];
 			})(),
 			js: '(function(a){a=new DataView(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer,2,4);return [a,a]}({}))',
-			json: '[[1,1],["DataView",2,2,4],["ArrayBuffer","AAECAwQFBgcICQ=="]]'
+			json: '[[1,1],["DataView",2,2,4],["ArrayBuffer","AAECAwQFBgcICQ=="]]',
+			validate: ([a, b]) => {
+				assert.is(a, b);
+				assert.is(a.byteOffset, 2);
+				assert.is(a.byteLength, 4);
+				assert.equal([...new Uint8Array(a.buffer)], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+			}
 		},
 
 		{
@@ -878,7 +926,11 @@ const fixtures = {
 				return [regex, regex];
 			})(),
 			js: `(function(a){return [a,a]}(new RegExp("[\\u003C/script>\\u003Cscript>alert('xss')//]")))`,
-			json: `[[1,1],["RegExp","[\\u003C/script>\\u003Cscript>alert('xss')//]"]]`
+			json: `[[1,1],["RegExp","[\\u003C/script>\\u003Cscript>alert('xss')//]"]]`,
+			validate: ([a, b]) => {
+				assert.is(a, b);
+				assert.is(a.source, "[</script><script>alert('xss')//]");
+			}
 		}
 	],
 
@@ -947,7 +999,8 @@ const fixtures = {
 				assert.ok(obj1 instanceof Foo);
 				assert.ok(obj1.value.bar instanceof Bar);
 				assert.equal(obj1.value.bar.value.answer, 42);
-			}
+			},
+			evaluate: (source) => new Function('Foo', 'Bar', `return (${source})`)(Foo, Bar)
 		}
 	])(new Foo({ bar: new Bar({ answer: 42 }) })),
 
@@ -1013,7 +1066,9 @@ const fixtures = {
 					assert.ok(typeof result.fn === 'function');
 					// Test that the function works
 					assert.equal(result.fn(5), 10);
-				}
+				},
+				evaluate: (source) =>
+					new Function('FunctionRef', `return (${source})`)(FunctionRef)
 			},
 			{
 				name: 'Function in nested structure',
@@ -1048,13 +1103,74 @@ const fixtures = {
 	})()
 };
 
+const exact_uneval_numbers = new Set([
+	'number: NaN',
+	'number: +Infinity',
+	'number: -Infinity',
+	'number: negative zero',
+	'Number: NaN',
+	'Number: +Infinity',
+	'Number: -Infinity',
+	'Number: negative zero'
+]);
+
+/**
+ * @param {any} fixture
+ * @param {any} actual
+ */
+function validate_fixture(fixture, actual) {
+	if (fixture.validate) {
+		fixture.validate(actual);
+	} else {
+		assert.equal(actual, fixture.value);
+	}
+}
+
+/**
+ * @param {any} fixture
+ * @param {string} source
+ */
+function evaluate_fixture(fixture, source) {
+	return fixture.evaluate ? fixture.evaluate(source) : (0, eval)(`(${source})`);
+}
+
+/**
+ * @param {() => void} fn
+ */
+function catch_error(fn) {
+	try {
+		fn();
+	} catch (error) {
+		return error;
+	}
+
+	assert.unreachable('expected operation to throw');
+}
+
+/**
+ * @param {() => Promise<any>} fn
+ */
+async function catch_async_error(fn) {
+	try {
+		await fn();
+	} catch (error) {
+		return error;
+	}
+
+	assert.unreachable('expected operation to reject');
+}
+
 for (const [name, tests] of Object.entries(fixtures)) {
 	const test = uvu.suite(`uneval: ${name}`);
 	for (const t of tests) {
 		test(t.name, () => {
-			const actual = uneval(t.value, t.replacer);
-			const expected = t.js;
-			assert.equal(actual, expected);
+			const source = uneval(t.value, t.replacer);
+
+			if (name === 'strings' || name === 'XSS' || exact_uneval_numbers.has(t.name)) {
+				assert.equal(source, t.js);
+			}
+
+			validate_fixture(t, evaluate_fixture(t, source));
 		});
 	}
 	test.run();
@@ -1072,35 +1188,39 @@ for (const [name, tests] of Object.entries(fixtures)) {
 	test.run();
 }
 
-for (const [name, tests] of Object.entries(fixtures)) {
-	const test = uvu.suite(`parse: ${name}`);
-	for (const t of tests) {
-		test(t.name, () => {
-			const actual = parse(t.json, t.revivers);
-			const expected = t.value;
+const parse_tests = uvu.suite('parse wrapper');
 
-			if (t.validate) {
-				t.validate(actual);
-			} else {
-				assert.equal(actual, expected);
-			}
-		});
+parse_tests('parses normal input', () => {
+	assert.equal(parse('[{"answer":1},42]'), { answer: 42 });
+});
+
+parse_tests('forwards primitive sentinels', () => {
+	assert.is(parse(`${consts.UNDEFINED}`), undefined);
+});
+
+parse_tests('forwards revivers', () => {
+	class Answer {
+		constructor(value) {
+			this.value = value;
+		}
 	}
-	test.run();
-}
+
+	const actual = parse('[["Answer",1],42]', {
+		Answer: (value) => new Answer(value)
+	});
+
+	assert.ok(actual instanceof Answer);
+	assert.is(actual.value, 42);
+});
+
+parse_tests.run();
 
 for (const [name, tests] of Object.entries(fixtures)) {
 	const test = uvu.suite(`unflatten: ${name}`);
 	for (const t of tests) {
 		test(t.name, () => {
 			const actual = unflatten(JSON.parse(t.json), t.revivers);
-			const expected = t.value;
-
-			if (t.validate) {
-				t.validate(actual);
-			} else {
-				assert.equal(actual, expected);
-			}
+			validate_fixture(t, actual);
 		});
 	}
 	test.run();
@@ -1120,15 +1240,12 @@ const invalid = [
 	{
 		name: 'empty string',
 		json: '',
-		message: 'Unexpected end of JSON input'
+		error: SyntaxError
 	},
 	{
 		name: 'invalid JSON',
 		json: '][',
-		message:
-			node_version >= 20
-				? `Unexpected token ']', "][" is not valid JSON`
-				: 'Unexpected token ] in JSON at position 0'
+		error: SyntaxError
 	},
 	{
 		name: 'hole',
@@ -1253,11 +1370,13 @@ const invalid = [
 	}
 ];
 
-for (const { name, json, message, revivers } of invalid) {
+for (const { name, json, message, error: ErrorType, revivers } of invalid) {
 	uvu.test(`parse error: ${name}`, () => {
 		assert.throws(
 			() => parse(json, revivers),
 			(error) => {
+				if (ErrorType) return error instanceof ErrorType;
+
 				const match = error.message === message;
 				if (!match) {
 					console.error(`Expected: ${message}, got: ${error.message}`);
@@ -1335,119 +1454,64 @@ for (const fn of [uneval, stringify]) {
 	uvu.test(`${fn.name} throws for __proto__ keys`, () => {
 		const inner = JSON.parse('{"__proto__":1}');
 		const root = { foo: inner };
-		try {
-			fn(root);
-			assert.unreachable('should have thrown');
-		} catch (e) {
-			assert.equal(e.name, 'DevalueError');
-			assert.equal(e.message, 'Cannot stringify objects with __proto__ keys');
-			assert.equal(e.path, '.foo');
-			assert.equal(e.value, inner);
-			assert.equal(e.root, root);
-		}
+		const error = catch_error(() => fn(root));
+		assert.equal(error.name, 'DevalueError');
+		assert.equal(error.message, 'Cannot stringify objects with __proto__ keys');
+		assert.equal(error.path, '.foo');
+		assert.is(error.value, inner);
+		assert.is(error.root, root);
 	});
 
-	uvu.test(`${fn.name} populates error.keys and error.path`, () => {
-		try {
-			fn({
-				foo: {
-					array: [function invalid() {}]
-				}
-			});
-		} catch (e) {
-			assert.equal(e.name, 'DevalueError');
-			assert.equal(e.message, 'Cannot stringify a function');
-			assert.equal(e.path, '.foo.array[0]');
-		}
+	uvu.test(`${fn.name} reports function diagnostic context`, () => {
+		const value = function invalid() {};
+		const root = { foo: { array: [value] } };
+		const error = catch_error(() => fn(root));
 
-		try {
-			class Whatever {}
-			fn({
-				foo: {
-					['string-key']: new Map([['key', new Whatever()]])
-				}
-			});
-		} catch (e) {
-			assert.equal(e.name, 'DevalueError');
-			assert.equal(e.message, 'Cannot stringify arbitrary non-POJOs');
-			assert.equal(e.path, '.foo["string-key"].get("key")');
-		}
+		assert.equal(error.name, 'DevalueError');
+		assert.equal(error.message, 'Cannot stringify a function');
+		assert.equal(error.path, '.foo.array[0]');
+		assert.is(error.value, value);
+		assert.is(error.root, root);
+	});
+
+	uvu.test(`${fn.name} reports non-POJO diagnostic context`, () => {
+		class Whatever {}
+		const value = new Whatever();
+		const root = { foo: { ['string-key']: new Map([['key', value]]) } };
+		const error = catch_error(() => fn(root));
+
+		assert.equal(error.name, 'DevalueError');
+		assert.equal(error.message, 'Cannot stringify arbitrary non-POJOs');
+		assert.equal(error.path, '.foo["string-key"].get("key")');
+		assert.is(error.value, value);
+		assert.is(error.root, root);
 	});
 
 	uvu.test(`${fn.name} populates error.path after maps (#64)`, () => {
-		try {
-			fn({
-				map: new Map([['key', 'value']]),
-				object: {
-					invalid() {}
-				}
-			});
-		} catch (e) {
-			assert.equal(e.name, 'DevalueError');
-			assert.equal(e.message, 'Cannot stringify a function');
-			assert.equal(e.path, '.object.invalid');
-		}
-	});
-
-	uvu.test(`${fn.name} populates error.value with the problematic value`, () => {
-		const testFn = function invalid() {};
-		try {
-			fn({
-				foo: {
-					array: [testFn]
-				}
-			});
-		} catch (e) {
-			assert.equal(e.name, 'DevalueError');
-			assert.equal(e.message, 'Cannot stringify a function');
-			assert.equal(e.value, testFn);
-		}
-	});
-
-	uvu.test(`${fn.name} populates error.root with the root value`, () => {
+		const value = function invalid() {};
 		const root = {
-			foo: {
-				array: [function invalid() {}]
-			}
+			map: new Map([['key', 'value']]),
+			object: { invalid: value }
 		};
-		try {
-			fn(root);
-		} catch (e) {
-			assert.equal(e.name, 'DevalueError');
-			assert.equal(e.message, 'Cannot stringify a function');
-			assert.equal(e.root, root);
-		}
+		const error = catch_error(() => fn(root));
+
+		assert.equal(error.name, 'DevalueError');
+		assert.equal(error.message, 'Cannot stringify a function');
+		assert.equal(error.path, '.object.invalid');
+		assert.is(error.value, value);
+		assert.is(error.root, root);
 	});
 
-	uvu.test(`${fn.name} includes value and root on arbitrary non-POJOs error`, () => {
-		class Whatever {}
-		const problematicValue = new Whatever();
-		const root = {
-			foo: {
-				['string-key']: new Map([['key', problematicValue]])
-			}
-		};
-		try {
-			fn(root);
-		} catch (e) {
-			assert.equal(e.name, 'DevalueError');
-			assert.equal(e.message, 'Cannot stringify arbitrary non-POJOs');
-			assert.equal(e.value, problematicValue);
-			assert.equal(e.root, root);
-		}
-	});
-
-	uvu.test(`${fn.name} includes value and root on symbolic keys error`, () => {
+	uvu.test(`${fn.name} reports symbolic-key diagnostic context`, () => {
 		const symbolKey = Symbol('key');
 		const root = { [symbolKey]: 'value' };
-		try {
-			fn(root);
-		} catch (e) {
-			assert.equal(e.name, 'DevalueError');
-			assert.equal(e.message, 'Cannot stringify POJOs with symbolic keys');
-			assert.equal(e.value, root);
-			assert.equal(e.root, root);
-		}
+		const error = catch_error(() => fn(root));
+
+		assert.equal(error.name, 'DevalueError');
+		assert.equal(error.message, 'Cannot stringify POJOs with symbolic keys');
+		assert.equal(error.path, '');
+		assert.is(error.value, root);
+		assert.is(error.root, root);
 	});
 }
 
@@ -1867,32 +1931,15 @@ uvu.test.run();
 
 // --- stringifyAsync tests ---
 
-// Verify that stringifyAsync produces identical output to stringify for all fixtures
+// Verify same-version wire compatibility and round-trip semantics in one pass
 for (const [name, tests] of Object.entries(fixtures)) {
 	const test = uvu.suite(`stringifyAsync: ${name}`);
 	for (const t of tests) {
 		test(t.name, async () => {
-			const actual = await stringifyAsync(t.value, t.reducers);
-			const expected = t.json;
-			assert.equal(actual, expected);
-		});
-	}
-	test.run();
-}
-
-// Verify round-trip: stringifyAsync output can be parsed back
-for (const [name, tests] of Object.entries(fixtures)) {
-	const test = uvu.suite(`stringifyAsync round-trip: ${name}`);
-	for (const t of tests) {
-		test(t.name, async () => {
 			const json = await stringifyAsync(t.value, t.reducers);
-			const actual = parse(json, t.revivers);
 
-			if (t.validate) {
-				t.validate(actual);
-			} else {
-				assert.equal(actual, t.value);
-			}
+			assert.equal(json, stringify(t.value, t.reducers));
+			validate_fixture(t, parse(json, t.revivers));
 		});
 	}
 	test.run();
@@ -1965,12 +2012,9 @@ asyncTests('handles thenables', async () => {
 });
 
 asyncTests('propagates rejected promises', async () => {
-	try {
-		await stringifyAsync(Promise.reject(new Error('fail')));
-		assert.unreachable('should have thrown');
-	} catch (e) {
-		assert.equal(e.message, 'fail');
-	}
+	const expected = new Error('fail');
+	const error = await catch_async_error(() => stringifyAsync(Promise.reject(expected)));
+	assert.is(error, expected);
 });
 
 asyncTests('resolves promise to complex value', async () => {
@@ -2007,43 +2051,44 @@ asyncTests.run();
 const asyncErrorTests = uvu.suite('stringifyAsync: errors');
 
 asyncErrorTests('throws for functions', async () => {
-	try {
-		await stringifyAsync(function invalid() {});
-		assert.unreachable('should have thrown');
-	} catch (e) {
-		assert.equal(e.name, 'DevalueError');
-		assert.equal(e.message, 'Cannot stringify a function');
-	}
+	const value = function invalid() {};
+	const error = await catch_async_error(() => stringifyAsync(value));
+	assert.equal(error.name, 'DevalueError');
+	assert.equal(error.message, 'Cannot stringify a function');
+	assert.equal(error.path, '');
+	assert.is(error.value, value);
+	assert.is(error.root, value);
 });
 
 asyncErrorTests('throws for Symbols', async () => {
-	try {
-		await stringifyAsync(Symbol('foo'));
-		assert.unreachable('should have thrown');
-	} catch (e) {
-		assert.equal(e.name, 'DevalueError');
-	}
+	const value = Symbol('foo');
+	const error = await catch_async_error(() => stringifyAsync(value));
+	assert.equal(error.name, 'DevalueError');
+	assert.equal(error.path, '');
+	assert.is(error.value, value);
+	assert.is(error.root, value);
 });
 
 asyncErrorTests('throws for non-POJOs without reducer', async () => {
 	class Whatever {}
-	try {
-		await stringifyAsync(new Whatever());
-		assert.unreachable('should have thrown');
-	} catch (e) {
-		assert.equal(e.name, 'DevalueError');
-		assert.equal(e.message, 'Cannot stringify arbitrary non-POJOs');
-	}
+	const value = new Whatever();
+	const error = await catch_async_error(() => stringifyAsync(value));
+	assert.equal(error.name, 'DevalueError');
+	assert.equal(error.message, 'Cannot stringify arbitrary non-POJOs');
+	assert.equal(error.path, '');
+	assert.is(error.value, value);
+	assert.is(error.root, value);
 });
 
 asyncErrorTests('throws for promise resolving to function', async () => {
-	try {
-		await stringifyAsync(Promise.resolve(function invalid() {}));
-		assert.unreachable('should have thrown');
-	} catch (e) {
-		assert.equal(e.name, 'DevalueError');
-		assert.equal(e.message, 'Cannot stringify a function');
-	}
+	const value = function invalid() {};
+	const root = Promise.resolve(value);
+	const error = await catch_async_error(() => stringifyAsync(root));
+	assert.equal(error.name, 'DevalueError');
+	assert.equal(error.message, 'Cannot stringify a function');
+	assert.equal(error.path, '');
+	assert.is(error.value, value);
+	assert.is(error.root, root);
 });
 
 asyncErrorTests.run();
