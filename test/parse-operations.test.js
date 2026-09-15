@@ -263,8 +263,8 @@ suite('cross-realm operations', (test) => {
 
 		const revived = parse(stringify(cyclic), undefined, { operations });
 
-		assert.equal(revived.self, revived);
-		assert.equal(revived.list[0], revived);
+		assert.is(revived.self, revived);
+		assert.is(revived.list[0], revived);
 
 		context.probe = revived;
 		assert.ok(
@@ -363,10 +363,10 @@ suite('tripwire parse operations', (test) => {
 		const revived = parse(stringify(input), undefined, { operations });
 		const root = untrip(revived);
 
-		assert.equal(root.object.shared, root.array[0]);
-		assert.equal(root.array[2].self, root.array[2]);
+		assert.is(root.object.shared, root.array[0]);
+		assert.is(root.array[2].self, root.array[2]);
 		assert.equal(root.sparse.length, 1000);
-		assert.equal(root.sparse[999], root.array[0]);
+		assert.is(root.sparse[999], root.array[0]);
 	});
 });
 
@@ -473,7 +473,7 @@ suite('handle-based parse operations', (test) => {
 		});
 
 		const object = raw(revived);
-		assert.equal(object.first, object.second);
+		assert.is(object.first, object.second);
 	});
 
 	test('cyclic values', () => {
@@ -486,7 +486,7 @@ suite('handle-based parse operations', (test) => {
 		});
 
 		const object = raw(revived);
-		assert.equal(object.self, object);
+		assert.is(object.self, object);
 	});
 
 	test('revivers receive and return handles', () => {

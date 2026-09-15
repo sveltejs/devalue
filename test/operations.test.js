@@ -142,7 +142,8 @@ suite('operations option', (test) => {
 		});
 
 		assert.equal(result, stringify([shared, shared]));
-		assert.equal(parse(result)[0], parse(result)[1]);
+		const decoded = parse(result);
+		assert.is(decoded[0], decoded[1]);
 	});
 });
 
@@ -420,7 +421,7 @@ suite('handle-based operations', (test) => {
 		assert.equal(result, stringify(value));
 
 		const parsed = parse(result);
-		assert.equal(parsed.first, parsed.second);
+		assert.is(parsed.first, parsed.second);
 	});
 
 	test('cyclic values', () => {
@@ -433,7 +434,7 @@ suite('handle-based operations', (test) => {
 		assert.equal(result, stringify(cyclic));
 
 		const parsed = parse(result);
-		assert.equal(parsed.self, parsed);
+		assert.is(parsed.self, parsed);
 	});
 
 	test('reducers receive the handle, not the raw value', () => {
