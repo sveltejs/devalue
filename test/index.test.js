@@ -1,6 +1,5 @@
 import * as vm from 'vm';
-import * as assert from 'uvu/assert';
-import * as uvu from 'uvu';
+import { describe, test, expect } from 'vitest';
 import * as consts from '../src/constants.js';
 import { uneval, unflatten, parse, stringify, stringifyAsync } from '../index.js';
 
@@ -52,7 +51,7 @@ const fixtures = {
 			value: NaN,
 			js: 'NaN',
 			json: `${consts.NAN}`,
-			validate: (value) => assert.ok(Number.isNaN(value))
+			validate: (value) => expect(Number.isNaN(value)).toBeTruthy()
 		},
 		{
 			name: 'number: +Infinity',
@@ -78,7 +77,7 @@ const fixtures = {
 			js: '-0',
 			json: `${consts.NEGATIVE_ZERO}`,
 			validate(value) {
-				assert.ok(Object.is(value, -0));
+				expect(Object.is(value, -0)).toBeTruthy();
 			}
 		},
 		{
@@ -145,8 +144,8 @@ const fixtures = {
 			js: 'Object(NaN)',
 			json: `[["Object",${consts.NAN}]]`,
 			validate: (value) => {
-				assert.ok(value instanceof Number);
-				assert.ok(Number.isNaN(value.valueOf()));
+				expect(value instanceof Number).toBeTruthy();
+				expect(Number.isNaN(value.valueOf())).toBeTruthy();
 			}
 		},
 		{
@@ -173,8 +172,8 @@ const fixtures = {
 			js: 'Object(-0)',
 			json: `[["Object",${consts.NEGATIVE_ZERO}]]`,
 			validate(value) {
-				assert.type(value, 'object');
-				assert.ok(Object.is(value.valueOf(), -0));
+				expect(typeof value).toBe('object');
+				expect(Object.is(value.valueOf(), -0)).toBeTruthy();
 			}
 		},
 		{
@@ -218,7 +217,7 @@ const fixtures = {
 			js: 'new Date(NaN)',
 			json: '[["Date",""]]',
 			validate: (value) => {
-				assert.ok(isNaN(value.valueOf()));
+				expect(isNaN(value.valueOf())).toBeTruthy();
 			}
 		},
 		{
@@ -233,8 +232,8 @@ const fixtures = {
 			js: '[0,-0]',
 			json: `[[1,${consts.NEGATIVE_ZERO}],0]`,
 			validate: (value) => {
-				assert.ok(Object.is(value[0], 0));
-				assert.ok(Object.is(value[1], -0));
+				expect(Object.is(value[0], 0)).toBeTruthy();
+				expect(Object.is(value[1], -0)).toBeTruthy();
 			}
 		},
 		{
@@ -249,9 +248,9 @@ const fixtures = {
 			js: '[,"b",,]',
 			json: `[[${consts.HOLE},1,${consts.HOLE}],"b"]`,
 			validate: (value) => {
-				assert.is(value.length, 3);
-				assert.equal(Object.keys(value), ['1']);
-				assert.is(value[1], 'b');
+				expect(value.length).toBe(3);
+				expect(Object.keys(value)).toEqual(['1']);
+				expect(value[1]).toBe('b');
 			}
 		},
 		((arr) => {
@@ -262,10 +261,10 @@ const fixtures = {
 				js: `Object.assign((function(a){a[4294967294]=0;delete a[4294967294];a.length=1000001;return a}([])),{1000000:"x"})`,
 				json: `[[${consts.SPARSE},1000001,1000000,1],"x"]`,
 				validate: (value) => {
-					assert.is(value.length, 1000001);
-					assert.is(value[1000000], 'x');
-					assert.ok(!(0 in value));
-					assert.ok(!(999999 in value));
+					expect(value.length).toBe(1000001);
+					expect(value[1000000]).toBe('x');
+					expect(!(0 in value)).toBeTruthy();
+					expect(!(999999 in value)).toBeTruthy();
 				}
 			};
 		})([]),
@@ -278,12 +277,12 @@ const fixtures = {
 				js: `[,,,,,,,,,,"a",,,,,,,,,,"b"]`,
 				json: `[[${consts.SPARSE},21,10,1,20,2],"a","b"]`,
 				validate: (value) => {
-					assert.is(value.length, 21);
-					assert.is(value[10], 'a');
-					assert.is(value[20], 'b');
-					assert.ok(!(0 in value));
-					assert.ok(!(9 in value));
-					assert.ok(!(11 in value));
+					expect(value.length).toBe(21);
+					expect(value[10]).toBe('a');
+					expect(value[20]).toBe('b');
+					expect(!(0 in value)).toBeTruthy();
+					expect(!(9 in value)).toBeTruthy();
+					expect(!(11 in value)).toBeTruthy();
 				}
 			};
 		})([]),
@@ -298,14 +297,14 @@ const fixtures = {
 			value: new Set([1, 2, 3]),
 			js: 'new Set([1,2,3])',
 			json: '[["Set",1,2,3],1,2,3]',
-			validate: (value) => assert.equal([...value], [1, 2, 3])
+			validate: (value) => expect([...value]).toEqual([1, 2, 3])
 		},
 		{
 			name: 'Map',
 			value: new Map([['a', 'b']]),
 			js: 'new Map([["a","b"]])',
 			json: '[["Map",1,2],"a","b"]',
-			validate: (value) => assert.equal([...value], [['a', 'b']])
+			validate: (value) => expect([...value]).toEqual([['a', 'b']])
 		},
 		{
 			name: 'Uint8Array',
@@ -320,7 +319,7 @@ const fixtures = {
 			value: Buffer.alloc(4, 65),
 			js: 'new Uint8Array([65,65,65,65])',
 			json: '[["Uint8Array",1],["ArrayBuffer","QUFBQQ=="]]',
-			validate: (value) => assert.equal(value, new Uint8Array([65, 65, 65, 65]))
+			validate: (value) => expect(value).toEqual(new Uint8Array([65, 65, 65, 65]))
 		},
 		{
 			name: 'Float64Array with negative zero',
@@ -328,8 +327,8 @@ const fixtures = {
 			js: 'new Float64Array([-0,1.5])',
 			json: '[["Float64Array",1],["ArrayBuffer","AAAAAAAAAIAAAAAAAAD4Pw=="]]',
 			validate: (value) => {
-				assert.ok(Object.is(value[0], -0));
-				assert.equal(value[1], 1.5);
+				expect(Object.is(value[0], -0)).toBeTruthy();
+				expect(value[1]).toEqual(1.5);
 			}
 		},
 		{
@@ -362,9 +361,9 @@ const fixtures = {
 			js: 'new DataView(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer,2,4)',
 			json: '[["DataView",1,2,4],["ArrayBuffer","AAECAwQFBgcICQ=="]]',
 			validate: (value) => {
-				assert.is(value.byteOffset, 2);
-				assert.is(value.byteLength, 4);
-				assert.equal([...new Uint8Array(value.buffer)], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+				expect(value.byteOffset).toBe(2);
+				expect(value.byteLength).toBe(4);
+				expect([...new Uint8Array(value.buffer)]).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
 			}
 		},
 		{
@@ -385,9 +384,9 @@ const fixtures = {
 			js: 'new Uint16Array([10,20,30,40]).subarray(1,3)',
 			json: '[["Uint16Array",1,2,2],["ArrayBuffer","CgAUAB4AKAA="]]',
 			validate: (value) => {
-				assert.is(value.byteOffset, 2);
-				assert.is(value.length, 2);
-				assert.equal([...new Uint16Array(value.buffer)], [10, 20, 30, 40]);
+				expect(value.byteOffset).toBe(2);
+				expect(value.length).toBe(2);
+				expect([...new Uint16Array(value.buffer)]).toEqual([10, 20, 30, 40]);
 			}
 		},
 		{
@@ -539,7 +538,7 @@ const fixtures = {
 				js: '(function(){let a=new Map;a.set("self",a);return a}())',
 				json: '[["Map",1,0],"self"]',
 				validate: (value) => {
-					assert.is(value.get('self'), value);
+					expect(value.get('self')).toBe(value);
 				}
 			};
 		})(new Map()),
@@ -553,9 +552,9 @@ const fixtures = {
 				js: '(function(){let a=new Set;a.add(a).add(42);return a}())',
 				json: '[["Set",0,1],42]',
 				validate: (value) => {
-					assert.is(value.size, 2);
-					assert.ok(value.has(42));
-					assert.ok(value.has(value));
+					expect(value.size).toBe(2);
+					expect(value.has(42)).toBeTruthy();
+					expect(value.has(value)).toBeTruthy();
 				}
 			};
 		})(new Set()),
@@ -568,8 +567,8 @@ const fixtures = {
 				js: '(function(){let a=Array(1);a[0]=a;return a}())',
 				json: '[[0]]',
 				validate: (value) => {
-					assert.is(value.length, 1);
-					assert.is(value[0], value);
+					expect(value.length).toBe(1);
+					expect(value[0]).toBe(value);
 				}
 			};
 		})([]),
@@ -582,7 +581,7 @@ const fixtures = {
 				js: '(function(){let a={};a.self=a;return a}())',
 				json: '[{"self":0}]',
 				validate: (value) => {
-					assert.is(value.self, value);
+					expect(value.self).toBe(value);
 				}
 			};
 		})({}),
@@ -595,8 +594,8 @@ const fixtures = {
 				js: '(function(){let a=Object.create(null);a.self=a;return a}())',
 				json: '[["null","self",0]]',
 				validate: (value) => {
-					assert.is(Object.getPrototypeOf(value), null);
-					assert.is(value.self, value);
+					expect(Object.getPrototypeOf(value)).toBe(null);
+					expect(value.self).toBe(value);
 				}
 			};
 		})(Object.create(null)),
@@ -609,8 +608,8 @@ const fixtures = {
 				js: '(function(){let a={};a.foo="bar";a.self=a;return a}())',
 				json: '[{"foo":1,"self":0},"bar"]',
 				validate: (value) => {
-					assert.is(value.foo, 'bar');
-					assert.is(value.self, value);
+					expect(value.foo).toBe('bar');
+					expect(value.self).toBe(value);
 				}
 			};
 		})(Object.assign(new NullObject(), { foo: 'bar' })),
@@ -624,8 +623,8 @@ const fixtures = {
 				js: '(function(){let a={},b={};a.first=b;b.second=a;return [b,a]}())',
 				json: '[[1,2],{"second":2},{"first":1}]',
 				validate: (value) => {
-					assert.is(value[0].second, value[1]);
-					assert.is(value[1].first, value[0]);
+					expect(value[0].second).toBe(value[1]);
+					expect(value[1].first).toBe(value[0]);
 				}
 			};
 		})({}, {})
@@ -658,7 +657,7 @@ const fixtures = {
 			value: ((number) => [number, number])(Object(42)),
 			js: '(function(){let a=Object(42);return [a,a]}())',
 			json: '[[1,1],["Object",2],42]',
-			validate: ([a, b]) => assert.is(a, b)
+			validate: ([a, b]) => expect(a).toBe(b)
 		},
 
 		{
@@ -666,7 +665,7 @@ const fixtures = {
 			value: ((bigint) => [bigint, bigint])(Object(1n)),
 			js: '(function(){let a=Object(1n);return [a,a]}())',
 			json: '[[1,1],["Object",2],["BigInt","1"]]',
-			validate: ([a, b]) => assert.is(a, b)
+			validate: ([a, b]) => expect(a).toBe(b)
 		},
 
 		{
@@ -674,7 +673,7 @@ const fixtures = {
 			value: ((nan) => [nan, nan])(Object(NaN)),
 			js: '(function(){let a=Object(NaN);return [a,a]}())',
 			json: `[[1,1],["Object",${consts.NAN}]]`,
-			validate: ([a, b]) => assert.is(a, b)
+			validate: ([a, b]) => expect(a).toBe(b)
 		},
 
 		{
@@ -682,7 +681,7 @@ const fixtures = {
 			value: ((object) => [object, object])({}),
 			js: '(function(){let a={};return [a,a]}())',
 			json: '[[1,1],{}]',
-			validate: ([a, b]) => assert.is(a, b)
+			validate: ([a, b]) => expect(a).toBe(b)
 		},
 
 		{
@@ -691,8 +690,8 @@ const fixtures = {
 			js: '(function(){let a=new Map;return [a,a]}())',
 			json: '[[1,1],["Map"]]',
 			validate: ([a, b]) => {
-				assert.is(a, b);
-				assert.is(a.size, 0);
+				expect(a).toBe(b);
+				expect(a.size).toBe(0);
 			}
 		},
 
@@ -702,8 +701,8 @@ const fixtures = {
 			js: '(function(){let a=new Set;return [a,a]}())',
 			json: '[[1,1],["Set"]]',
 			validate: ([a, b]) => {
-				assert.is(a, b);
-				assert.is(a.size, 0);
+				expect(a).toBe(b);
+				expect(a.size).toBe(0);
 			}
 		},
 
@@ -712,7 +711,7 @@ const fixtures = {
 			value: ((regexp) => [regexp, regexp])(/regexp/),
 			js: '(function(){let a=new RegExp("regexp");return [a,a]}())',
 			json: '[[1,1],["RegExp","regexp"]]',
-			validate: ([a, b]) => assert.is(a, b)
+			validate: ([a, b]) => expect(a).toBe(b)
 		},
 
 		{
@@ -720,7 +719,7 @@ const fixtures = {
 			value: ((date) => [date, date])(new Date(1e12)),
 			js: '(function(){let a=new Date(1000000000000);return [a,a]}())',
 			json: '[[1,1],["Date","2001-09-09T01:46:40.000Z"]]',
-			validate: ([a, b]) => assert.is(a, b)
+			validate: ([a, b]) => expect(a).toBe(b)
 		},
 
 		{
@@ -737,7 +736,7 @@ const fixtures = {
 			})(),
 			js: '(function(){let a=new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer;return [new Uint8Array(a),new Uint16Array(a)]}())',
 			json: '[[1,3],["Uint8Array",2],["ArrayBuffer","AAECAwQFBgcICQ=="],["Uint16Array",2]]',
-			validate: ([uint8, uint16]) => assert.is(uint8.buffer, uint16.buffer)
+			validate: ([uint8, uint16]) => expect(uint8.buffer).toBe(uint16.buffer)
 		},
 
 		{
@@ -749,8 +748,8 @@ const fixtures = {
 			js: '(function(){let a=new Uint8Array([0,1,2,3,4,5,6,7,8,9]);return [a,a]}())',
 			json: '[[1,1],["Uint8Array",2],["ArrayBuffer","AAECAwQFBgcICQ=="]]',
 			validate: ([a, b]) => {
-				assert.is(a, b);
-				assert.equal([...a], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+				expect(a).toBe(b);
+				expect([...a]).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
 			}
 		},
 
@@ -764,9 +763,9 @@ const fixtures = {
 			js: '(function(){let a=new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer,b=new Uint8Array(a);return [b,b,new Uint16Array(a)]}())',
 			json: '[[1,1,3],["Uint8Array",2],["ArrayBuffer","AAECAwQFBgcICQ=="],["Uint16Array",2]]',
 			validate: ([uint8_a, uint8_b, uint16]) => {
-				assert.is(uint8_a, uint8_b);
-				assert.is(uint8_a.buffer, uint16.buffer);
-				assert.equal([...uint8_a], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+				expect(uint8_a).toBe(uint8_b);
+				expect(uint8_a.buffer).toBe(uint16.buffer);
+				expect([...uint8_a]).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
 			}
 		},
 
@@ -780,8 +779,8 @@ const fixtures = {
 			js: '(function(){let a=new DataView(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer);return [a,a]}())',
 			json: '[[1,1],["DataView",2],["ArrayBuffer","AAECAwQFBgcICQ=="]]',
 			validate: ([a, b]) => {
-				assert.is(a, b);
-				assert.equal([...new Uint8Array(a.buffer)], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+				expect(a).toBe(b);
+				expect([...new Uint8Array(a.buffer)]).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
 			}
 		},
 
@@ -795,9 +794,9 @@ const fixtures = {
 			js: '(function(){let a=new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer,b=new DataView(a);return [b,b,a]}())',
 			json: '[[1,1,2],["DataView",2],["ArrayBuffer","AAECAwQFBgcICQ=="]]',
 			validate: ([view_a, view_b, buffer]) => {
-				assert.is(view_a, view_b);
-				assert.is(view_a.buffer, buffer);
-				assert.equal([...new Uint8Array(buffer)], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+				expect(view_a).toBe(view_b);
+				expect(view_a.buffer).toBe(buffer);
+				expect([...new Uint8Array(buffer)]).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
 			}
 		},
 
@@ -811,10 +810,10 @@ const fixtures = {
 			js: '(function(){let a=new DataView(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer,2,4);return [a,a]}())',
 			json: '[[1,1],["DataView",2,2,4],["ArrayBuffer","AAECAwQFBgcICQ=="]]',
 			validate: ([a, b]) => {
-				assert.is(a, b);
-				assert.is(a.byteOffset, 2);
-				assert.is(a.byteLength, 4);
-				assert.equal([...new Uint8Array(a.buffer)], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+				expect(a).toBe(b);
+				expect(a.byteOffset).toBe(2);
+				expect(a.byteLength).toBe(4);
+				expect([...new Uint8Array(a.buffer)]).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
 			}
 		},
 
@@ -823,7 +822,7 @@ const fixtures = {
 			value: ((array) => [array, array])(new BigInt64Array([1n, 2n, 3n])),
 			js: '(function(){let a=new BigInt64Array([1n,2n,3n]);return [a,a]}())',
 			json: '[[1,1],["BigInt64Array",2],["ArrayBuffer","AQAAAAAAAAACAAAAAAAAAAMAAAAAAAAA"]]',
-			validate: ([a, b]) => assert.is(a, b)
+			validate: ([a, b]) => expect(a).toBe(b)
 		},
 
 		{
@@ -834,8 +833,8 @@ const fixtures = {
 			js: '(function(){let a=Temporal.Instant.from("1999-09-29T05:30:00Z");return [a,a]}())',
 			json: '[[1,1],["Temporal.Instant","1999-09-29T05:30:00Z"]]',
 			validate: ([a, b]) => {
-				assert.is(a, b);
-				assert.ok(a instanceof Temporal.Instant);
+				expect(a).toBe(b);
+				expect(a instanceof Temporal.Instant).toBeTruthy();
 			}
 		},
 
@@ -847,7 +846,7 @@ const fixtures = {
 			})(),
 			js: '(function(){let a={};a.id=1;return [a,new Map([[a,"v"]])]}())',
 			json: '[[1,3],{"id":2},1,["Map",1,4],"v"]',
-			validate: ([obj, map]) => assert.is([...map.keys()][0], obj)
+			validate: ([obj, map]) => expect([...map.keys()][0]).toBe(obj)
 		},
 
 		{
@@ -890,12 +889,12 @@ const fixtures = {
 
 				// each node appears as a key in the two sibling sub-maps;
 				// the same object identity must be preserved everywhere
-				assert.is(from2[0], node1);
-				assert.is(from3[0], node1);
-				assert.is(from1[0], node2);
-				assert.is(from3[1], node2);
-				assert.is(from1[1], node3);
-				assert.is(from2[1], node3);
+				expect(from2[0]).toBe(node1);
+				expect(from3[0]).toBe(node1);
+				expect(from1[0]).toBe(node2);
+				expect(from3[1]).toBe(node2);
+				expect(from1[1]).toBe(node3);
+				expect(from2[1]).toBe(node3);
 			}
 		}
 	],
@@ -928,8 +927,8 @@ const fixtures = {
 			js: `(function(){let a=new RegExp("[\\u003C/script>\\u003Cscript>alert('xss')//]");return [a,a]}())`,
 			json: `[[1,1],["RegExp","[\\u003C/script>\\u003Cscript>alert('xss')//]"]]`,
 			validate: ([a, b]) => {
-				assert.is(a, b);
-				assert.is(a.source, "[</script><script>alert('xss')//]");
+				expect(a).toBe(b);
+				expect(a.source).toBe("[</script><script>alert('xss')//]");
 			}
 		}
 	],
@@ -941,8 +940,8 @@ const fixtures = {
 			js: '{__proto__:null}',
 			json: '[["null"]]',
 			validate: (value) => {
-				assert.equal(Object.getPrototypeOf(value), null);
-				assert.equal(Object.keys(value).length, 0);
+				expect(Object.getPrototypeOf(value)).toEqual(null);
+				expect(Object.keys(value).length).toEqual(0);
 			}
 		},
 		{
@@ -951,8 +950,8 @@ const fixtures = {
 			js: '{}',
 			json: '[{}]',
 			validate: (value) => {
-				assert.equal(Object.getPrototypeOf(value), Object.prototype);
-				assert.equal(Object.keys(value).length, 0);
+				expect(Object.getPrototypeOf(value)).toEqual(Object.prototype);
+				expect(Object.keys(value).length).toEqual(0);
 			}
 		},
 		{
@@ -995,10 +994,10 @@ const fixtures = {
 				Bar: (x) => new Bar(x)
 			},
 			validate: ([obj1, obj2]) => {
-				assert.is(obj1, obj2);
-				assert.ok(obj1 instanceof Foo);
-				assert.ok(obj1.value.bar instanceof Bar);
-				assert.equal(obj1.value.bar.value.answer, 42);
+				expect(obj1).toBe(obj2);
+				expect(obj1 instanceof Foo).toBeTruthy();
+				expect(obj1.value.bar instanceof Bar).toBeTruthy();
+				expect(obj1.value.bar.value.answer).toEqual(42);
 			},
 			evaluate: (source) => new Function('Foo', 'Bar', `return (${source})`)(Foo, Bar)
 		}
@@ -1018,8 +1017,8 @@ const fixtures = {
 				Date: (value) => new Date(value)
 			},
 			validate: (obj) => {
-				assert.ok(obj instanceof Date);
-				assert.ok(isNaN(obj.getDate()));
+				expect(obj instanceof Date).toBeTruthy();
+				expect(isNaN(obj.getDate())).toBeTruthy();
 			}
 		}
 	])(new Date('invalid')),
@@ -1061,10 +1060,10 @@ const fixtures = {
 					}
 				},
 				validate: (result) => {
-					assert.ok(result instanceof FunctionRef);
-					assert.ok(typeof result.fn === 'function');
+					expect(result instanceof FunctionRef).toBeTruthy();
+					expect(typeof result.fn === 'function').toBeTruthy();
 					// Test that the function works
-					assert.equal(result.fn(5), 10);
+					expect(result.fn(5)).toEqual(10);
 				},
 				evaluate: (source) =>
 					new Function('FunctionRef', `return (${source})`)(FunctionRef)
@@ -1092,9 +1091,9 @@ const fixtures = {
 					}
 				},
 				validate: (result) => {
-					assert.ok(typeof result.fn === 'function');
-					assert.equal(result.nested.data, 42);
-					assert.equal(result.fn(3), 6);
+					expect(typeof result.fn === 'function').toBeTruthy();
+					expect(result.nested.data).toEqual(42);
+					expect(result.fn(3)).toEqual(6);
 				}
 			}
 		];
@@ -1120,7 +1119,7 @@ function validate_fixture(fixture, actual) {
 	if (fixture.validate) {
 		fixture.validate(actual);
 	} else {
-		assert.equal(actual, fixture.value);
+		expect(actual).toEqual(fixture.value);
 	}
 }
 
@@ -1142,7 +1141,7 @@ function catch_error(fn) {
 		return error;
 	}
 
-	assert.unreachable('expected operation to throw');
+	expect.unreachable('expected operation to throw');
 }
 
 /**
@@ -1155,27 +1154,27 @@ async function catch_async_error(fn) {
 		return error;
 	}
 
-	assert.unreachable('expected operation to reject');
+	expect.unreachable('expected operation to reject');
 }
 
 for (const [name, tests] of Object.entries(fixtures)) {
-	const test = uvu.suite(`uneval: ${name}`);
+	describe(`uneval: ${name}`, () => {
 	for (const t of tests) {
 		test(t.name, () => {
 			const source = uneval(t.value, t.replacer);
 
 			if (name === 'strings' || name === 'XSS' || exact_uneval_numbers.has(t.name)) {
-				assert.equal(source, t.js);
+				expect(source).toEqual(t.js);
 			}
 
 			validate_fixture(t, evaluate_fixture(t, source));
 		});
 	}
-	test.run();
+	});
 }
 
-const custom_source_test = uvu.suite('uneval: custom source');
-custom_source_test('does not shadow constructors in literal or nested source', () => {
+describe('uneval: custom source', () => {
+test('does not shadow constructors in literal or nested source', () => {
 	class Wrapper {
 		constructor(inner) {
 			this.inner = inner;
@@ -1190,12 +1189,12 @@ custom_source_test('does not shadow constructors in literal or nested source', (
 			return nested ? js`(${source})` : source;
 		});
 		const result = vm.runInNewContext(source, { a: Wrapper });
-		assert.is(result[0], result[1]);
-		assert.ok(result[2] instanceof Wrapper);
-		assert.is(result[2].inner, result[0]);
+		expect(result[0]).toBe(result[1]);
+		expect(result[2]).toBeInstanceOf(Wrapper);
+		expect(result[2].inner).toBe(result[0]);
 	}
 });
-custom_source_test('literal local bindings do not capture serialized references', () => {
+test('literal local bindings do not capture serialized references', () => {
 	class Wrapper {
 		constructor(inner, total) {
 			this.inner = inner;
@@ -1210,11 +1209,11 @@ custom_source_test('literal local bindings do not capture serialized references'
 		}
 	});
 	const result = vm.runInNewContext(source, { Wrapper });
-	assert.is(result[0], result[1]);
-	assert.is(result[2].inner, result[0]);
-	assert.is(result[2].total, 3);
+	expect(result[0]).toBe(result[1]);
+	expect(result[2].inner).toBe(result[0]);
+	expect(result[2].total).toBe(3);
 });
-custom_source_test('names allocated while breaking custom cycles do not shadow literal names', () => {
+test('names allocated while breaking custom cycles do not shadow literal names', () => {
 	class Wrapper {
 		constructor(inner) {
 			this.inner = inner;
@@ -1228,10 +1227,10 @@ custom_source_test('names allocated while breaking custom cycles do not shadow l
 		if (value instanceof Wrapper) return js`new b(${value.inner})`;
 	});
 	const result = vm.runInNewContext(source, { b: Wrapper });
-	assert.ok(result instanceof Wrapper);
-	assert.is(result.inner.wrapper, result);
+	expect(result).toBeInstanceOf(Wrapper);
+	expect(result.inner.wrapper).toBe(result);
 });
-custom_source_test('reserves dollar and underscore names in literal source', () => {
+test('reserves dollar and underscore names in literal source', () => {
 	class Wrapper {
 		constructor(inner) {
 			this.inner = inner;
@@ -1243,11 +1242,11 @@ custom_source_test('reserves dollar and underscore names in literal source', () 
 		if (value instanceof Wrapper) return js`new $(_(${value.inner}))`;
 	});
 	const result = vm.runInNewContext(source, { $: Wrapper, _: (value) => value });
-	for (let i = 0; i < shared.length; i += 1) assert.is(result[0][i], result[1][i]);
-	assert.ok(result[2] instanceof Wrapper);
-	assert.is(result[2].inner, 42);
+	for (let i = 0; i < shared.length; i += 1) expect(result[0][i]).toBe(result[1][i]);
+	expect(result[2]).toBeInstanceOf(Wrapper);
+	expect(result[2].inner).toBe(42);
 });
-custom_source_test('reserves escaped identifiers in literal source', () => {
+test('reserves escaped identifiers in literal source', () => {
 	class Wrapper {
 		constructor(inner) {
 			this.inner = inner;
@@ -1258,15 +1257,15 @@ custom_source_test('reserves escaped identifiers in literal source', () => {
 		const shared = { answer: 42 };
 		const source = uneval([shared, shared, new Wrapper(shared)], (value, js) => {
 			if (!(value instanceof Wrapper)) return;
-			return code_point ? js`new \\u{61}(${value.inner})` : js`new \\u0061(${value.inner})`;
+			return code_point ? js`new \u{61}(${value.inner})` : js`new \u0061(${value.inner})`;
 		});
 		const result = vm.runInNewContext(source, { a: Wrapper });
-		assert.is(result[0], result[1]);
-		assert.ok(result[2] instanceof Wrapper);
-		assert.is(result[2].inner, result[0]);
+		expect(result[0]).toBe(result[1]);
+		expect(result[2]).toBeInstanceOf(Wrapper);
+		expect(result[2].inner).toBe(result[0]);
 	}
 });
-custom_source_test('preserves identities referenced by custom source', () => {
+test('preserves identities referenced by custom source', () => {
 	class Wrapper {
 		constructor(inner) {
 			this.inner = inner;
@@ -1277,9 +1276,9 @@ custom_source_test('preserves identities referenced by custom source', () => {
 		value instanceof Wrapper ? js`new Wrapper(${value.inner})` : undefined
 	);
 	const result = eval(source);
-	assert.is(result.wrapped.inner, result.shared);
+	expect(result.wrapped.inner).toBe(result.shared);
 });
-custom_source_test('constructs a repeated wrapper after its shared child is populated', () => {
+test('constructs a repeated wrapper after its shared child is populated', () => {
 	class Wrapper {
 		static calls = 0;
 
@@ -1302,13 +1301,13 @@ custom_source_test('constructs a repeated wrapper after its shared child is popu
 	});
 	const result = vm.runInNewContext(source, { Wrapper });
 
-	assert.is(replacer_calls, 1);
-	assert.is(Wrapper.calls, 1);
-	assert.is(result[0], result[1]);
-	assert.is(result[0].inner, result[2]);
-	assert.is(result[0].answer, 42);
+	expect(replacer_calls).toBe(1);
+	expect(Wrapper.calls).toBe(1);
+	expect(result[0]).toBe(result[1]);
+	expect(result[0].inner).toBe(result[2]);
+	expect(result[0].answer).toBe(42);
 });
-custom_source_test('orders nested custom dependencies', () => {
+test('orders nested custom dependencies', () => {
 	class Inner {
 		static calls = 0;
 
@@ -1345,17 +1344,17 @@ custom_source_test('orders nested custom dependencies', () => {
 	});
 	const result = vm.runInNewContext(source, { Inner, Outer });
 
-	assert.is(replacer_calls.get(inner), 1);
-	assert.is(replacer_calls.get(outer), 1);
-	assert.is(Inner.calls, 1);
-	assert.is(Outer.calls, 1);
-	assert.is(result[0], result[1]);
-	assert.is(result[0].inner, result[2]);
-	assert.is(result[2], result[3]);
-	assert.is(result[2].value, result[4]);
-	assert.is(result[0].answer, 42);
+	expect(replacer_calls.get(inner)).toBe(1);
+	expect(replacer_calls.get(outer)).toBe(1);
+	expect(Inner.calls).toBe(1);
+	expect(Outer.calls).toBe(1);
+	expect(result[0]).toBe(result[1]);
+	expect(result[0].inner).toBe(result[2]);
+	expect(result[2]).toBe(result[3]);
+	expect(result[2].value).toBe(result[4]);
+	expect(result[0].answer).toBe(42);
 });
-custom_source_test('finds custom dependencies inside inline containers', () => {
+test('finds custom dependencies inside inline containers', () => {
 	class Inner {
 		static calls = 0;
 
@@ -1384,13 +1383,13 @@ custom_source_test('finds custom dependencies inside inline containers', () => {
 	});
 	const result = vm.runInNewContext(source, { Inner, Outer });
 
-	assert.is(Inner.calls, 1);
-	assert.is(Outer.calls, 1);
-	assert.is(result[0], result[1]);
-	assert.is(result[0].inner, result[2]);
-	assert.is(result[0].answer, 42);
+	expect(Inner.calls).toBe(1);
+	expect(Outer.calls).toBe(1);
+	expect(result[0]).toBe(result[1]);
+	expect(result[0].inner).toBe(result[2]);
+	expect(result[0].answer).toBe(42);
 });
-custom_source_test('preserves a child used by multiple source holes', () => {
+test('preserves a child used by multiple source holes', () => {
 	class Pair {
 		constructor(left, right) {
 			this.left = left;
@@ -1404,10 +1403,10 @@ custom_source_test('preserves a child used by multiple source holes', () => {
 	);
 	const result = vm.runInNewContext(source, { Pair });
 
-	assert.is(result.left, result.right);
-	assert.is(result.left.answer, 42);
+	expect(result.left).toBe(result.right);
+	expect(result.left.answer).toBe(42);
 });
-custom_source_test('constructs a dependency-free repeated custom value once', () => {
+test('constructs a dependency-free repeated custom value once', () => {
 	class Wrapper {
 		static calls = 0;
 
@@ -1427,11 +1426,11 @@ custom_source_test('constructs a dependency-free repeated custom value once', ()
 	});
 
 	const result = vm.runInNewContext(source, { Wrapper });
-	assert.is(replacer_calls, 1);
-	assert.is(Wrapper.calls, 1);
-	assert.is(result[0], result[1]);
+	expect(replacer_calls).toBe(1);
+	expect(Wrapper.calls).toBe(1);
+	expect(result[0]).toBe(result[1]);
 });
-custom_source_test('orders a shared typed view after its backing buffer', () => {
+test('orders a shared typed view after its backing buffer', () => {
 	class Wrapper {
 		static calls = 0;
 
@@ -1455,15 +1454,15 @@ custom_source_test('orders a shared typed view after its backing buffer', () => 
 	});
 	const result = vm.runInNewContext(source, { Wrapper });
 
-	assert.is(replacer_calls, 1);
-	assert.is(Wrapper.calls, 1);
-	assert.is(result[0], result[1]);
-	assert.is(result[0].view, result[2]);
-	assert.is(result[2].buffer, result[3]);
-	assert.is(result[0].buffer, result[3]);
-	assert.is(result[0].first, 1);
+	expect(replacer_calls).toBe(1);
+	expect(Wrapper.calls).toBe(1);
+	expect(result[0]).toBe(result[1]);
+	expect(result[0].view).toBe(result[2]);
+	expect(result[2].buffer).toBe(result[3]);
+	expect(result[0].buffer).toBe(result[3]);
+	expect(result[0].first).toBe(1);
 });
-custom_source_test('reconstructs custom cycles through mutable containers', () => {
+test('reconstructs custom cycles through mutable containers', () => {
 	class Wrapper {
 		static calls = 0;
 
@@ -1486,11 +1485,11 @@ custom_source_test('reconstructs custom cycles through mutable containers', () =
 	});
 	const result = vm.runInNewContext(source, { Wrapper });
 
-	assert.is(replacer_calls, 1);
-	assert.is(Wrapper.calls, 1);
-	assert.is(result.inner.wrapper, result);
+	expect(replacer_calls).toBe(1);
+	expect(Wrapper.calls).toBe(1);
+	expect(result.inner.wrapper).toBe(result);
 });
-custom_source_test('preserves property order around cyclic references', () => {
+test('preserves property order around cyclic references', () => {
 	class Marker {}
 
 	for (const prototype of [Object.prototype, null]) {
@@ -1511,13 +1510,13 @@ custom_source_test('preserves property order around cyclic references', () => {
 				...(position === 'last' ? [] : ['after'])
 			];
 
-			assert.equal(Object.keys(result), expected);
-			assert.is(result.self, result);
-			if (position !== 'first') assert.is(result.before.done, true);
+			expect(Object.keys(result)).toEqual(expected);
+			expect(result.self).toBe(result);
+			if (position !== 'first') expect(result.before.done).toBe(true);
 		}
 	}
 });
-custom_source_test('preserves Map and Set order around cyclic references', () => {
+test('preserves Map and Set order around cyclic references', () => {
 	class Marker {}
 
 	for (const position of ['first', 'middle', 'last']) {
@@ -1539,23 +1538,24 @@ custom_source_test('preserves Map and Set order around cyclic references', () =>
 		const map_entries = Array.from(result_map);
 		const set_values = Array.from(result_set);
 
-		assert.equal(
-			map_entries.map(([key]) => key),
-			[...(position === 'first' ? [] : ['before']), 'self', ...(position === 'last' ? [] : ['after'])]
-		);
-		assert.is(map_entries[position === 'first' ? 0 : 1][1], result_map);
-		assert.is(set_values[position === 'first' ? 0 : 1], result_set);
+			expect(map_entries.map(([key]) => key)).toEqual([
+				...(position === 'first' ? [] : ['before']),
+				'self',
+				...(position === 'last' ? [] : ['after'])
+			]);
+		expect(map_entries[position === 'first' ? 0 : 1][1]).toBe(result_map);
+		expect(set_values[position === 'first' ? 0 : 1]).toBe(result_set);
 		if (position !== 'first') {
-			assert.is(map_entries[0][1].done, true);
-			assert.is(set_values[0].done, true);
+			expect(map_entries[0][1].done).toBe(true);
+			expect(set_values[0].done).toBe(true);
 		}
 		if (position !== 'last') {
-			assert.is(map_entries.at(-1)[1], 42);
-			assert.is(set_values.at(-1), 42);
+			expect(map_entries.at(-1)[1]).toBe(42);
+			expect(set_values.at(-1)).toBe(42);
 		}
 	}
 });
-custom_source_test('preserves order in mutual and custom cycles', () => {
+test('preserves order in mutual and custom cycles', () => {
 	class Wrapper {
 		constructor(inner) {
 			this.inner = inner;
@@ -1581,16 +1581,16 @@ custom_source_test('preserves order in mutual and custom cycles', () => {
 	);
 	const [result_left, result_right, result_wrapper] = vm.runInNewContext(source, { Wrapper });
 
-	assert.equal(Object.keys(result_left), ['peer', 'tail']);
-	assert.equal(Object.keys(result_right), ['peer', 'tail']);
-	assert.is(result_left.peer, result_right);
-	assert.is(result_right.peer, result_left);
-	assert.equal(Object.keys(result_wrapper.inner), ['before', 'wrapper', 'tail']);
-	assert.is(result_wrapper.inner.wrapper, result_wrapper);
-	assert.is(result_wrapper.before, true);
-	assert.is(result_wrapper.inner.tail, 42);
+	expect(Object.keys(result_left)).toEqual(['peer', 'tail']);
+	expect(Object.keys(result_right)).toEqual(['peer', 'tail']);
+	expect(result_left.peer).toBe(result_right);
+	expect(result_right.peer).toBe(result_left);
+	expect(Object.keys(result_wrapper.inner)).toEqual(['before', 'wrapper', 'tail']);
+	expect(result_wrapper.inner.wrapper).toBe(result_wrapper);
+	expect(result_wrapper.before).toBe(true);
+	expect(result_wrapper.inner.tail).toBe(42);
 });
-custom_source_test('rejects cycles made entirely of custom constructions', () => {
+test('rejects cycles made entirely of custom constructions', () => {
 	class Atomic {
 		constructor() {
 			this.other = undefined;
@@ -1604,39 +1604,37 @@ custom_source_test('rejects cycles made entirely of custom constructions', () =>
 	const self = new Atomic();
 	self.other = self;
 	for (const value of [a, self]) {
-		assert.throws(
-			() =>
-				uneval(value, (item, js) =>
-					item instanceof Atomic
-						? js`Object.assign(new Atomic(),{other:${item.other}})`
-						: undefined
-				),
-			(error) =>
-				error.name === 'RangeError' &&
-				error.message === 'Maximum call stack size exceeded'
+		const error = catch_error(() =>
+			uneval(value, (item, js) =>
+				item instanceof Atomic
+					? js`Object.assign(new Atomic(),{other:${item.other}})`
+					: undefined
+			)
 		);
+		expect(error).toMatchObject({
+			name: 'RangeError',
+			message: 'Maximum call stack size exceeded'
+		});
 	}
 });
-custom_source_test('accepts only documented fallback values and rejects invalid fragments', () => {
+test('accepts only documented fallback values and rejects invalid fragments', () => {
 	for (const fallback of [undefined, null, false]) {
-		assert.is(uneval({ answer: 42 }, () => fallback), '{answer:42}');
+		expect(uneval({ answer: 42 }, () => fallback)).toBe('{answer:42}');
 	}
 
 	for (const invalid of ['', 0, NaN, 0n]) {
-		assert.throws(
-			() => uneval({ answer: 42 }, () => invalid),
-			(error) => error instanceof TypeError && error.message === 'Invalid uneval replacer result'
-		);
+		const error = catch_error(() => uneval({ answer: 42 }, () => invalid));
+		expect(error).toBeInstanceOf(TypeError);
+		expect(error.message).toBe('Invalid uneval replacer result');
 	}
 
 	for (const invalid of [1, true, 'new Date()', Promise.resolve(), {}]) {
-		assert.throws(
-			() => uneval({ answer: 42 }, () => invalid),
-			(error) => error instanceof TypeError && error.message === 'Invalid JavaScript fragment'
-		);
+		const error = catch_error(() => uneval({ answer: 42 }, () => invalid));
+		expect(error).toBeInstanceOf(TypeError);
+		expect(error.message).toBe('Invalid JavaScript fragment');
 	}
 });
-custom_source_test('treats replacer results as expressions', () => {
+test('treats replacer results as expressions', () => {
 	class Replacement {
 		constructor(source) {
 			this.source = source;
@@ -1677,53 +1675,52 @@ custom_source_test('treats replacer results as expressions', () => {
 	);
 	const result = vm.runInNewContext(source);
 
-	assert.is(result.length, 8);
-	assert.is(result[0], 2);
-	assert.is(result[1], 2);
-	assert.is(result[2].answer, 42);
-	assert.is(result[3], 2);
-	assert.is(result[4], '</script>');
-	assert.is(result[5], 'https://example.com//path');
-	assert.is(result[6].answer, 42);
-	assert.is(result[7], 42);
-	assert.ok(!source.includes('</script>'));
+	expect(result.length).toBe(8);
+	expect(result[0]).toBe(2);
+	expect(result[1]).toBe(2);
+	expect(result[2].answer).toBe(42);
+	expect(result[3]).toBe(2);
+	expect(result[4]).toBe('</script>');
+	expect(result[5]).toBe('https://example.com//path');
+	expect(result[6].answer).toBe(42);
+	expect(result[7]).toBe(42);
+	expect(!source.includes('</script>')).toBeTruthy();
 });
-custom_source_test('requires js to be used as a tagged template', () => {
+test('requires js to be used as a tagged template', () => {
 	for (const invoke of [
 		(js) => js('new Date()'),
 		(js) => js(['new Date()'])
 	]) {
-		assert.throws(
-			() => uneval(new Date(), (value, js) => value instanceof Date ? invoke(js) : undefined),
-			/^`js` must be used as a tagged template, but was called as a regular function$/
-		);
+		expect(() =>
+			uneval(new Date(), (value, js) => value instanceof Date ? invoke(js) : undefined)
+		).toThrow(/^`js` must be used as a tagged template, but was called as a regular function$/);
 	}
 });
-custom_source_test.run();
+});
 
 for (const [name, tests] of Object.entries(fixtures)) {
-	const test = uvu.suite(`stringify: ${name}`);
+	describe(`stringify: ${name}`, () => {
 	for (const t of tests) {
 		test(t.name, () => {
 			const actual = stringify(t.value, t.reducers);
 			const expected = t.json;
-			assert.equal(actual, expected);
+			expect(actual).toEqual(expected);
 		});
 	}
-	test.run();
+	});
 }
 
-const parse_tests = uvu.suite('parse wrapper');
+describe('parse wrapper', () => {
 
-parse_tests('parses normal input', () => {
-	assert.equal(parse('[{"answer":1},42]'), { answer: 42 });
+test('parses normal input', () => {
+	expect(parse('[{"answer":1},42]')).toEqual({ answer: 42 });
 });
 
-parse_tests('forwards primitive sentinels', () => {
-	assert.is(parse(`${consts.UNDEFINED}`), undefined);
+test('forwards primitive sentinels', () => {
+	expect(parse(`${consts.UNDEFINED}`)).toBe(undefined);
 });
 
-parse_tests('forwards revivers', () => {
+test('forwards revivers', () => {
 	class Answer {
 		constructor(value) {
 			this.value = value;
@@ -1734,21 +1731,21 @@ parse_tests('forwards revivers', () => {
 		Answer: (value) => new Answer(value)
 	});
 
-	assert.ok(actual instanceof Answer);
-	assert.is(actual.value, 42);
+	expect(actual instanceof Answer).toBeTruthy();
+	expect(actual.value).toBe(42);
 });
 
-parse_tests.run();
+});
 
 for (const [name, tests] of Object.entries(fixtures)) {
-	const test = uvu.suite(`unflatten: ${name}`);
+	describe(`unflatten: ${name}`, () => {
 	for (const t of tests) {
 		test(t.name, () => {
 			const actual = unflatten(JSON.parse(t.json), t.revivers);
 			validate_fixture(t, actual);
 		});
 	}
-	test.run();
+	});
 }
 
 const invalid = [
@@ -1896,19 +1893,13 @@ const invalid = [
 ];
 
 for (const { name, json, message, error: ErrorType, revivers } of invalid) {
-	uvu.test(`parse error: ${name}`, () => {
-		assert.throws(
-			() => parse(json, revivers),
-			(error) => {
-				if (ErrorType) return error instanceof ErrorType;
-
-				const match = error.message === message;
-				if (!match) {
-					console.error(`Expected: ${message}, got: ${error.message}`);
-				}
-				return match;
-			}
-		);
+	test(`parse error: ${name}`, () => {
+		const error = catch_error(() => parse(json, revivers));
+		if (ErrorType) {
+			expect(error).toBeInstanceOf(ErrorType);
+		} else {
+			expect(error).toMatchObject({ message });
+		}
 	});
 }
 
@@ -1958,61 +1949,61 @@ uvu.test('null-prototype objects retain valid string keys', () => {
 });
 
 for (const fn of [uneval, stringify]) {
-	uvu.test(`${fn.name} throws for non-POJOs`, () => {
+	test(`${fn.name} throws for non-POJOs`, () => {
 		class Foo {}
 		const foo = new Foo();
-		assert.throws(() => fn(foo));
+		expect(() => fn(foo)).toThrow();
 	});
 
-	uvu.test(`${fn.name} throws for Symbols`, () => {
-		assert.throws(() => fn(Symbol('foo')));
+	test(`${fn.name} throws for Symbols`, () => {
+		expect(() => fn(Symbol('foo'))).toThrow();
 	});
 
-	uvu.test(`${fn.name} throws for boxed Symbols`, () => {
-		assert.throws(() => fn(Object(Symbol('foo'))));
+	test(`${fn.name} throws for boxed Symbols`, () => {
+		expect(() => fn(Object(Symbol('foo')))).toThrow();
 	});
 
-	uvu.test(`${fn.name} throws for symbolic keys`, () => {
-		assert.throws(() => fn({ [Symbol()]: null }));
+	test(`${fn.name} throws for symbolic keys`, () => {
+		expect(() => fn({ [Symbol()]: null })).toThrow();
 	});
 
-	uvu.test(`${fn.name} throws for __proto__ keys`, () => {
+	test(`${fn.name} throws for __proto__ keys`, () => {
 		const inner = JSON.parse('{"__proto__":1}');
 		const root = { foo: inner };
 		const error = catch_error(() => fn(root));
-		assert.equal(error.name, 'DevalueError');
-		assert.equal(error.message, 'Cannot stringify objects with __proto__ keys');
-		assert.equal(error.path, '.foo');
-		assert.is(error.value, inner);
-		assert.is(error.root, root);
+		expect(error.name).toEqual('DevalueError');
+		expect(error.message).toEqual('Cannot stringify objects with __proto__ keys');
+		expect(error.path).toEqual('.foo');
+		expect(error.value).toBe(inner);
+		expect(error.root).toBe(root);
 	});
 
-	uvu.test(`${fn.name} reports function diagnostic context`, () => {
+	test(`${fn.name} reports function diagnostic context`, () => {
 		const value = function invalid() {};
 		const root = { foo: { array: [value] } };
 		const error = catch_error(() => fn(root));
 
-		assert.equal(error.name, 'DevalueError');
-		assert.equal(error.message, 'Cannot stringify a function');
-		assert.equal(error.path, '.foo.array[0]');
-		assert.is(error.value, value);
-		assert.is(error.root, root);
+		expect(error.name).toEqual('DevalueError');
+		expect(error.message).toEqual('Cannot stringify a function');
+		expect(error.path).toEqual('.foo.array[0]');
+		expect(error.value).toBe(value);
+		expect(error.root).toBe(root);
 	});
 
-	uvu.test(`${fn.name} reports non-POJO diagnostic context`, () => {
+	test(`${fn.name} reports non-POJO diagnostic context`, () => {
 		class Whatever {}
 		const value = new Whatever();
 		const root = { foo: { ['string-key']: new Map([['key', value]]) } };
 		const error = catch_error(() => fn(root));
 
-		assert.equal(error.name, 'DevalueError');
-		assert.equal(error.message, 'Cannot stringify arbitrary non-POJOs');
-		assert.equal(error.path, '.foo["string-key"].get("key")');
-		assert.is(error.value, value);
-		assert.is(error.root, root);
+		expect(error.name).toEqual('DevalueError');
+		expect(error.message).toEqual('Cannot stringify arbitrary non-POJOs');
+		expect(error.path).toEqual('.foo["string-key"].get("key")');
+		expect(error.value).toBe(value);
+		expect(error.root).toBe(root);
 	});
 
-	uvu.test(`${fn.name} populates error.path after maps (#64)`, () => {
+	test(`${fn.name} populates error.path after maps (#64)`, () => {
 		const value = function invalid() {};
 		const root = {
 			map: new Map([['key', 'value']]),
@@ -2020,27 +2011,27 @@ for (const fn of [uneval, stringify]) {
 		};
 		const error = catch_error(() => fn(root));
 
-		assert.equal(error.name, 'DevalueError');
-		assert.equal(error.message, 'Cannot stringify a function');
-		assert.equal(error.path, '.object.invalid');
-		assert.is(error.value, value);
-		assert.is(error.root, root);
+		expect(error.name).toEqual('DevalueError');
+		expect(error.message).toEqual('Cannot stringify a function');
+		expect(error.path).toEqual('.object.invalid');
+		expect(error.value).toBe(value);
+		expect(error.root).toBe(root);
 	});
 
-	uvu.test(`${fn.name} reports symbolic-key diagnostic context`, () => {
+	test(`${fn.name} reports symbolic-key diagnostic context`, () => {
 		const symbolKey = Symbol('key');
 		const root = { [symbolKey]: 'value' };
 		const error = catch_error(() => fn(root));
 
-		assert.equal(error.name, 'DevalueError');
-		assert.equal(error.message, 'Cannot stringify POJOs with symbolic keys');
-		assert.equal(error.path, '');
-		assert.is(error.value, root);
-		assert.is(error.root, root);
+		expect(error.name).toEqual('DevalueError');
+		expect(error.message).toEqual('Cannot stringify POJOs with symbolic keys');
+		expect(error.path).toEqual('');
+		expect(error.value).toBe(root);
+		expect(error.root).toBe(root);
 	});
 }
 
-uvu.test('handles very sparse arrays efficiently', () => {
+test('handles very sparse arrays efficiently', () => {
 	const arr = [];
 	arr[1_000_000] = 'x';
 
@@ -2049,19 +2040,19 @@ uvu.test('handles very sparse arrays efficiently', () => {
 	const json = stringify(arr);
 	const elapsed = performance.now() - start;
 
-	assert.ok(elapsed < 100, `stringify took ${elapsed}ms, expected < 100ms`);
+	expect(elapsed < 100, `stringify took ${elapsed}ms, expected < 100ms`).toBeTruthy();
 
 	// Verify round-trip
 	const result = parse(json);
-	assert.is(result.length, 1_000_001);
-	assert.is(result[1_000_000], 'x');
-	assert.ok(!(0 in result));
+	expect(result.length).toBe(1_000_001);
+	expect(result[1_000_000]).toBe('x');
+	expect(!(0 in result)).toBeTruthy();
 
 	// Verify uneval too
 	const start2 = performance.now();
 	const js = uneval(arr);
 	const elapsed2 = performance.now() - start2;
-	assert.ok(elapsed2 < 100, `uneval took ${elapsed2}ms, expected < 100ms`);
+	expect(elapsed2 < 100, `uneval took ${elapsed2}ms, expected < 100ms`).toBeTruthy();
 });
 
 for (const kind of ['empty', 'single', 'shared', 'cyclic']) {
@@ -2166,7 +2157,7 @@ uvu.test('uneval reports the path of invalid sparse array elements', () => {
 	);
 });
 
-uvu.test('ignores non-numeric array properties in dense encoding', () => {
+test('ignores non-numeric array properties in dense encoding', () => {
 	// Dense path (few holes — array literal / HOLE encoding wins)
 	const arr = [, 'a', , 'b'];
 	arr.foo = 'should be ignored';
@@ -2174,41 +2165,38 @@ uvu.test('ignores non-numeric array properties in dense encoding', () => {
 
 	// uneval — should produce the holey literal, no mention of "foo" or "bar"
 	const js = uneval(arr);
-	assert.ok(!js.includes('foo'), `uneval output should not contain "foo": ${js}`);
-	assert.ok(!js.includes('bar'), `uneval output should not contain "bar": ${js}`);
-	assert.ok(
-		!js.includes('should be ignored'),
-		`uneval output should not contain non-numeric value: ${js}`
-	);
+	expect(!js.includes('foo'), `uneval output should not contain "foo": ${js}`).toBeTruthy();
+	expect(!js.includes('bar'), `uneval output should not contain "bar": ${js}`).toBeTruthy();
+	expect(!js.includes('should be ignored'), `uneval output should not contain non-numeric value: ${js}`).toBeTruthy();
 	const evaled = (0, eval)(js);
-	assert.is(evaled.length, 4);
-	assert.is(evaled[1], 'a');
-	assert.is(evaled[3], 'b');
-	assert.ok(!(0 in evaled));
+	expect(evaled.length).toBe(4);
+	expect(evaled[1]).toBe('a');
+	expect(evaled[3]).toBe('b');
+	expect(!(0 in evaled)).toBeTruthy();
 
 	// stringify — should produce HOLE encoding, no mention of "foo" or "bar"
 	const json = stringify(arr);
-	assert.ok(!json.includes('foo'), `stringify output should not contain "foo": ${json}`);
-	assert.ok(!json.includes('bar'), `stringify output should not contain "bar": ${json}`);
+	expect(!json.includes('foo'), `stringify output should not contain "foo": ${json}`).toBeTruthy();
+	expect(!json.includes('bar'), `stringify output should not contain "bar": ${json}`).toBeTruthy();
 	const parsed = parse(json);
-	assert.is(parsed.length, 4);
-	assert.is(parsed[1], 'a');
-	assert.is(parsed[3], 'b');
-	assert.ok(!(0 in parsed));
+	expect(parsed.length).toBe(4);
+	expect(parsed[1]).toBe('a');
+	expect(parsed[3]).toBe('b');
+	expect(!(0 in parsed)).toBeTruthy();
 });
 
-uvu.test('uneval round-trips sparse arrays whose first hole is not at index 0', () => {
+test('uneval round-trips sparse arrays whose first hole is not at index 0', () => {
 	for (const arr of [[1, , 3], [1, ,], [1, , , 4], [1, 2, , 4]]) {
 		const evaled = (0, eval)(uneval(arr));
-		assert.is(evaled.length, arr.length, `length for keys ${Object.keys(arr).join(',')}`);
-		assert.equal(Object.keys(evaled), Object.keys(arr));
+		expect(evaled.length, `length for keys ${Object.keys(arr).join(',')}`).toBe(arr.length);
+		expect(Object.keys(evaled)).toEqual(Object.keys(arr));
 		for (const k of Object.keys(arr)) {
-			assert.is(evaled[k], arr[k]);
+			expect(evaled[k]).toBe(arr[k]);
 		}
 	}
 });
 
-uvu.test('ignores non-numeric array properties in sparse encoding', () => {
+test('ignores non-numeric array properties in sparse encoding', () => {
 	// Sparse path (very sparse — Object.assign / SPARSE encoding wins)
 	const arr = [];
 	arr[1_000_000] = 'x';
@@ -2217,30 +2205,27 @@ uvu.test('ignores non-numeric array properties in sparse encoding', () => {
 
 	// uneval — should produce Object.assign form, no mention of "foo" or "bar"
 	const js = uneval(arr);
-	assert.ok(!js.includes('foo'), `uneval output should not contain "foo": ${js}`);
-	assert.ok(!js.includes('bar'), `uneval output should not contain "bar": ${js}`);
-	assert.ok(
-		!js.includes('should be ignored'),
-		`uneval output should not contain non-numeric value: ${js}`
-	);
-	assert.ok(js.includes('Object.assign'), `uneval should use Object.assign for very sparse arrays`);
+	expect(!js.includes('foo'), `uneval output should not contain "foo": ${js}`).toBeTruthy();
+	expect(!js.includes('bar'), `uneval output should not contain "bar": ${js}`).toBeTruthy();
+	expect(!js.includes('should be ignored'), `uneval output should not contain non-numeric value: ${js}`).toBeTruthy();
+	expect(js.includes('Object.assign'), `uneval should use Object.assign for very sparse arrays`).toBeTruthy();
 	const evaled = (0, eval)(js);
-	assert.is(evaled.length, 1_000_001);
-	assert.is(evaled[1_000_000], 'x');
-	assert.ok(!(0 in evaled));
-	assert.ok(!('foo' in evaled));
+	expect(evaled.length).toBe(1_000_001);
+	expect(evaled[1_000_000]).toBe('x');
+	expect(!(0 in evaled)).toBeTruthy();
+	expect(!('foo' in evaled)).toBeTruthy();
 
 	// stringify — should produce SPARSE encoding, no mention of "foo" or "bar"
 	const json = stringify(arr);
-	assert.ok(!json.includes('foo'), `stringify output should not contain "foo": ${json}`);
-	assert.ok(!json.includes('bar'), `stringify output should not contain "bar": ${json}`);
+	expect(!json.includes('foo'), `stringify output should not contain "foo": ${json}`).toBeTruthy();
+	expect(!json.includes('bar'), `stringify output should not contain "bar": ${json}`).toBeTruthy();
 	const parsed = parse(json);
-	assert.is(parsed.length, 1_000_001);
-	assert.is(parsed[1_000_000], 'x');
-	assert.ok(!(0 in parsed));
+	expect(parsed.length).toBe(1_000_001);
+	expect(parsed[1_000_000]).toBe('x');
+	expect(!(0 in parsed)).toBeTruthy();
 });
 
-uvu.test('does not create duplicate parameter names', () => {
+test('does not create duplicate parameter names', () => {
 	const foo = new Array(20000).fill(0).map((_, i) => i);
 	const bar = foo.map((_, i) => ({ [i]: foo[i] }));
 	const serialized = uneval([foo, ...bar]);
@@ -2248,38 +2233,32 @@ uvu.test('does not create duplicate parameter names', () => {
 	eval(serialized);
 });
 
-uvu.test('reconstructs a referenced typed array before it is used in a cycle', () => {
+test('reconstructs a referenced typed array before it is used in a cycle', () => {
 	const view = new Uint8Array([1, 2, 3]);
 	const obj = { a: view, b: view };
 	obj.self = obj;
 
 	const result = (0, eval)(uneval(obj));
 
-	assert.is(result.self, result);
-	assert.ok(result.a instanceof Uint8Array);
-	assert.is(result.a, result.b);
-	assert.equal(Array.from(result.a), [1, 2, 3]);
+	expect(result.self).toBe(result);
+	expect(result.a instanceof Uint8Array).toBeTruthy();
+	expect(result.a).toBe(result.b);
+	expect(Array.from(result.a)).toEqual([1, 2, 3]);
 });
 
-uvu.test('rejects sparse array __proto__ pollution via parse', () => {
+test('rejects sparse array __proto__ pollution via parse', () => {
 	// Attempt to set __proto__ on an array via the sparse array encoding
 	const payload = JSON.stringify([[consts.SPARSE, 1, '__proto__', { polluted: true }]]);
-	assert.throws(
-		() => parse(payload),
-		(error) => error.message === 'Invalid input'
-	);
+	expect(() => parse(payload)).toThrow('Invalid input');
 });
 
-uvu.test('rejects sparse array __proto__ pollution via unflatten', () => {
+test('rejects sparse array __proto__ pollution via unflatten', () => {
 	// Same attack via unflatten (which receives already-parsed data)
 	const payload = [[consts.SPARSE, 1, '__proto__', { polluted: true }]];
-	assert.throws(
-		() => unflatten(payload),
-		(error) => error.message === 'Invalid input'
-	);
+	expect(() => unflatten(payload)).toThrow('Invalid input');
 });
 
-uvu.test('sparse array CPU exhaustion payload is rejected', () => {
+test('sparse array CPU exhaustion payload is rejected', () => {
 	// Reproduction from reported vulnerability: builds deep __proto__ chains
 	// via sparse array encoding, causing expensive [[SetPrototypeOf]] calls.
 	const LAYERS = 49_000;
@@ -2290,13 +2269,10 @@ uvu.test('sparse array CPU exhaustion payload is rejected', () => {
 	}
 	const payload = JSON.stringify(data);
 
-	assert.throws(
-		() => parse(payload),
-		(error) => error.message === 'Invalid input'
-	);
+	expect(() => parse(payload)).toThrow('Invalid input');
 });
 
-uvu.test('sparse array type confusion via __proto__ is blocked', () => {
+test('sparse array type confusion via __proto__ is blocked', () => {
 	// Reproduction from reported vulnerability: uses sparse array encoding to
 	// set __proto__ on an array, overwriting the prototype and allowing an
 	// attacker to control property values (e.g. spoofing .magnitude on a Vector).
@@ -2312,31 +2288,25 @@ uvu.test('sparse array type confusion via __proto__ is blocked', () => {
 		}
 	}
 
-	assert.throws(
-		() => parse(payload, { Vector: ([x, y]) => new Vector(x, y) }),
-		(error) => error.message === 'Invalid input'
-	);
+	expect(() => parse(payload, { Vector: ([x, y]) => new Vector(x, y) })).toThrow('Invalid input');
 });
 
-uvu.test('valid sparse array parses correctly', () => {
+test('valid sparse array parses correctly', () => {
 	// Ensure the fix does not break legitimate sparse array round-tripping.
 	// devalue format: [root_entry, ...other_entries]
 	// [-7, 3, 0, 1, 2, 2] = sparse array of length 3, index 0 = entries[1], index 2 = entries[2]
 	const goodPayload = JSON.stringify([[consts.SPARSE, 3, 0, 1, 2, 2], 'a', 'c']);
 	const result = parse(goodPayload);
-	assert.instance(result, Array);
-	assert.is(result.length, 3);
-	assert.is(result[0], 'a');
-	assert.ok(!(1 in result));
-	assert.is(result[2], 'c');
-	assert.is(Object.getPrototypeOf(result), Array.prototype);
+	expect(result).toBeInstanceOf(Array);
+	expect(result.length).toBe(3);
+	expect(result[0]).toBe('a');
+	expect(!(1 in result)).toBeTruthy();
+	expect(result[2]).toBe('c');
+	expect(Object.getPrototypeOf(result)).toBe(Array.prototype);
 });
 
-uvu.test('errors on out-of-bounds indices', () => {
-	assert.throws(
-		() => parse('[["Set",7]]'),
-		(error) => error.message === 'Invalid input'
-	)
+test('errors on out-of-bounds indices', () => {
+	expect(() => parse('[["Set",7]]')).toThrow('Invalid input');
 });
 
 // Regression test for a DoS vulnerability in sparse array parsing.
@@ -2395,24 +2365,24 @@ const sparseDoSCases = [
 ];
 
 for (const { perArrayLen, count } of sparseDoSCases) {
-	uvu.test(`does not eagerly allocate sparse arrays (len=${perArrayLen}, count=${count})`, () => {
+	test(`does not eagerly allocate sparse arrays (len=${perArrayLen}, count=${count})`, () => {
 		const payload = buildSparseDoSPayload(count, perArrayLen);
 		const result = parse(payload);
 
 		// The root is the object whose keys reference every sparse array;
 		// accessing them forces hydration of all `count` arrays.
-		assert.is(typeof result, 'object');
-		assert.ok(result !== null);
+		expect(typeof result).toBe('object');
+		expect(result !== null).toBeTruthy();
 
 		// Spot-check the first and last sparse arrays.
 		const first = result.k0;
 		const last = result[`k${count - 1}`];
-		assert.ok(Array.isArray(first));
-		assert.ok(Array.isArray(last));
-		assert.is(first.length, perArrayLen);
-		assert.is(last.length, perArrayLen);
-		assert.is(first[0], 42);
-		assert.is(last[0], 42);
+		expect(Array.isArray(first)).toBeTruthy();
+		expect(Array.isArray(last)).toBeTruthy();
+		expect(first.length).toBe(perArrayLen);
+		expect(last.length).toBe(perArrayLen);
+		expect(first[0]).toBe(42);
+		expect(last[0]).toBe(42);
 	});
 }
 
@@ -2452,103 +2422,101 @@ for (const kind of ['inline', 'shared', 'cyclic', 'holes']) {
 	});
 }
 
-uvu.test.run();
 
 // --- stringifyAsync tests ---
 
 // Verify same-version wire compatibility and round-trip semantics in one pass
 for (const [name, tests] of Object.entries(fixtures)) {
-	const test = uvu.suite(`stringifyAsync: ${name}`);
+	describe(`stringifyAsync: ${name}`, () => {
 	for (const t of tests) {
 		test(t.name, async () => {
 			const json = await stringifyAsync(t.value, t.reducers);
 
-			assert.equal(json, stringify(t.value, t.reducers));
+			expect(json).toEqual(stringify(t.value, t.reducers));
 			validate_fixture(t, parse(json, t.revivers));
 		});
 	}
-	test.run();
+	});
 }
 
 // Async-specific tests
-const asyncTests = uvu.suite('stringifyAsync: promises');
+describe('stringifyAsync: promises', () => {
 
-asyncTests('resolves top-level promise', async () => {
+test('resolves top-level promise', async () => {
 	const result = await stringifyAsync(Promise.resolve(42));
-	assert.equal(result, stringify(42));
+	expect(result).toEqual(stringify(42));
 });
 
-asyncTests('resolves promise to undefined', async () => {
+test('resolves promise to undefined', async () => {
 	const result = await stringifyAsync(Promise.resolve(undefined));
-	assert.equal(result, stringify(undefined));
+	expect(result).toEqual(stringify(undefined));
 });
 
-asyncTests('resolves promise to null', async () => {
+test('resolves promise to null', async () => {
 	const result = await stringifyAsync(Promise.resolve(null));
-	assert.equal(result, stringify(null));
+	expect(result).toEqual(stringify(null));
 });
 
-asyncTests('resolves promise to NaN', async () => {
+test('resolves promise to NaN', async () => {
 	const result = await stringifyAsync(Promise.resolve(NaN));
-	assert.equal(result, stringify(NaN));
+	expect(result).toEqual(stringify(NaN));
 });
 
-asyncTests('resolves nested promises in objects', async () => {
+test('resolves nested promises in objects', async () => {
 	const result = await stringifyAsync({
 		a: Promise.resolve(1),
 		b: Promise.resolve('hello')
 	});
-	assert.equal(result, stringify({ a: 1, b: 'hello' }));
+	expect(result).toEqual(stringify({ a: 1, b: 'hello' }));
 });
 
-asyncTests('resolves promises in arrays', async () => {
+test('resolves promises in arrays', async () => {
 	const result = await stringifyAsync([Promise.resolve('a'), Promise.resolve('b')]);
-	assert.equal(result, stringify(['a', 'b']));
+	expect(result).toEqual(stringify(['a', 'b']));
 });
 
-asyncTests('resolves promises in Sets', async () => {
+test('resolves promises in Sets', async () => {
 	const result = await stringifyAsync(new Set([Promise.resolve(1), Promise.resolve(2)]));
-	assert.equal(result, stringify(new Set([1, 2])));
+	expect(result).toEqual(stringify(new Set([1, 2])));
 });
 
-asyncTests('resolves promises in Map values', async () => {
+test('resolves promises in Map values', async () => {
 	const result = await stringifyAsync(new Map([['key', Promise.resolve('value')]]));
-	assert.equal(result, stringify(new Map([['key', 'value']])));
+	expect(result).toEqual(stringify(new Map([['key', 'value']])));
 });
 
-asyncTests('resolves deeply nested promises', async () => {
+test('resolves deeply nested promises', async () => {
 	const result = await stringifyAsync({
 		a: { b: { c: Promise.resolve(42) } }
 	});
-	assert.equal(result, stringify({ a: { b: { c: 42 } } }));
+	expect(result).toEqual(stringify({ a: { b: { c: 42 } } }));
 });
 
-asyncTests('deduplicates resolved values by identity', async () => {
+test('deduplicates resolved values by identity', async () => {
 	const obj = { x: 1 };
 	const promise = Promise.resolve(obj);
 	const result = await stringifyAsync([promise, promise]);
-	assert.equal(result, stringify([obj, obj]));
+	expect(result).toEqual(stringify([obj, obj]));
 });
 
-asyncTests('handles thenables', async () => {
+test('handles thenables', async () => {
 	const thenable = { then: (resolve) => resolve(42) };
 	const result = await stringifyAsync(thenable);
-	assert.equal(result, stringify(42));
+	expect(result).toEqual(stringify(42));
 });
 
-asyncTests('propagates rejected promises', async () => {
+test('propagates rejected promises', async () => {
 	const expected = new Error('fail');
-	const error = await catch_async_error(() => stringifyAsync(Promise.reject(expected)));
-	assert.is(error, expected);
+	await expect(stringifyAsync(Promise.reject(expected))).rejects.toBe(expected);
 });
 
-asyncTests('resolves promise to complex value', async () => {
+test('resolves promise to complex value', async () => {
 	const complex = { date: new Date(1e12), set: new Set([1, 2]), arr: [3, 4] };
 	const result = await stringifyAsync(Promise.resolve(complex));
-	assert.equal(result, stringify(complex));
+	expect(result).toEqual(stringify(complex));
 });
 
-asyncTests('resolves mixed sync and async values', async () => {
+test('resolves mixed sync and async values', async () => {
 	const result = await stringifyAsync({
 		sync: 'hello',
 		async: Promise.resolve('world'),
@@ -2557,70 +2525,67 @@ asyncTests('resolves mixed sync and async values', async () => {
 			async: Promise.resolve([1, 2, 3])
 		}
 	});
-	assert.equal(
-		result,
-		stringify({
+	expect(result).toEqual(stringify({
 			sync: 'hello',
 			async: 'world',
 			nested: {
 				sync: 42,
 				async: [1, 2, 3]
 			}
-		})
-	);
+		}));
 });
 
-asyncTests.run();
+});
 
 // Error handling with stringifyAsync
-const asyncErrorTests = uvu.suite('stringifyAsync: errors');
+describe('stringifyAsync: errors', () => {
 
-asyncErrorTests('throws for functions', async () => {
+test('throws for functions', async () => {
 	const value = function invalid() {};
 	const error = await catch_async_error(() => stringifyAsync(value));
-	assert.equal(error.name, 'DevalueError');
-	assert.equal(error.message, 'Cannot stringify a function');
-	assert.equal(error.path, '');
-	assert.is(error.value, value);
-	assert.is(error.root, value);
+	expect(error.name).toEqual('DevalueError');
+	expect(error.message).toEqual('Cannot stringify a function');
+	expect(error.path).toEqual('');
+	expect(error.value).toBe(value);
+	expect(error.root).toBe(value);
 });
 
-asyncErrorTests('throws for Symbols', async () => {
+test('throws for Symbols', async () => {
 	const value = Symbol('foo');
 	const error = await catch_async_error(() => stringifyAsync(value));
-	assert.equal(error.name, 'DevalueError');
-	assert.equal(error.path, '');
-	assert.is(error.value, value);
-	assert.is(error.root, value);
+	expect(error.name).toEqual('DevalueError');
+	expect(error.path).toEqual('');
+	expect(error.value).toBe(value);
+	expect(error.root).toBe(value);
 });
 
-asyncErrorTests('throws for non-POJOs without reducer', async () => {
+test('throws for non-POJOs without reducer', async () => {
 	class Whatever {}
 	const value = new Whatever();
 	const error = await catch_async_error(() => stringifyAsync(value));
-	assert.equal(error.name, 'DevalueError');
-	assert.equal(error.message, 'Cannot stringify arbitrary non-POJOs');
-	assert.equal(error.path, '');
-	assert.is(error.value, value);
-	assert.is(error.root, value);
+	expect(error.name).toEqual('DevalueError');
+	expect(error.message).toEqual('Cannot stringify arbitrary non-POJOs');
+	expect(error.path).toEqual('');
+	expect(error.value).toBe(value);
+	expect(error.root).toBe(value);
 });
 
-asyncErrorTests('throws for promise resolving to function', async () => {
+test('throws for promise resolving to function', async () => {
 	const value = function invalid() {};
 	const root = Promise.resolve(value);
 	const error = await catch_async_error(() => stringifyAsync(root));
-	assert.equal(error.name, 'DevalueError');
-	assert.equal(error.message, 'Cannot stringify a function');
-	assert.equal(error.path, '');
-	assert.is(error.value, value);
-	assert.is(error.root, root);
+	expect(error.name).toEqual('DevalueError');
+	expect(error.message).toEqual('Cannot stringify a function');
+	expect(error.path).toEqual('');
+	expect(error.value).toBe(value);
+	expect(error.root).toBe(root);
 });
 
-asyncErrorTests.run();
+});
 
-const circularCustomTypes = uvu.suite('circular references through custom types');
+describe('circular references through custom types', () => {
 
-circularCustomTypes('resolves circular reference through two custom types', () => {
+test('resolves circular reference through two custom types', () => {
 	const foo = new Foo({ name: 'outer' });
 	const bar = new Bar({ name: 'inner', ref: foo });
 	foo.value.ref = bar;
@@ -2655,12 +2620,12 @@ circularCustomTypes('resolves circular reference through two custom types', () =
 	const json = stringify(foo, reducers);
 	const result = parse(json, revivers);
 
-	assert.ok(result instanceof Foo);
-	assert.ok(result.value.ref instanceof Bar);
-	assert.is(result.value.ref.value.ref, result);
+	expect(result instanceof Foo).toBeTruthy();
+	expect(result.value.ref instanceof Bar).toBeTruthy();
+	expect(result.value.ref.value.ref).toBe(result);
 });
 
-circularCustomTypes('resolves self-referencing custom type', () => {
+test('resolves self-referencing custom type', () => {
 	const foo = new Foo({ name: 'self' });
 	foo.value.ref = foo;
 
@@ -2683,15 +2648,15 @@ circularCustomTypes('resolves self-referencing custom type', () => {
 	const json = stringify(foo, reducers);
 	const result = parse(json, revivers);
 
-	assert.ok(result instanceof Foo);
-	assert.is(result.value.ref, result);
+	expect(result instanceof Foo).toBeTruthy();
+	expect(result.value.ref).toBe(result);
 });
 
-circularCustomTypes.run();
+});
 
 
 {
-	const test = uvu.suite('uneval: large graphs');
+	describe('uneval: large graphs', () => {
 
 	test('serializes more than 65534 repeated references to valid JS', () => {
 		// This graph exceeds engine function-parameter limits that previously
@@ -2702,11 +2667,11 @@ circularCustomTypes.run();
 		const serialized = uneval(value);
 		const roundtripped = new Function('return ' + serialized)();
 
-		assert.equal(roundtripped.a.length, 70000);
-		assert.equal(roundtripped.a[0].i, 0);
-		assert.equal(roundtripped.a[69999].i, 69999);
+		expect(roundtripped.a.length).toEqual(70000);
+		expect(roundtripped.a[0].i).toEqual(0);
+		expect(roundtripped.a[69999].i).toEqual(69999);
 		// the two arrays share object identity
-		assert.ok(roundtripped.a[123] === roundtripped.b[123]);
+		expect(roundtripped.a[123] === roundtripped.b[123]).toBeTruthy();
 	});
 
 	test('serializes an oversized custom graph to valid JS', () => {
@@ -2720,9 +2685,9 @@ circularCustomTypes.run();
 		);
 		const roundtripped = new Function('return ' + serialized)();
 
-		assert.is(roundtripped.a[65535], roundtripped.b[65535]);
-		assert.is(roundtripped.marker.custom, true);
+		expect(roundtripped.a[65535]).toBe(roundtripped.b[65535]);
+		expect(roundtripped.marker.custom).toBe(true);
 	});
 
-	test.run();
+	});
 }

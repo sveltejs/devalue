@@ -1,11 +1,9 @@
 import * as vm from 'node:vm';
-import * as assert from 'uvu/assert';
-import { suite } from 'uvu';
+import { describe, expect, test } from 'vitest';
 import { uneval } from '../index.js';
 
-const test = suite('uneval: collection construction order');
-
-function ordering_cases() {
+describe('uneval: collection construction order', () => {
+	function ordering_cases() {
 	const cases = [];
 	for (const kind of ['map value', 'map key', 'set']) {
 		for (const position of ['first', 'middle', 'last']) {
@@ -67,27 +65,28 @@ function ordering_cases() {
 								: root_kind === 'container'
 									? get_wrapper(result)
 									: result[root_kind === 'shared wrapper' ? 0 : 1];
-						assert.is(Wrapper.calls, 1);
-						assert.is(replacer_calls, 1);
-						assert.equal(revived.prefix, expected_prefix);
-						assert.is(get_wrapper(revived.container), revived);
+						expect(Wrapper.calls).toBe(1);
+						expect(replacer_calls).toBe(1);
+						expect(revived.prefix).toEqual(expected_prefix);
+						expect(get_wrapper(revived.container)).toBe(revived);
 						const replace = (value) => (value === wrapper ? revived : value);
-						assert.equal(
+						expect(
 							Array.from(revived.container, (entry) =>
 								kind === 'set' ? entry : Array.from(entry)
-							),
+							)
+						).toEqual(
 							Array.from(container, (entry) =>
 								kind === 'set' ? replace(entry) : entry.map(replace)
 							)
 						);
-						if (root_kind === 'container') assert.is(revived.container, result);
+						if (root_kind === 'container') expect(revived.container).toBe(result);
 						if (root_kind === 'shared wrapper') {
-							assert.is(result[0], result[1]);
-							assert.is(revived.container, result[2]);
+							expect(result[0]).toBe(result[1]);
+							expect(revived.container).toBe(result[2]);
 						}
 						if (root_kind === 'shared container') {
-							assert.is(result[1], result[2]);
-							assert.is(revived.container, result[0]);
+							expect(result[1]).toBe(result[2]);
+							expect(revived.container).toBe(result[0]);
 						}
 					}
 				]);
@@ -97,7 +96,7 @@ function ordering_cases() {
 	return cases;
 }
 
-for (const [name, run] of ordering_cases()) test(name, run);
+	for (const [name, run] of ordering_cases()) test(name, run);
 
 test('initializes the ready prefix and chains entries between constructors', () => {
 	class Wrapper {
@@ -124,13 +123,12 @@ test('initializes the ready prefix and chains entries between constructors', () 
 			value instanceof Wrapper ? js`new Wrapper(${value.container})` : undefined
 		);
 		const result = vm.runInNewContext(source, { Wrapper });
-		assert.is(result[1].size, 2);
-		assert.is(result[1].container, result[0]);
-		assert.is(result[2].size, 5);
-		assert.is(result[2].container, result[0]);
-		assert.is(result[0].size, 8);
-		assert.match(
-			source,
+		expect(result[1].size).toBe(2);
+		expect(result[1].container).toBe(result[0]);
+		expect(result[2].size).toBe(5);
+		expect(result[2].container).toBe(result[0]);
+		expect(result[0].size).toBe(8);
+		expect(source).toMatch(
 			kind === 'Map'
 				? /let ([\w$]+)=new Map\(\[\[1,1\],\[2,2\]\]\);let ([\w$]+)=new Wrapper\(\1\);\1\.set\(3,\2\)\.set\(4,4\)\.set\(5,5\);let ([\w$]+)=new Wrapper\(\1\);\1\.set\(6,\3\)\.set\(7,7\)\.set\(8,8\)/
 				: /let ([\w$]+)=new Set\(\[1,2\]\);let ([\w$]+)=new Wrapper\(\1\);\1\.add\(\2\)\.add\(4\)\.add\(5\);let ([\w$]+)=new Wrapper\(\1\);\1\.add\(\3\)\.add\(7\)\.add\(8\)/
@@ -150,18 +148,18 @@ test('constructs a complete shared collection from its buffered entries', () => 
 				: new Set([shared, 42]);
 		const source = uneval([container, container, shared]);
 		const [first, second, value] = vm.runInNewContext(source);
-		assert.is(first, second);
-		assert.is(first.size, 2);
-		assert.is(value.answer, 42);
+		expect(first).toBe(second);
+		expect(first.size).toBe(2);
+		expect(value.answer).toBe(42);
 		if (kind === 'Map') {
-			assert.equal(Array.from(first.keys()), [value, 42]);
-			assert.is(first.get(value), value);
-			assert.is(first.get(42), 43);
+			expect(Array.from(first.keys())).toEqual([value, 42]);
+			expect(first.get(value)).toBe(value);
+			expect(first.get(42)).toBe(43);
 		} else {
-			assert.equal(Array.from(first), [value, 42]);
+			expect(Array.from(first)).toEqual([value, 42]);
 		}
-		assert.match(source, new RegExp(`new ${kind}\\(\\[`));
-		assert.not.match(source, /\.(set|add)\(/);
+		expect(source).toMatch(new RegExp(`new ${kind}\\(\\[`));
+		expect(source).not.toMatch(/\.(set|add)\(/);
 	}
 });
 
@@ -186,15 +184,15 @@ test('populates both cyclic dependencies before constructing their shared owner'
 			value instanceof Wrapper ? js`new Wrapper(${value.left},${value.right})` : undefined
 		);
 		const [, revived, map, set, shared, typed, buffer] = vm.runInNewContext(source, { Wrapper });
-		assert.is(revived.answer, 42);
-		assert.is(revived.left, map);
-		assert.is(revived.right, set);
-		assert.is(map.get('owner'), revived);
-		assert.equal(Array.from(set), [shared, revived, 2]);
-		assert.equal(Array.from(map.keys()), ['data', 'owner', 'tail']);
-		assert.is(map.get('data'), shared);
-		assert.is(shared.view, typed);
-		assert.is(typed.buffer, buffer);
+		expect(revived.answer).toBe(42);
+		expect(revived.left).toBe(map);
+		expect(revived.right).toBe(set);
+		expect(map.get('owner')).toBe(revived);
+		expect(Array.from(set)).toEqual([shared, revived, 2]);
+		expect(Array.from(map.keys())).toEqual(['data', 'owner', 'tail']);
+		expect(map.get('data')).toBe(shared);
+		expect(shared.view).toBe(typed);
+		expect(typed.buffer).toBe(buffer);
 	}
 });
 
@@ -223,13 +221,13 @@ test('constructs dependent custom Map keys and values before inserting the entry
 			if (item instanceof Value) return js`new Value(${item.map},${item.key})`;
 		});
 		const [, revived_map, revived_key, revived_value] = vm.runInNewContext(source, { Key, Value });
-		assert.equal(revived_key.prefix, ['before']);
-		assert.equal(revived_value.prefix, ['before']);
-		assert.is(revived_key.map, revived_map);
-		assert.is(revived_value.map, revived_map);
-		assert.is(revived_value.key, revived_key);
-		assert.is(revived_map.get(revived_key), revived_value);
-		assert.equal(Array.from(revived_map.keys()), ['before', revived_key, 'after']);
+		expect(revived_key.prefix).toEqual(['before']);
+		expect(revived_value.prefix).toEqual(['before']);
+		expect(revived_key.map).toBe(revived_map);
+		expect(revived_value.map).toBe(revived_map);
+		expect(revived_value.key).toBe(revived_key);
+		expect(revived_map.get(revived_key)).toBe(revived_value);
+		expect(Array.from(revived_map.keys())).toEqual(['before', revived_key, 'after']);
 	}
 });
 
@@ -259,18 +257,18 @@ test('preserves ordered prefixes through inline and named mixed containers', () 
 		const result = vm.runInNewContext(source, { Wrapper });
 		const revived = shared ? result[0] : result;
 		const revived_map = revived.options.list[1];
-		assert.is(Wrapper.calls, 1);
-		assert.is(revived.answer, 42);
-		assert.is(revived_map.get('owner'), revived);
-		assert.is(revived.map, revived_map);
-		assert.equal(Array.from(revived_map.keys()), ['data', 'owner', 'tail']);
-		assert.is(Object.getPrototypeOf(revived_map.get('data')), null);
-		assert.not.ok(0 in revived.options.list);
+		expect(Wrapper.calls).toBe(1);
+		expect(revived.answer).toBe(42);
+		expect(revived_map.get('owner')).toBe(revived);
+		expect(revived.map).toBe(revived_map);
+		expect(Array.from(revived_map.keys())).toEqual(['data', 'owner', 'tail']);
+		expect(Object.getPrototypeOf(revived_map.get('data'))).toBe(null);
+		expect(0 in revived.options.list).toBeFalsy();
 		if (shared) {
-			assert.is(revived.options, result[1]);
-			assert.is(revived.options.list, result[2]);
-			assert.is(revived_map, result[3]);
-			assert.is(revived_map.get('data'), result[4]);
+			expect(revived.options).toBe(result[1]);
+			expect(revived.options.list).toBe(result[2]);
+			expect(revived_map).toBe(result[3]);
+			expect(revived_map.get('data')).toBe(result[4]);
 		}
 	}
 });
@@ -290,10 +288,10 @@ test('does not move entries after the constructor back-reference into its prefix
 	);
 	const result = vm.runInNewContext(source, { Wrapper });
 	// The back-reference cannot be inserted until the constructor has returned.
-	assert.is(result.tail, undefined);
-	assert.equal(Array.from(result.container.keys()), ['owner', 'tail']);
-	assert.is(result.container.get('owner'), result);
-	assert.is(result.container.get('tail'), 42);
+	expect(result.tail).toBe(undefined);
+	expect(Array.from(result.container.keys())).toEqual(['owner', 'tail']);
+	expect(result.container.get('owner')).toBe(result);
+	expect(result.container.get('tail')).toBe(42);
 });
 
 test('finishes paths through a multi-container cycle after constructing its owner', () => {
@@ -312,18 +310,18 @@ test('finishes paths through a multi-container cycle after constructing its owne
 	);
 	const result = vm.runInNewContext(source, { Wrapper });
 	// As with the previous emitter, only the acyclic prefix is ready at construction.
-	assert.is(result.cyclic_path, undefined);
-	assert.is(result.options.list[0].get('data'), 42);
-	assert.is(result.options.list[0].get('owner'), result);
+	expect(result.cyclic_path).toBe(undefined);
+	expect(result.options.list[0].get('data')).toBe(42);
+	expect(result.options.list[0].get('owner')).toBe(result);
 });
 
 test('does not append a chain to an allocation for an empty collection', () => {
 	for (const container of [new Map(), new Set()]) {
 		const source = uneval([container, container]);
 		const [first, second] = vm.runInNewContext(source);
-		assert.is(first, second);
-		assert.is(first.size, 0);
-		assert.not.match(source, /\.(set|add)\(/);
+		expect(first).toBe(second);
+		expect(first.size).toBe(0);
+		expect(source).not.toMatch(/\.(set|add)\(/);
 	}
 });
 
@@ -352,14 +350,14 @@ test('breaks chains for nested collection and object initialization', () => {
 	const [map, revived, set, shared] = vm.runInNewContext(source, { Reader });
 	// The inner Set and its owner form the cycle, so the outer Map's first
 	// two entries must be visible even while the 'inner' entry is being built.
-	assert.equal(revived.prefix, ['before', 'also before']);
-	assert.is(revived.answer, 42);
-	assert.is(revived.outer, map);
-	assert.is(revived.inner, set);
-	assert.is(map.get('inner'), set);
-	assert.is(map.get('reader'), revived);
-	assert.equal(Array.from(set), [shared, revived, 4]);
-	assert.equal(Array.from(map.keys()), ['before', 'also before', 'inner', 'reader', 'after']);
+	expect(revived.prefix).toEqual(['before', 'also before']);
+	expect(revived.answer).toBe(42);
+	expect(revived.outer).toBe(map);
+	expect(revived.inner).toBe(set);
+	expect(map.get('inner')).toBe(set);
+	expect(map.get('reader')).toBe(revived);
+	expect(Array.from(set)).toEqual([shared, revived, 4]);
+	expect(Array.from(map.keys())).toEqual(['before', 'also before', 'inner', 'reader', 'after']);
 });
 
 test('exposes completed earlier cycles to later constructors', () => {
@@ -380,14 +378,12 @@ test('exposes completed earlier cycles to later constructors', () => {
 		const result = vm.runInNewContext(source, { Snapshot });
 		// Existing alternative-emitter behavior: the original deferred this earlier
 		// cyclic entry. See notes/uneval-ordering.md for the snapshot compatibility gap.
-		assert.equal(snapshot.initial_keys, ['before']);
-		assert.equal(result.initial_keys, ['before', kind]);
-		assert.is(result.map.get('owner'), result);
-		assert.is(
-			kind === 'self' ? result.map.get('self') : result.map.get('peer').get('back'),
-			result.map
-		);
+		expect(snapshot.initial_keys).toEqual(['before']);
+		expect(result.initial_keys).toEqual(['before', kind]);
+		expect(result.map.get('owner')).toBe(result);
+		expect(
+			kind === 'self' ? result.map.get('self') : result.map.get('peer').get('back')
+		).toBe(result.map);
 	}
 });
-
-test.run();
+});

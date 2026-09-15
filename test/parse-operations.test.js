@@ -1,6 +1,5 @@
 import * as vm from 'vm';
-import * as assert from 'uvu/assert';
-import * as uvu from 'uvu';
+import { describe, test, expect } from 'vitest';
 import {
 	stringify,
 	parse,
@@ -11,21 +10,11 @@ import {
 
 globalThis.Temporal ??= (await import('@js-temporal/polyfill')).Temporal;
 
-/**
- * @param {string} name
- * @param {(test: import('uvu').Test) => void} fn
- */
-function suite(name, fn) {
-	const test = uvu.suite(name);
-	fn(test);
-	test.run();
-}
-
 // ---------------------------------------------------------------------------
 // Basic plumbing
 // ---------------------------------------------------------------------------
 
-suite('parse operations option', (test) => {
+describe('parse operations option', () => {
 	test('partial overrides merge over defaults', () => {
 		let calls = 0;
 
@@ -38,10 +27,10 @@ suite('parse operations option', (test) => {
 			}
 		});
 
-		assert.equal(result, { a: 1, b: [2, 3] });
+		expect(result).toEqual({ a: 1, b: [2, 3] });
 		// `set` serves objects and arrays alike (the inverse of `get`):
 		// a, b, b[0], b[1]
-		assert.equal(calls, 4);
+		expect(calls).toEqual(4);
 	});
 
 	test('explicitly-undefined overrides fall back to defaults', () => {
@@ -53,11 +42,11 @@ suite('parse operations option', (test) => {
 			}
 		});
 
-		assert.equal(result, { a: 1, when: new Date(1700000000000) });
+		expect(result).toEqual({ a: 1, when: new Date(1700000000000) });
 	});
 
 	test('defaultParseOperations is exported, frozen and delegable', () => {
-		assert.ok(Object.isFrozen(defaultParseOperations));
+		expect(Object.isFrozen(defaultParseOperations)).toBeTruthy();
 
 		const result = parse(stringify(new Map([['k', 'v']])), undefined, {
 			operations: {
@@ -65,7 +54,7 @@ suite('parse operations option', (test) => {
 			}
 		});
 
-		assert.equal(result, new Map([['k', 'v']]));
+		expect(result).toEqual(new Map([['k', 'v']]));
 	});
 
 	test('unflatten accepts operations too', () => {
@@ -75,7 +64,7 @@ suite('parse operations option', (test) => {
 			}
 		});
 
-		assert.equal(result, 'date:2023-11-14T22:13:20.000Z');
+		expect(result).toEqual('date:2023-11-14T22:13:20.000Z');
 	});
 
 	test('invalid null-prototype keys are rejected before hydration or assignment', () => {
@@ -133,11 +122,11 @@ suite('parse operations option', (test) => {
 			}
 		);
 
-		assert.ok(revived instanceof Vector);
-		assert.equal(revived.x, 30);
-		assert.equal(revived.y, 40);
+		expect(revived instanceof Vector).toBeTruthy();
+		expect(revived.x).toEqual(30);
+		expect(revived.y).toEqual(40);
 		// the reviver's payload array went through the custom operation
-		assert.equal(created, 1);
+		expect(created).toEqual(1);
 	});
 });
 
@@ -145,14 +134,14 @@ suite('parse operations option', (test) => {
 // Sparse array DoS protection is preserved through the operation boundary
 // ---------------------------------------------------------------------------
 
-suite('sparse arrays', (test) => {
+describe('sparse arrays', () => {
 	test('createSparseArray produces the declared length without eager allocation', () => {
 		// A tiny payload declaring a huge length must not allocate.
 		const revived = unflatten([[-7, 50_000_000, 3, 1], 'x']);
 
-		assert.equal(revived.length, 50_000_000);
-		assert.equal(revived[3], 'x');
-		assert.equal(Object.keys(revived), ['3']);
+		expect(revived.length).toEqual(50_000_000);
+		expect(revived[3]).toEqual('x');
+		expect(Object.keys(revived)).toEqual(['3']);
 	});
 
 	test('createSparseArray override receives the declared length', () => {
@@ -168,7 +157,7 @@ suite('sparse arrays', (test) => {
 			}
 		});
 
-		assert.equal(lengths, [1234]);
+		expect(lengths).toEqual([1234]);
 	});
 });
 
@@ -343,7 +332,7 @@ for (const fn of [parse, unflatten]) {
 // Cross-realm revival (node:vm)
 // ---------------------------------------------------------------------------
 
-suite('cross-realm operations', (test) => {
+describe('cross-realm operations', () => {
 	// Note: `URL`/`URLSearchParams` are Node globals rather than ECMAScript
 	// intrinsics, so a bare vm context has none to construct from — only the
 	// ES intrinsics are exercised here.
@@ -396,27 +385,23 @@ suite('cross-realm operations', (test) => {
 		const revived = parse(stringify(value), undefined, { operations });
 
 		// Correct values...
-		assert.equal(revived.when.toISOString(), '2023-11-14T22:13:20.000Z');
-		assert.equal(revived.pattern.source, 'ab+c');
-		assert.equal(revived.pattern.flags, 'gi');
-		assert.equal([...revived.set], [1, 2]);
+		expect(revived.when.toISOString()).toEqual('2023-11-14T22:13:20.000Z');
+		expect(revived.pattern.source).toEqual('ab+c');
+		expect(revived.pattern.flags).toEqual('gi');
+		expect([...revived.set]).toEqual([1, 2]);
 		// entries are flattened to primitives: the inner arrays belong to the
 		// other realm, so a structural comparison would fail on the prototype
-		assert.equal(
-			[...revived.map].map(([k, v]) => `${k}=${v}`),
-			['k=v']
-		);
-		assert.equal([...revived.list], [1, 2, 3]);
-		assert.equal(revived.bare.x, 1);
+		expect([...revived.map].map(([k, v]) => `${k}=${v}`)).toEqual(['k=v']);
+		expect([...revived.list]).toEqual([1, 2, 3]);
+		expect(revived.bare.x).toEqual(1);
 
 		// ...built from the *other* realm's intrinsics, so host `instanceof`
 		// fails while the sandbox's own checks succeed.
-		assert.not.ok(revived.when instanceof Date);
-		assert.not.ok(revived.list instanceof Array);
+		expect(revived.when instanceof Date).toBeFalsy();
+		expect(revived.list instanceof Array).toBeFalsy();
 
 		context.probe = revived;
-		assert.ok(
-			vm.runInContext(
+		expect(vm.runInContext(
 				`probe.when instanceof Date &&
 				 probe.pattern instanceof RegExp &&
 				 probe.set instanceof Set &&
@@ -424,8 +409,7 @@ suite('cross-realm operations', (test) => {
 				 Array.isArray(probe.list) &&
 				 Object.getPrototypeOf(probe.bare) === null`,
 				context
-			)
-		);
+			)).toBeTruthy();
 	});
 
 	test('typed arrays are constructed in the target realm', () => {
@@ -435,16 +419,14 @@ suite('cross-realm operations', (test) => {
 		const bytes = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
 		const revived = parse(stringify(bytes), undefined, { operations });
 
-		assert.equal([...revived], [1, 2, 3, 4, 5, 6, 7, 8]);
-		assert.not.ok(revived instanceof Uint8Array);
+		expect([...revived]).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+		expect(revived instanceof Uint8Array).toBeFalsy();
 
 		context.probe = revived;
-		assert.ok(
-			vm.runInContext(
+		expect(vm.runInContext(
 				'probe instanceof Uint8Array && probe.buffer instanceof ArrayBuffer',
 				context
-			)
-		);
+			)).toBeTruthy();
 	});
 
 	test('cyclic values are linked correctly across realms', () => {
@@ -458,13 +440,11 @@ suite('cross-realm operations', (test) => {
 
 		const revived = parse(stringify(cyclic), undefined, { operations });
 
-		assert.is(revived.self, revived);
-		assert.is(revived.list[0], revived);
+		expect(revived.self).toBe(revived);
+		expect(revived.list[0]).toBe(revived);
 
 		context.probe = revived;
-		assert.ok(
-			vm.runInContext('probe.self === probe && probe.list[0] === probe', context)
-		);
+		expect(vm.runInContext('probe.self === probe && probe.list[0] === probe', context)).toBeTruthy();
 	});
 });
 
@@ -472,7 +452,7 @@ suite('cross-realm operations', (test) => {
 // Constructed values are never touched directly
 // ---------------------------------------------------------------------------
 
-suite('tripwire parse operations', (test) => {
+describe('tripwire parse operations', () => {
 	const values = new WeakMap();
 
 	const handler = new Proxy(
@@ -558,10 +538,10 @@ suite('tripwire parse operations', (test) => {
 		const revived = parse(stringify(input), undefined, { operations });
 		const root = untrip(revived);
 
-		assert.is(root.object.shared, root.array[0]);
-		assert.is(root.array[2].self, root.array[2]);
-		assert.equal(root.sparse.length, 1000);
-		assert.is(root.sparse[999], root.array[0]);
+		expect(root.object.shared).toBe(root.array[0]);
+		expect(root.array[2].self).toBe(root.array[2]);
+		expect(root.sparse.length).toEqual(1000);
+		expect(root.sparse[999]).toBe(root.array[0]);
 	});
 });
 
@@ -613,15 +593,15 @@ const handle_operations = {
 	}
 };
 
-suite('handle-based parse operations', (test) => {
+describe('handle-based parse operations', () => {
 	/** @param {any} value */
 	function assert_round_trip(value) {
 		const revived = parse(stringify(value), undefined, {
 			operations: handle_operations
 		});
 
-		assert.ok(revived instanceof Handle, 'root should be a handle');
-		assert.equal(raw(revived), parse(stringify(value)));
+		expect(revived instanceof Handle, 'root should be a handle').toBeTruthy();
+		expect(raw(revived)).toEqual(parse(stringify(value)));
 	}
 
 	test('primitives', () => {
@@ -668,7 +648,7 @@ suite('handle-based parse operations', (test) => {
 		});
 
 		const object = raw(revived);
-		assert.is(object.first, object.second);
+		expect(object.first).toBe(object.second);
 	});
 
 	test('cyclic values', () => {
@@ -681,7 +661,7 @@ suite('handle-based parse operations', (test) => {
 		});
 
 		const object = raw(revived);
-		assert.is(object.self, object);
+		expect(object.self).toBe(object);
 	});
 
 	test('revivers receive and return handles', () => {
@@ -695,16 +675,16 @@ suite('handle-based parse operations', (test) => {
 			'[["Custom",1],"yes"]',
 			{
 				Custom: (handle) => {
-					assert.ok(handle instanceof Handle);
+					expect(handle instanceof Handle).toBeTruthy();
 					return h(new Custom(raw(handle)));
 				}
 			},
 			{ operations: handle_operations }
 		);
 
-		assert.ok(revived instanceof Handle);
-		assert.ok(raw(revived) instanceof Custom);
-		assert.equal(raw(revived).inner, 'yes');
+		expect(revived instanceof Handle).toBeTruthy();
+		expect(raw(revived) instanceof Custom).toBeTruthy();
+		expect(raw(revived).inner).toEqual('yes');
 	});
 
 	test('round-trips through both operation sets', () => {
@@ -734,11 +714,11 @@ suite('handle-based parse operations', (test) => {
 			operations: stringify_ops
 		});
 
-		assert.equal(serialized, stringify(original));
+		expect(serialized).toEqual(stringify(original));
 
 		const revived = parse(serialized, undefined, { operations: handle_operations });
 
-		assert.equal(raw(revived).list, [1, 2]);
-		assert.equal(raw(revived).when.getTime(), 1700000000000);
+		expect(raw(revived).list).toEqual([1, 2]);
+		expect(raw(revived).when.getTime()).toEqual(1700000000000);
 	});
 });

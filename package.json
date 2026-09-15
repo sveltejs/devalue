@@ -27,13 +27,16 @@
 		"dts-buddy": "^0.8.3",
 		"publint": "^0.3.12",
 		"typescript": "^6.0.3",
-		"uvu": "^0.5.6"
+		"vite": "7.3.1",
+		"vitest": "5.0.1"
 	},
 	"scripts": {
 		"changeset:version": "changeset version",
 		"changeset:publish": "changeset publish",
 		"build": "dts-buddy",
-		"test": "uvu",
+		"test": "vitest run --project unit",
+		"test:unit": "vitest run --project unit",
+		"test:watch": "vitest --project unit",
 		"test:types": "tsc -p . --noEmit",
 		"prepublishOnly": "npm test && npm run test:types && npm run build && publint",
 		"bench": "node --allow-natives-syntax ./benchmarking/run.js",
