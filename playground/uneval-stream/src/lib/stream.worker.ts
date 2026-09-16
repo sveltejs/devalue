@@ -10,32 +10,58 @@ const scope: DedicatedWorkerGlobalScope = self as unknown as DedicatedWorkerGlob
 scope.onmessage = async ({ data }: MessageEvent<{ runId: number; source: string }>) => {
 	const { runId, source } = data;
 	const start = performance.now();
-	const post = (message: WorkerPayload) => scope.postMessage({ ...message, runId, elapsed: performance.now() - start });
+	const post = (message: WorkerPayload) =>
+		scope.postMessage({ ...message, runId, elapsed: performance.now() - start });
 	try {
 		post({ type: 'status', status: 'compiling' });
 		const output = ts.transpileModule(source, {
-			compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
+			compilerOptions: {
+				module: ts.ModuleKind.CommonJS,
+				target: ts.ScriptTarget.ES2022,
+				esModuleInterop: true
+			},
 			reportDiagnostics: true
 		});
-		const errors = output.diagnostics?.filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error) ?? [];
-		if (errors.length) throw new Error(errors.map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')).join('\n'));
+		const errors =
+			output.diagnostics?.filter(
+				(diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error
+			) ?? [];
+		if (errors.length)
+			throw new Error(
+				errors
+					.map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))
+					.join('\n')
+			);
 		const module = { exports: {} as Record<string, unknown> };
-		new Function('module', 'exports', `${output.outputText}\n//# sourceURL=example.ts`)(module, module.exports);
+		new Function('module', 'exports', `${output.outputText}\n//# sourceURL=example.ts`)(
+			module,
+			module.exports
+		);
 		const graph = module.exports.default;
 		if (graph === undefined) throw new Error('example.ts must export a default graph');
 		const replacer = module.exports.replacer;
-		if (replacer !== undefined && typeof replacer !== 'function') throw new Error('example.ts `replacer` export must be a function');
+		if (replacer !== undefined && typeof replacer !== 'function')
+			throw new Error('example.ts `replacer` export must be a function');
 		// Custom replacer output may reference module-scope constructors (e.g. `new Point(…)`).
 		// Head/tail blocks are evaluated in the worker's global scope, so named exports are
 		// promoted onto it, letting users revive custom sources by exporting their classes.
 		// The worker is discarded after every run, so this cannot leak across runs.
 		for (const [key, value] of Object.entries(module.exports)) {
-			if (key !== 'default' && key !== 'replacer') (scope as unknown as Record<string, unknown>)[key] = value;
+			if (key !== 'default' && key !== 'replacer')
+				(scope as unknown as Record<string, unknown>)[key] = value;
 		}
 
-		const stream = await unevalStream(graph, replacer as Parameters<typeof unevalStream>[1], { id: `playground-${runId}` });
+		const stream = await unevalStream(graph, replacer as Parameters<typeof unevalStream>[1], {
+			id: `playground-${runId}`
+		});
 		post({ type: 'status', status: 'streaming' });
-		post({ type: 'block', kind: 'head', index: 0, source: stream.head, bytes: new Blob([stream.head]).size });
+		post({
+			type: 'block',
+			kind: 'head',
+			index: 0,
+			source: stream.head,
+			bytes: new Blob([stream.head]).size
+		});
 		const root = new Function(`return (${stream.head})`)();
 		const snapshotContext = createSnapshotContext();
 		const discover = createTrackerDiscovery(snapshotContext);
@@ -54,19 +80,38 @@ scope.onmessage = async ({ data }: MessageEvent<{ runId: number; source: string 
 		post({ type: 'snapshot', snapshot: snapshotGraph(root, snapshotContext) });
 		post({ type: 'done' });
 	} catch (error) {
-		post({ type: 'error', message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined });
+		post({
+			type: 'error',
+			message: error instanceof Error ? error.message : String(error),
+			stack: error instanceof Error ? error.stack : undefined
+		});
 	}
 };
 
 function createTrackerDiscovery(context: SnapshotContext): (root: unknown) => void {
 	const seen = new WeakSet<object>();
 	function visit(value: unknown): void {
-		if ((typeof value !== 'object' && typeof value !== 'function') || value === null || seen.has(value as object)) return;
+		if (
+			(typeof value !== 'object' && typeof value !== 'function') ||
+			value === null ||
+			seen.has(value as object)
+		)
+			return;
 		seen.add(value as object);
 		if (value instanceof Promise) {
-			const tracked = value as Promise<unknown> & { __unevalTracker?: { state: string; value?: unknown } };
+			const tracked = value as Promise<unknown> & {
+				__unevalTracker?: { state: string; value?: unknown };
+			};
 			tracked.__unevalTracker = { state: 'pending' };
-			value.then((result) => { tracked.__unevalTracker = { state: 'fulfilled', value: result }; visit(result); }, (reason) => { tracked.__unevalTracker = { state: 'rejected', value: reason }; });
+			value.then(
+				(result) => {
+					tracked.__unevalTracker = { state: 'fulfilled', value: result };
+					visit(result);
+				},
+				(reason) => {
+					tracked.__unevalTracker = { state: 'rejected', value: reason };
+				}
+			);
 			return;
 		}
 		if (Symbol.asyncIterator in (value as object)) {
@@ -76,17 +121,33 @@ function createTrackerDiscovery(context: SnapshotContext): (root: unknown) => vo
 			void pump(iterable, tracker);
 			return;
 		}
-		if (value instanceof Map) for (const [key, item] of value) { visit(key); visit(item); }
+		if (value instanceof Map)
+			for (const [key, item] of value) {
+				visit(key);
+				visit(item);
+			}
 		else if (value instanceof Set) for (const item of value) visit(item);
-		else for (const key of Reflect.ownKeys(value as object)) { try { visit(Reflect.get(value as object, key)); } catch { /* snapshot reports inaccessible values */ } }
+		else
+			for (const key of Reflect.ownKeys(value as object)) {
+				try {
+					visit(Reflect.get(value as object, key));
+				} catch {
+					/* snapshot reports inaccessible values */
+				}
+			}
 	}
-	async function pump(iterable: AsyncIterable<unknown>, tracker: AsyncIterableTracker): Promise<void> {
+	async function pump(
+		iterable: AsyncIterable<unknown>,
+		tracker: AsyncIterableTracker
+	): Promise<void> {
 		try {
 			const iterator = iterable[Symbol.asyncIterator]();
-			if (!iterator || typeof iterator.next !== 'function') throw new TypeError('Async iterator did not provide next()');
+			if (!iterator || typeof iterator.next !== 'function')
+				throw new TypeError('Async iterator did not provide next()');
 			while (true) {
 				const result = await iterator.next();
-				if (!result || typeof result !== 'object' || typeof result.done !== 'boolean') throw new TypeError('Async iterator next() returned an invalid result');
+				if (!result || typeof result !== 'object' || typeof result.done !== 'boolean')
+					throw new TypeError('Async iterator next() returned an invalid result');
 				if (result.done) {
 					tracker.returnValue = result.value;
 					visit(result.value);

@@ -1,10 +1,12 @@
 import type { Plugin } from 'prettier';
 
-let prettierPromise: Promise<{
-	format: (source: string, options: Record<string, unknown>) => Promise<string>;
-	babel: Plugin;
-	estree: Plugin;
-}> | undefined;
+let prettierPromise:
+	| Promise<{
+			format: (source: string, options: Record<string, unknown>) => Promise<string>;
+			babel: Plugin;
+			estree: Plugin;
+	  }>
+	| undefined;
 
 function loadPrettier() {
 	return (prettierPromise ??= Promise.all([

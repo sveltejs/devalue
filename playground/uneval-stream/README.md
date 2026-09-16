@@ -31,11 +31,14 @@ The editor is a single TypeScript CommonJS-transpiled module. It must provide a 
 
 ```ts
 export class Point {
-	constructor(readonly x: number, readonly y: number) {}
+  constructor(
+    readonly x: number,
+    readonly y: number
+  ) {}
 }
 
 export const replacer = (value: unknown, uneval: (v: unknown) => string) => {
-	if (value instanceof Point) return `new Point(${uneval(value.x)},${uneval(value.y)})`;
+  if (value instanceof Point) return `new Point(${uneval(value.x)},${uneval(value.y)})`;
 };
 
 const graph = { answer: Promise.resolve(new Point(3, 4)) };
