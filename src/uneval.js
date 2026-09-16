@@ -30,6 +30,7 @@ export function uneval(value, replacer) {
 	/** @type {string[]} */
 	const keys = [];
 
+	/** @type {Map<any, JavaScriptSource>} */
 	const custom = new Map();
 
 	/** @param {any} thing */
@@ -185,9 +186,9 @@ export function uneval(value, replacer) {
 	 * @returns {string}
 	 */
 	function actually_stringify(thing) {
-		if (custom.has(thing)) {
-			const source = custom.get(thing);
+		const source = custom.get(thing);
 
+		if (source) {
 			const rendered = render_source(source, stringify, () => {
 				let name = get_name(names.size);
 				names.set({}, name);
@@ -403,8 +404,9 @@ export function uneval(value, replacer) {
 		}
 
 		names.forEach((name, thing) => {
-			if (custom.has(thing)) {
-				const source = custom.get(thing);
+			const source = custom.get(thing);
+
+			if (source) {
 				declarations.push(`${name}=${render_source(source, stringify, () => {
 				let name = get_name(names.size);
 				names.set({}, name);
