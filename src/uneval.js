@@ -165,7 +165,6 @@ export function uneval(value, replacer) {
 
 	Array.from(counts)
 		.filter((entry) => entry[1] > 1)
-		.reverse()
 		.forEach((entry, i) => {
 			names.set(entry[0], get_name(i));
 		});
