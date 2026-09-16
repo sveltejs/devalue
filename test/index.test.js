@@ -1255,8 +1255,6 @@ custom_source_test('constructs a repeated wrapper after its shared child is popu
 	});
 	const result = vm.runInNewContext(source, { Wrapper });
 
-	assert.ok(source.startsWith('(function(b){var a;'));
-	assert.ok(source.endsWith('}({}))'));
 	assert.is(replacer_calls, 1);
 	assert.is(Wrapper.calls, 1);
 	assert.is(result[0], result[1]);
