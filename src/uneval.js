@@ -158,6 +158,8 @@ export function uneval(value, replacer) {
 
 	const names = new Map();
 
+	const seen = new Set();
+
 	/** @type {string[]} */
 	const statements = [];
 
@@ -173,7 +175,52 @@ export function uneval(value, replacer) {
 	 * @returns {string}
 	 */
 	function stringify(thing) {
-		if (names.has(thing)) {
+		const name = names.get(thing);
+
+		if (name) {
+			if (!seen.has(thing)) {
+				seen.add(thing);
+
+				const type = custom.has(thing) ? null : get_type(thing);
+
+				switch (type) {
+					case 'Object':
+						statements.push(`let ${name}=${Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}'}`);
+						Object.keys(thing).forEach((key) => {
+							statements.push(`${name}${safe_prop(key)}=${stringify(thing[key])}`);
+						});
+						break;
+
+					case 'Array':
+						statements.push(`let ${name}=Array(${thing.length})`);
+						/** @type {any[]} */ (thing).forEach((v, i) => {
+							statements.push(`${name}[${i}]=${stringify(v)}`);
+						});
+						break;
+
+					case 'Set': {
+						statements.push(`let ${name}=new Set`);
+						const adds = Array.from(thing).map((v) => `.add(${stringify(v)})`);
+						// An empty Set is fully built by `new Set`; a chained statement would
+						// otherwise be a dangling `name.`.
+						if (adds.length > 0) statements.push(name + adds.join(''));
+						break;
+					}
+
+					case 'Map': {
+						statements.push(`let ${name}=new Map`);
+						const sets = Array.from(thing).map(
+							([k, v]) => `.set(${stringify(k)},${stringify(v)})`
+						);
+						if (sets.length > 0) statements.push(name + sets.join(''));
+						break;
+					}
+
+					default:
+						statements.push(`let ${name}=${actually_stringify(thing)}`);
+				}
+			}
+
 			return names.get(thing);
 		}
 
@@ -385,7 +432,7 @@ export function uneval(value, replacer) {
 		return str;
 	}
 
-	return `(function(){${statements.join(';')}}())`;
+	return `(function(){${statements.join(';')};return ${str}}())`;
 }
 
 /**
