@@ -6,7 +6,10 @@
 	import { onMount } from 'svelte';
 	import { javascriptSyntaxHighlighting } from '$lib/codemirror';
 
-	interface Props { value?: string; onrun: () => void; }
+	interface Props {
+		value?: string;
+		onrun: () => void;
+	}
 	let { value = $bindable(''), onrun }: Props = $props();
 	let host: HTMLDivElement;
 	let view: EditorView | undefined;
@@ -17,9 +20,26 @@
 			parent: host,
 			state: EditorState.create({
 				doc: value,
-				extensions: [lineNumbers(), javascript({ typescript: true }), javascriptSyntaxHighlighting, bracketMatching(), EditorView.lineWrapping, keymap.of([{ key: 'Mod-Enter', run: () => { onrun(); return true; } }]), EditorView.updateListener.of((update) => {
-					if (update.docChanged && !applying) value = update.state.doc.toString();
-				}), EditorView.theme({ '&': { height: '100%' }, '.cm-scroller': { overflow: 'auto' } })]
+				extensions: [
+					lineNumbers(),
+					javascript({ typescript: true }),
+					javascriptSyntaxHighlighting,
+					bracketMatching(),
+					EditorView.lineWrapping,
+					keymap.of([
+						{
+							key: 'Mod-Enter',
+							run: () => {
+								onrun();
+								return true;
+							}
+						}
+					]),
+					EditorView.updateListener.of((update) => {
+						if (update.docChanged && !applying) value = update.state.doc.toString();
+					}),
+					EditorView.theme({ '&': { height: '100%' }, '.cm-scroller': { overflow: 'auto' } })
+				]
 			})
 		});
 		return () => view?.destroy();

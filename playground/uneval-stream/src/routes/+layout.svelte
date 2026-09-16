@@ -8,6 +8,9 @@
 <svelte:head>
 	<link rel="icon" href={favicon} />
 	<title>unevalStream · protocol lab</title>
-	<meta name="description" content="Inspect devalue's executable head and asynchronous tail protocol live." />
+	<meta
+		name="description"
+		content="Inspect devalue's executable head and asynchronous tail protocol live."
+	/>
 </svelte:head>
 {@render children()}

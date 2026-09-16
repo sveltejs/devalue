@@ -15,7 +15,15 @@ export type SnapshotEntry = { key: string; value: SnapshotNode };
 
 export type WorkerMessage =
 	| { type: 'status'; runId: number; status: RunStatus; elapsed: number }
-	| { type: 'block'; runId: number; kind: 'head' | 'tail'; index: number; source: string; bytes: number; elapsed: number }
+	| {
+			type: 'block';
+			runId: number;
+			kind: 'head' | 'tail';
+			index: number;
+			source: string;
+			bytes: number;
+			elapsed: number;
+	  }
 	| { type: 'snapshot'; runId: number; snapshot: SnapshotNode; elapsed: number }
 	| { type: 'error'; runId: number; message: string; stack?: string; elapsed: number }
 	| { type: 'done'; runId: number; elapsed: number };

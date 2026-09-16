@@ -11,7 +11,11 @@
 		label?: string;
 	}
 
-	let { source, lineNumbers: showLineNumbers = false, label = 'JavaScript source' }: Props = $props();
+	let {
+		source,
+		lineNumbers: showLineNumbers = false,
+		label = 'JavaScript source'
+	}: Props = $props();
 	let host: HTMLDivElement;
 	let view: EditorView | undefined;
 
