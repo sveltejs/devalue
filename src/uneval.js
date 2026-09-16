@@ -159,6 +159,7 @@ export function uneval(value, replacer) {
 	const names = new Map();
 
 	const seen = new Set();
+	const inlining = new Set();
 
 	/** @type {string[]} */
 	const statements = [];
@@ -232,7 +233,17 @@ export function uneval(value, replacer) {
 			return stringify_primitive(thing);
 		}
 
-		return actually_stringify(thing);
+		// A singly referenced value can still be part of a custom constructor's
+		// cycle. If inlining it re-enters itself, hoist it to break the cycle.
+		if (inlining.has(thing)) {
+			names.set(thing, get_name(names.size));
+			return stringify(thing);
+		}
+
+		inlining.add(thing);
+		const str = actually_stringify(thing);
+		inlining.delete(thing);
+		return names.get(thing) || str;
 	}
 
 	/**
