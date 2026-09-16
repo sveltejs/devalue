@@ -6,6 +6,7 @@ import {
 	DevalueError,
 	enumerable_symbols,
 	escaped,
+	get_name,
 	get_type,
 	is_plain_object,
 	is_primitive,
@@ -14,10 +15,7 @@ import {
 	valid_array_indices
 } from './utils.js';
 
-const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$';
 const unsafe_chars = /[<\b\f\n\r\t\0\u2028\u2029]/g;
-const reserved =
-	/^(?:do|if|in|for|int|let|new|try|var|byte|case|char|else|enum|goto|long|this|void|with|await|break|catch|class|const|final|float|short|super|throw|while|yield|delete|double|export|import|native|return|switch|throws|typeof|boolean|default|extends|finally|package|private|abstract|continue|debugger|function|volatile|interface|protected|transient|implements|instanceof|synchronized)$/;
 
 /**
  * Turn a value into the JavaScript that creates an equivalent value
@@ -25,7 +23,8 @@ const reserved =
  * @param {UnevalReplacer} [replacer]
  */
 export function uneval(value, replacer) {
-	const counts = new Map();
+	const names = new Map();
+	const seen = new Set();
 
 	/** @type {string[]} */
 	const keys = [];
@@ -36,12 +35,12 @@ export function uneval(value, replacer) {
 	/** @param {any} thing */
 	function walk(thing) {
 		if (!is_primitive(thing)) {
-			if (counts.has(thing)) {
-				counts.set(thing, counts.get(thing) + 1);
+			if (seen.has(thing)) {
+				if (!names.has(thing)) names.set(thing, get_name(names.size));
 				return;
 			}
 
-			counts.set(thing, 1);
+			seen.add(thing);
 
 			if (replacer) {
 				const source = replacer(thing, js);
@@ -83,7 +82,7 @@ export function uneval(value, replacer) {
 					break;
 
 				case 'Set':
-					Array.from(thing).forEach(walk);
+					for (const value of thing) walk(value);
 					break;
 
 				case 'Map':
@@ -148,7 +147,6 @@ export function uneval(value, replacer) {
 						keys.pop();
 					}
 			}
-
 		} else if (typeof thing === 'symbol') {
 			throw new DevalueError(`Cannot stringify a Symbol primitive`, keys, thing, value);
 		}
@@ -156,19 +154,12 @@ export function uneval(value, replacer) {
 
 	walk(value);
 
-	const names = new Map();
-
-	const seen = new Set();
-	const inlining = new Set();
+	// Reuse the traversal set to track declarations during serialization.
+	seen.clear();
+	const inlining = custom.size > 0 ? new Set() : null;
 
 	/** @type {string[]} */
 	const statements = [];
-
-	Array.from(counts)
-		.filter((entry) => entry[1] > 1)
-		.forEach((entry, i) => {
-			names.set(entry[0], get_name(i));
-		});
 
 	/**
 	 * @param {any} thing
@@ -179,13 +170,14 @@ export function uneval(value, replacer) {
 
 		if (name) {
 			if (!seen.has(thing)) {
-
 				const type = custom.has(thing) ? null : get_type(thing);
 
 				switch (type) {
 					case 'Object':
 						seen.add(thing);
-						statements.push(`let ${name}=${Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}'}`);
+						statements.push(
+							`let ${name}=${Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}'}`
+						);
 						Object.keys(thing).forEach((key) => {
 							statements.push(`${name}${safe_prop(key)}=${stringify(thing[key])}`);
 						});
@@ -202,7 +194,7 @@ export function uneval(value, replacer) {
 					case 'Set': {
 						seen.add(thing);
 						statements.push(`let ${name}=new Set`);
-						const adds = Array.from(thing).map((v) => `.add(${stringify(v)})`);
+						const adds = Array.from(thing, (v) => `.add(${stringify(v)})`);
 						// An empty Set is fully built by `new Set`; a chained statement would
 						// otherwise be a dangling `name.`.
 						if (adds.length > 0) statements.push(name + adds.join(''));
@@ -212,9 +204,7 @@ export function uneval(value, replacer) {
 					case 'Map': {
 						seen.add(thing);
 						statements.push(`let ${name}=new Map`);
-						const sets = Array.from(thing).map(
-							([k, v]) => `.set(${stringify(k)},${stringify(v)})`
-						);
+						const sets = Array.from(thing, ([k, v]) => `.set(${stringify(k)},${stringify(v)})`);
 						if (sets.length > 0) statements.push(name + sets.join(''));
 						break;
 					}
@@ -226,12 +216,14 @@ export function uneval(value, replacer) {
 				}
 			}
 
-			return names.get(thing);
+			return name;
 		}
 
 		if (is_primitive(thing)) {
 			return stringify_primitive(thing);
 		}
+
+		if (inlining === null) return actually_stringify(thing);
 
 		// A singly referenced value can still be part of a custom constructor's
 		// cycle. If inlining it re-enters itself, hoist it to break the cycle.
@@ -367,8 +359,12 @@ export function uneval(value, replacer) {
 			}
 
 			case 'Set':
-			case 'Map':
-				return `new ${type}([${Array.from(thing).map(stringify).join(',')}])`;
+				return `new Set([${Array.from(thing, stringify).join(',')}])`;
+
+			case 'Map': {
+				const entries = Array.from(thing, ([k, v]) => `[${stringify(k)},${stringify(v)}]`);
+				return `new Map([${entries.join(',')}])`;
+			}
 
 			case 'Int8Array':
 			case 'Uint8Array':
@@ -464,7 +460,7 @@ export function uneval(value, replacer) {
  * @param {ArrayBufferLike} buffer
  */
 function stringify_typed_array_elements(type, buffer) {
-	const array = new (/** @type {any} */ (globalThis)[type])(buffer);
+	const array = new /** @type {any} */ (globalThis)[type](buffer);
 
 	if (type === 'BigInt64Array' || type === 'BigUint64Array') {
 		return Array.from(array, (element) => `${element}n`).join(',');
@@ -481,18 +477,6 @@ function stringify_typed_array_elements(type, buffer) {
 	}
 
 	return array.toString();
-}
-
-/** @param {number} num */
-function get_name(num) {
-	let name = '';
-
-	do {
-		name = chars[num % chars.length] + name;
-		num = ~~(num / chars.length) - 1;
-	} while (num >= 0);
-
-	return reserved.test(name) ? `${name}0` : name;
 }
 
 /** @param {string} c */
