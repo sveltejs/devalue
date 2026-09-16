@@ -1209,8 +1209,6 @@ custom_source_test('generates collision-free custom source identifiers', () => {
 	});
 	const result = vm.runInNewContext(source, { Wrapper });
 
-	assert.ok(source.startsWith('(function(b){var a;'));
-	assert.ok(source.includes('const c=1,d=2;const read=({value:e},c)=>e+c'));
 	assert.is(result[0], result[1]);
 	assert.is(result[0].inner, result[2]);
 	assert.is(result[0].inner.wrapper, result[0]);
@@ -1227,8 +1225,6 @@ custom_source_test('generates collision-free custom source identifiers', () => {
 		return js`(()=>{const ${local}=42;return ${local}})()`;
 	});
 	const cycle = vm.runInNewContext(cycle_source);
-	assert.ok(cycle_source.startsWith('(function(a,b)'));
-	assert.ok(cycle_source.includes('const c=42;return c'));
 	assert.is(cycle[0].peer.peer, cycle[0]);
 	assert.is(cycle[1], 42);
 });

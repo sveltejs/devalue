@@ -179,12 +179,12 @@ export function uneval(value, replacer) {
 
 		if (name) {
 			if (!seen.has(thing)) {
-				seen.add(thing);
 
 				const type = custom.has(thing) ? null : get_type(thing);
 
 				switch (type) {
 					case 'Object':
+						seen.add(thing);
 						statements.push(`let ${name}=${Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}'}`);
 						Object.keys(thing).forEach((key) => {
 							statements.push(`${name}${safe_prop(key)}=${stringify(thing[key])}`);
@@ -192,6 +192,7 @@ export function uneval(value, replacer) {
 						break;
 
 					case 'Array':
+						seen.add(thing);
 						statements.push(`let ${name}=Array(${thing.length})`);
 						/** @type {any[]} */ (thing).forEach((v, i) => {
 							statements.push(`${name}[${i}]=${stringify(v)}`);
@@ -199,6 +200,7 @@ export function uneval(value, replacer) {
 						break;
 
 					case 'Set': {
+						seen.add(thing);
 						statements.push(`let ${name}=new Set`);
 						const adds = Array.from(thing).map((v) => `.add(${stringify(v)})`);
 						// An empty Set is fully built by `new Set`; a chained statement would
@@ -208,6 +210,7 @@ export function uneval(value, replacer) {
 					}
 
 					case 'Map': {
+						seen.add(thing);
 						statements.push(`let ${name}=new Map`);
 						const sets = Array.from(thing).map(
 							([k, v]) => `.set(${stringify(k)},${stringify(v)})`
@@ -217,7 +220,9 @@ export function uneval(value, replacer) {
 					}
 
 					default:
-						statements.push(`let ${name}=${actually_stringify(thing)}`);
+						const str = actually_stringify(thing);
+						if (!seen.has(thing)) statements.push(`let ${name}=${str}`);
+						seen.add(thing);
 				}
 			}
 
@@ -239,9 +244,12 @@ export function uneval(value, replacer) {
 		const source = custom.get(thing);
 
 		if (source) {
-			const rendered = render_source(source, stringify, () => {
-				let name = get_name(names.size);
-				names.set({}, name);
+			const rendered = render_source(source, stringify, (id) => {
+				let name = names.get(id);
+				if (!name) {
+					name = get_name(names.size);
+					names.set(id, name);
+				}
 				return name;
 			});
 
