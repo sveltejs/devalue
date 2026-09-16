@@ -621,7 +621,7 @@ const fixtures = {
 			return {
 				name: 'Object (cyclical)',
 				value: [first, second],
-				js: '(function(){let a={},b={};a.second=b;b.first=a;return [a,b]}())',
+				js: '(function(){let a={},b={};a.first=b;b.second=a;return [b,a]}())',
 				json: '[[1,2],{"second":2},{"first":1}]',
 				validate: (value) => {
 					assert.is(value[0].second, value[1]);
@@ -761,7 +761,7 @@ const fixtures = {
 				const uint16 = new Uint16Array(uint8.buffer);
 				return [uint8, uint8, uint16];
 			})(),
-			js: '(function(a,b){a=new Uint8Array(b);return [a,a,new Uint16Array(b)]}({},new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer))',
+			js: '(function(){let a=new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer,b=new Uint8Array(a);return [b,b,new Uint16Array(a)]}())',
 			json: '[[1,1,3],["Uint8Array",2],["ArrayBuffer","AAECAwQFBgcICQ=="],["Uint16Array",2]]',
 			validate: ([uint8_a, uint8_b, uint16]) => {
 				assert.is(uint8_a, uint8_b);
@@ -792,7 +792,7 @@ const fixtures = {
 				const dv = new DataView(uint8.buffer);
 				return [dv, dv, uint8.buffer];
 			})(),
-			js: '(function(a,b){a=new DataView(b);return [a,a,b]}({},new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer))',
+			js: '(function(){let a=new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer,b=new DataView(a);return [b,b,a]}())',
 			json: '[[1,1,2],["DataView",2],["ArrayBuffer","AAECAwQFBgcICQ=="]]',
 			validate: ([view_a, view_b, buffer]) => {
 				assert.is(view_a, view_b);
@@ -880,7 +880,7 @@ const fixtures = {
 					]
 				]);
 			})(),
-			js: '(function(){let a={},b={},c={};a.id=1;b.id=2;c.id=3;return new Map([[a,new Map([[b,1],[c,1]])],[b,new Map([[a,1],[c,1]])],[c,new Map([[a,1],[b,1]])]])}())',
+			js: '(function(){let a={},b={},c={};a.id=3;b.id=2;c.id=1;return new Map([[c,new Map([[b,1],[a,1]])],[b,new Map([[c,1],[a,1]])],[a,new Map([[c,1],[b,1]])]])}())',
 			json: '[["Map",1,3,4,8,6,9],{"id":2},1,["Map",4,2,6,2],{"id":5},2,{"id":7},3,["Map",1,2,6,2],["Map",1,2,4,2]]',
 			validate: (map) => {
 				const [node1, node2, node3] = map.keys();

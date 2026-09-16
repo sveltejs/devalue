@@ -147,6 +147,7 @@ export function uneval(value, replacer) {
 						keys.pop();
 					}
 			}
+
 		} else if (typeof thing === 'symbol') {
 			throw new DevalueError(`Cannot stringify a Symbol primitive`, keys, thing, value);
 		}
@@ -158,6 +159,7 @@ export function uneval(value, replacer) {
 
 	Array.from(counts)
 		.filter((entry) => entry[1] > 1)
+		.reverse()
 		.forEach((entry, i) => {
 			names.set(entry[0], get_name(i));
 		});
@@ -377,10 +379,28 @@ export function uneval(value, replacer) {
 
 	if (names.size) {
 		/** @type {string[]} */
+		const initializers = [];
+
+		/** @type {string[]} */
 		const declarations = [];
 
 		/** @type {string[]} */
 		const statements = [];
+
+		const flush = () => {
+			if (declarations.length > 0) {
+				statements.push(`let ${declarations.join(',')}`);
+				declarations.length = 0;
+			}
+		}
+
+		/**
+		 * @param {string} statement
+		 */
+		const push = (statement) => {
+			flush();
+			statements.push(statement);
+		}
 
 		names.forEach((name, thing) => {
 			if (custom.has(thing)) {
@@ -397,34 +417,34 @@ export function uneval(value, replacer) {
 
 			switch (type) {
 				case 'Object':
-					declarations.push(`${name}=${Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}'}`);
+					initializers.push(`${name}=${Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}'}`);
 					Object.keys(thing).forEach((key) => {
-						statements.push(`${name}${safe_prop(key)}=${stringify(thing[key])}`);
+						push(`${name}${safe_prop(key)}=${stringify(thing[key])}`);
 					});
 					break;
 
 				case 'Array':
-					declarations.push(`${name}=Array(${thing.length})`);
+					initializers.push(`${name}=Array(${thing.length})`);
 					/** @type {any[]} */ (thing).forEach((v, i) => {
-						statements.push(`${name}[${i}]=${stringify(v)}`);
+						push(`${name}[${i}]=${stringify(v)}`);
 					});
 					break;
 
 				case 'Set': {
-					declarations.push(`${name}=new Set`);
+					initializers.push(`${name}=new Set`);
 					const adds = Array.from(thing).map((v) => `.add(${stringify(v)})`);
 					// An empty Set is fully built by `new Set`; a chained statement would
 					// otherwise be a dangling `name.`.
-					if (adds.length > 0) statements.push(name + adds.join(''));
+					if (adds.length > 0) push(name + adds.join(''));
 					break;
 				}
 
 				case 'Map': {
-					declarations.push(`${name}=new Map`);
+					initializers.push(`${name}=new Map`);
 					const sets = Array.from(thing).map(
 						([k, v]) => `.set(${stringify(k)},${stringify(v)})`
 					);
-					if (sets.length > 0) statements.push(name + sets.join(''));
+					if (sets.length > 0) push(name + sets.join(''));
 					break;
 				}
 
@@ -535,9 +555,13 @@ export function uneval(value, replacer) {
 			}
 		});
 
-		statements.push(`return ${str}`);
+		push(`return ${str}`);
 
-		return `(function(){let ${declarations.join(',')};${statements.join(';')}}())`;
+		if (initializers.length > 0) {
+			statements.unshift(`let ${initializers.join(',')}`);
+		}
+
+		return `(function(){${statements.join(';')}}())`;
 	} else {
 		return str;
 	}
