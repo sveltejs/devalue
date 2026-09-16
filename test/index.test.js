@@ -1515,6 +1515,33 @@ custom_source_test('preserves order in mutual and custom cycles', () => {
 	assert.is(result_wrapper.before, true);
 	assert.is(result_wrapper.inner.tail, 42);
 });
+custom_source_test('rejects cycles made entirely of custom constructions', () => {
+	class Atomic {
+		constructor() {
+			this.other = undefined;
+		}
+	}
+
+	const a = new Atomic();
+	const b = new Atomic();
+	a.other = b;
+	b.other = a;
+	const self = new Atomic();
+	self.other = self;
+	for (const value of [a, self]) {
+		assert.throws(
+			() =>
+				uneval(value, (item, js) =>
+					item instanceof Atomic
+						? js`Object.assign(new Atomic(),{other:${item.other}})`
+						: undefined
+				),
+			(error) =>
+				error.name === 'RangeError' &&
+				error.message === 'Maximum call stack size exceeded'
+		);
+	}
+});
 custom_source_test('accepts only documented fallback values', () => {
 	for (const fallback of [undefined, null, false]) {
 		assert.is(uneval({ answer: 42 }, () => fallback), '{answer:42}');
