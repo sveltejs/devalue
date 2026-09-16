@@ -158,6 +158,9 @@ export function uneval(value, replacer) {
 	seen.clear();
 	const inlining = custom.size > 0 ? new Set() : null;
 
+	/** @type {Map<any, () => void>} */
+	const initializers = new Map();
+
 	/** @type {string[]} */
 	const statements = [];
 
@@ -191,21 +194,44 @@ export function uneval(value, replacer) {
 						});
 						break;
 
-					case 'Set': {
-						seen.add(thing);
-						statements.push(`let ${name}=new Set`);
-						const adds = Array.from(thing, (v) => `.add(${stringify(v)})`);
-						// An empty Set is fully built by `new Set`; a chained statement would
-						// otherwise be a dangling `name.`.
-						if (adds.length > 0) statements.push(name + adds.join(''));
-						break;
-					}
-
+					case 'Set':
 					case 'Map': {
 						seen.add(thing);
-						statements.push(`let ${name}=new Map`);
-						const sets = Array.from(thing, ([k, v]) => `.set(${stringify(k)},${stringify(v)})`);
-						if (sets.length > 0) statements.push(name + sets.join(''));
+						/** @type {string[]} */
+						const entries = [];
+						let initialized = false;
+						let statement_index = -1;
+
+						// Collect a ready prefix until a reference needs the collection.
+						// Emit subsequent entries eagerly, preserving insertion order.
+						const initialize = () => {
+							if (initialized) return;
+							initialized = true;
+							initializers.delete(thing);
+							statements.push(
+								`let ${name}=new ${type}${entries.length ? `([${entries.join(',')}])` : ''}`
+							);
+						};
+
+						initializers.set(thing, initialize);
+
+						for (const entry of thing) {
+							const args =
+								type === 'Map' ? `${stringify(entry[0])},${stringify(entry[1])}` : stringify(entry);
+
+							if (!initialized) {
+								entries.push(type === 'Map' ? `[${args}]` : args);
+							} else {
+								const call = `.${type === 'Map' ? 'set' : 'add'}(${args})`;
+								if (statement_index === statements.length - 1) {
+									statements[statement_index] += call;
+								} else {
+									statement_index = statements.push(name + call) - 1;
+								}
+							}
+						}
+
+						initialize();
 						break;
 					}
 
@@ -214,6 +240,8 @@ export function uneval(value, replacer) {
 						if (!seen.has(thing)) statements.push(`let ${name}=${str}`);
 						seen.add(thing);
 				}
+			} else {
+				initializers.get(thing)?.();
 			}
 
 			return name;
