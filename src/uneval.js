@@ -158,6 +158,9 @@ export function uneval(value, replacer) {
 
 	const names = new Map();
 
+	/** @type {string[]} */
+	const statements = [];
+
 	Array.from(counts)
 		.filter((entry) => entry[1] > 1)
 		.reverse()
@@ -378,195 +381,11 @@ export function uneval(value, replacer) {
 
 	const str = stringify(value);
 
-	if (names.size) {
-		/** @type {string[]} */
-		const initializers = [];
-
-		/** @type {string[]} */
-		const declarations = [];
-
-		/** @type {string[]} */
-		const statements = [];
-
-		const flush = () => {
-			if (declarations.length > 0) {
-				statements.push(`let ${declarations.join(',')}`);
-				declarations.length = 0;
-			}
-		}
-
-		/**
-		 * @param {string} statement
-		 */
-		const push = (statement) => {
-			flush();
-			statements.push(statement);
-		}
-
-		names.forEach((name, thing) => {
-			const source = custom.get(thing);
-
-			if (source) {
-				declarations.push(`${name}=${render_source(source, stringify, () => {
-				let name = get_name(names.size);
-				names.set({}, name);
-				return name;
-			})}`);
-				return;
-			}
-
-			const type = get_type(thing);
-
-			switch (type) {
-				case 'Object':
-					initializers.push(`${name}=${Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}'}`);
-					Object.keys(thing).forEach((key) => {
-						push(`${name}${safe_prop(key)}=${stringify(thing[key])}`);
-					});
-					break;
-
-				case 'Array':
-					initializers.push(`${name}=Array(${thing.length})`);
-					/** @type {any[]} */ (thing).forEach((v, i) => {
-						push(`${name}[${i}]=${stringify(v)}`);
-					});
-					break;
-
-				case 'Set': {
-					initializers.push(`${name}=new Set`);
-					const adds = Array.from(thing).map((v) => `.add(${stringify(v)})`);
-					// An empty Set is fully built by `new Set`; a chained statement would
-					// otherwise be a dangling `name.`.
-					if (adds.length > 0) push(name + adds.join(''));
-					break;
-				}
-
-				case 'Map': {
-					initializers.push(`${name}=new Map`);
-					const sets = Array.from(thing).map(
-						([k, v]) => `.set(${stringify(k)},${stringify(v)})`
-					);
-					if (sets.length > 0) push(name + sets.join(''));
-					break;
-				}
-
-				default:
-					declarations.push(`${name}=${actually_stringify(thing)}`);
-
-				// case 'Number':
-				// case 'String':
-				// case 'Boolean':
-				// case 'BigInt':
-				// 	statements.push(`let ${name}=Object(${stringify(thing.valueOf())})`);
-				// 	break;
-
-				// case 'RegExp':
-				// 	const { source, flags } = thing;
-				// 	const regexp = flags
-				// 		? `new RegExp(${stringify_string(source)},"${flags}")`
-				// 		: `new RegExp(${stringify_string(source)})`
-				// 	statements.push(`let ${name}=${regexp}`);
-				// 	break;
-
-				// case 'Date':
-				// 	statements.push(`let ${name}=new Date(${thing.getTime()})`);
-				// 	break;
-
-				// case 'URL':
-				// 	statements.push(`let ${name}=new URL(${stringify_string(thing.toString())})`);
-				// 	break;
-
-				// case 'URLSearchParams':
-				// 	statements.push(`let ${name}=new URLSearchParams(${stringify_string(thing.toString())})`);
-				// 	break;
-
-
-
-				// case 'Int8Array':
-				// case 'Uint8Array':
-				// case 'Uint8ClampedArray':
-				// case 'Int16Array':
-				// case 'Uint16Array':
-				// case 'Float16Array':
-				// case 'Int32Array':
-				// case 'Uint32Array':
-				// case 'Float32Array':
-				// case 'Float64Array':
-				// case 'BigInt64Array':
-				// case 'BigUint64Array': {
-				// 	let str = `new ${type}`;
-
-				// 	if (!names.has(thing.buffer)) {
-				// 		str += `([${stringify_typed_array_elements(type, thing.buffer)}])`;
-				// 	} else {
-				// 		str += `(${stringify(thing.buffer)})`;
-				// 	}
-
-				// 	// handle subarrays
-				// 	if (thing.byteLength !== thing.buffer.byteLength) {
-				// 		const start = thing.byteOffset / thing.BYTES_PER_ELEMENT;
-				// 		const end = start + thing.length;
-				// 		str += `.subarray(${start},${end})`;
-				// 	}
-
-				// 	statements.push(`let ${name}=${str}`);
-				// 	break;
-				// }
-
-				// case 'DataView': {
-				// 	let str = `new DataView`;
-
-				// 	if (!names.has(thing.buffer)) {
-				// 		str += `(new Uint8Array([${new Uint8Array(thing.buffer)}]).buffer`;
-				// 	} else {
-				// 		str += `(${stringify(thing.buffer)}`;
-				// 	}
-
-				// 	// handle subviews
-				// 	if (thing.byteLength !== thing.buffer.byteLength) {
-				// 		str += `,${thing.byteOffset},${thing.byteLength}`;
-				// 	}
-
-				// 	str += ')';
-
-				// 	statements.push(`let ${name}=${str}`);
-				// 	break;
-				// }
-
-				// case 'ArrayBuffer':
-				// 	statements.push(`let ${name}=new Uint8Array([${new Uint8Array(thing)}]).buffer`);
-				// 	break;
-
-				// case 'Temporal.Duration':
-				// case 'Temporal.Instant':
-				// case 'Temporal.PlainDate':
-				// case 'Temporal.PlainTime':
-				// case 'Temporal.PlainDateTime':
-				// case 'Temporal.PlainMonthDay':
-				// case 'Temporal.PlainYearMonth':
-				// case 'Temporal.ZonedDateTime':
-				// 	statements.push(`let ${name}=${type}.from(${stringify_string(thing.toString())})`);
-				// 	break;
-
-				// default:
-				// 	console.log({ type })
-				// 	statements.push(`let ${name}=${Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}'}`);
-				// 	Object.keys(thing).forEach((key) => {
-				// 		statements.push(`${name}${safe_prop(key)}=${stringify(thing[key])}`);
-				// 	});
-			}
-		});
-
-		push(`return ${str}`);
-
-		if (initializers.length > 0) {
-			statements.unshift(`let ${initializers.join(',')}`);
-		}
-
-		return `(function(){${statements.join(';')}}())`;
-	} else {
+	if (statements.length === 0) {
 		return str;
 	}
+
+	return `(function(){${statements.join(';')}}())`;
 }
 
 /**
