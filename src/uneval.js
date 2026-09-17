@@ -26,6 +26,7 @@ export function uneval(value, replacer) {
 	/** @type {Map<any, string>} */
 	const names = new Map();
 	const reserved = new Set();
+	const templates = new Set();
 	const seen = new Set();
 
 	/** @type {string[]} */
@@ -49,7 +50,7 @@ export function uneval(value, replacer) {
 
 				if (is_source(source)) {
 					custom.set(thing, source);
-					visit_source(source, walk, reserved);
+					visit_source(source, walk, reserved, templates);
 					return;
 				}
 
