@@ -53,7 +53,13 @@ for (const branch of branches) {
 		const child = fork(runner);
 
 		child.on('message', (results) => {
-			fs.writeFileSync(`${outdir}/${branch}.json`, JSON.stringify(results, null, '  '));
+			const file = `${outdir}/${branch}.json`;
+
+			try {
+				fs.mkdirSync(path.dirname(file), { recursive: true });
+			} catch {}
+
+			fs.writeFileSync(file, JSON.stringify(results, null, '  '));
 			fulfil(undefined);
 		});
 
