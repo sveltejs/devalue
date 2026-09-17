@@ -45,8 +45,8 @@ export type TypedArray =
 
 /**
  * A tagged template function for building trusted JavaScript. The string bits are emitted verbatim,
- * while the "holes" are recursively serialized. Source is not scope-analyzed. Use `identifier()`
- * to create local bindings that cannot collide with names generated for serialized holes.
+ * while the "holes" are recursively serialized. Identifier-like words in the string bits are
+ * reserved when generating names. Use `identifier()` to create reusable generated local bindings.
  */
 export interface JavaScriptTag {
 	(strings: TemplateStringsArray, ...values: unknown[]): JavaScriptSource;

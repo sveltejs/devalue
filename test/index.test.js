@@ -1175,6 +1175,113 @@ for (const [name, tests] of Object.entries(fixtures)) {
 }
 
 const custom_source_test = uvu.suite('uneval: custom source');
+custom_source_test('does not shadow constructors in literal or nested source', () => {
+	class Wrapper {
+		constructor(inner) {
+			this.inner = inner;
+		}
+	}
+
+	for (const nested of [false, true]) {
+		const shared = { answer: 42 };
+		const source = uneval([shared, shared, new Wrapper(shared)], (value, js) => {
+			if (!(value instanceof Wrapper)) return;
+			const source = js`new a(${value.inner})`;
+			return nested ? js`(${source})` : source;
+		});
+		const result = vm.runInNewContext(source, { a: Wrapper });
+		assert.is(result[0], result[1]);
+		assert.ok(result[2] instanceof Wrapper);
+		assert.is(result[2].inner, result[0]);
+	}
+});
+custom_source_test('literal local bindings do not capture serialized references', () => {
+	class Wrapper {
+		constructor(inner, total) {
+			this.inner = inner;
+			this.total = total;
+		}
+	}
+
+	const shared = { answer: 42 };
+	const source = uneval([shared, shared, new Wrapper(shared, 3)], (value, js) => {
+		if (value instanceof Wrapper) {
+			return js`(()=>{const a=1,b=2;return new Wrapper(${value.inner},a+b)})()`;
+		}
+	});
+	const result = vm.runInNewContext(source, { Wrapper });
+	assert.is(result[0], result[1]);
+	assert.is(result[2].inner, result[0]);
+	assert.is(result[2].total, 3);
+});
+custom_source_test('generated identifiers do not shadow literal names in later or nested chunks', () => {
+	class Wrapper {
+		constructor(inner) {
+			this.inner = inner;
+		}
+	}
+
+	const source = uneval(new Wrapper(42), (value, js) => {
+		if (!(value instanceof Wrapper)) return;
+		const local = js.identifier();
+		return js`(()=>{const ${local}=${js`new a(${value.inner})`};return b(${local})})()`;
+	});
+	const result = vm.runInNewContext(source, { a: Wrapper, b: (value) => value });
+	assert.ok(result instanceof Wrapper);
+	assert.is(result.inner, 42);
+});
+custom_source_test('names allocated while breaking custom cycles do not shadow literal names', () => {
+	class Wrapper {
+		constructor(inner) {
+			this.inner = inner;
+		}
+	}
+
+	const container = {};
+	const wrapper = new Wrapper(container);
+	container.wrapper = wrapper;
+	const source = uneval(wrapper, (value, js) => {
+		if (value instanceof Wrapper) return js`new b(${value.inner})`;
+	});
+	const result = vm.runInNewContext(source, { b: Wrapper });
+	assert.ok(result instanceof Wrapper);
+	assert.is(result.inner.wrapper, result);
+});
+custom_source_test('reserves dollar and underscore names in literal source', () => {
+	class Wrapper {
+		constructor(inner) {
+			this.inner = inner;
+		}
+	}
+
+	const shared = Array.from({ length: 54 }, () => ({}));
+	const source = uneval([shared, shared.slice(), new Wrapper(42)], (value, js) => {
+		if (value instanceof Wrapper) return js`new $(_(${value.inner}))`;
+	});
+	const result = vm.runInNewContext(source, { $: Wrapper, _: (value) => value });
+	for (let i = 0; i < shared.length; i += 1) assert.is(result[0][i], result[1][i]);
+	assert.ok(result[2] instanceof Wrapper);
+	assert.is(result[2].inner, 42);
+});
+custom_source_test('reserves escaped identifiers in literal source', () => {
+	class Wrapper {
+		constructor(inner) {
+			this.inner = inner;
+		}
+	}
+
+	for (const code_point of [false, true]) {
+		const shared = { answer: 42 };
+		const source = uneval([shared, shared, new Wrapper(shared)], (value, js) => {
+			if (!(value instanceof Wrapper)) return;
+			return code_point ? js`new \\u{61}(${value.inner})` : js`new \\u0061(${value.inner})`;
+		});
+		const result = vm.runInNewContext(source, { a: Wrapper });
+		assert.is(result[0], result[1]);
+		assert.ok(result[2] instanceof Wrapper);
+		assert.is(result[2].inner, result[0]);
+	}
+});
 custom_source_test('preserves identities referenced by custom source', () => {
 	class Wrapper {
 		constructor(inner) {
