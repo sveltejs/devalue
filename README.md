@@ -145,19 +145,6 @@ devalue.uneval(vector, (value, js) => {
 
 The replacer must return a source created with the supplied `js` tag, or `undefined`, `null` or `false` to serialize the value normally. Each value "hole" is recursively serialized. Identifier-like words in the literal template strings (including nested templates) are reserved, so generated variables cannot shadow your constructors, helpers or local bindings.
 
-You can also create local bindings with `js.identifier()`, and interpolate the returned identifier wherever that binding is declared or referenced:
-
-```js
-devalue.uneval(vector, (value, js) => {
-	if (value instanceof Vector) {
-		const result = js.identifier();
-		return js`(()=>{const ${result}=new Vector(${value.x},${value.y});return ${result}})()`;
-	}
-});
-```
-
-Repeated interpolation of one identifier token uses the same generated name, while separate tokens use separate names.
-
 In most cases, cyclic references are supported, but some rare direct custom dependencies are not, and will throw an error. For example:
 
 ```js
