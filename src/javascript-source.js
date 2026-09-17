@@ -68,11 +68,25 @@ export function render_source(source, render, render_identifier) {
 /**
  * @param {JavaScriptSource} source
  * @param {(value: unknown) => void} visit
+ * @param {Set<string>} reserved
  */
-export function visit_source(source, visit) {
+export function visit_source(source, visit, reserved) {
 	if (is_identifier(source)) return;
-	for (const value of source[SOURCE].values) {
-		if (is_source(value)) visit_source(value, visit);
+	const { strings, values } = source[SOURCE];
+	for (const string of strings) {
+		// Generated names are ASCII, but literal identifiers can use Unicode escapes.
+		const decoded = string.replace(
+			/\\u(?:([\da-f]{4})|\{([\da-f]+)\})/gi,
+			(escape, hex, code_point) => {
+				const code = parseInt(hex || code_point, 16);
+				return code < 128 ? String.fromCharCode(code) : escape;
+			}
+		);
+		// Conservatively reserve words even in property names, strings and comments.
+		for (const name of decoded.match(/[a-zA-Z_$][\w$]*/g) || []) reserved.add(name);
+	}
+	for (const value of values) {
+		if (is_source(value)) visit_source(value, visit, reserved);
 		else visit(value);
 	}
 }

@@ -23,7 +23,9 @@ const unsafe_chars = /[<\b\f\n\r\t\0\u2028\u2029]/g;
  * @param {UnevalReplacer} [replacer]
  */
 export function uneval(value, replacer) {
+	/** @type {Map<any, string>} */
 	const names = new Map();
+	const reserved = new Set();
 	const seen = new Set();
 
 	/** @type {string[]} */
@@ -36,7 +38,7 @@ export function uneval(value, replacer) {
 	function walk(thing) {
 		if (!is_primitive(thing)) {
 			if (seen.has(thing)) {
-				if (!names.has(thing)) names.set(thing, get_name(names.size));
+				if (!names.has(thing)) names.set(thing, '');
 				return;
 			}
 
@@ -47,7 +49,7 @@ export function uneval(value, replacer) {
 
 				if (is_source(source)) {
 					custom.set(thing, source);
-					visit_source(source, walk);
+					visit_source(source, walk, reserved);
 					return;
 				}
 
@@ -154,6 +156,18 @@ export function uneval(value, replacer) {
 
 	walk(value);
 
+	let name_index = 0;
+	function next_name() {
+		let name;
+		do {
+			name = get_name(name_index++);
+		} while (reserved.has(name));
+		return name;
+	}
+
+	// Wait until every custom source has been visited before assigning names.
+	for (const thing of names.keys()) names.set(thing, next_name());
+
 	// Reuse the traversal set to track declarations during serialization.
 	seen.clear();
 	const inlining = custom.size > 0 ? new Set() : null;
@@ -256,7 +270,7 @@ export function uneval(value, replacer) {
 		// A singly referenced value can still be part of a custom constructor's
 		// cycle. If inlining it re-enters itself, hoist it to break the cycle.
 		if (inlining.has(thing)) {
-			names.set(thing, get_name(names.size));
+			names.set(thing, next_name());
 			return stringify(thing);
 		}
 
@@ -277,7 +291,7 @@ export function uneval(value, replacer) {
 			const rendered = render_source(source, stringify, (id) => {
 				let name = names.get(id);
 				if (!name) {
-					name = get_name(names.size);
+					name = next_name();
 					names.set(id, name);
 				}
 				return name;

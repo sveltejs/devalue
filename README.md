@@ -143,7 +143,9 @@ devalue.uneval(vector, (value, js) => {
 }); // `new Vector(30,40)`
 ```
 
-The replacer must return a source created with the supplied `js` tag, or `undefined`, `null` or `false` to serialize the value normally. Each value "hole" is recursively serialized. Create local bindings with `js.identifier()` so they cannot collide with generated names, and interpolate the returned identifier wherever that binding is declared or referenced:
+The replacer must return a source created with the supplied `js` tag, or `undefined`, `null` or `false` to serialize the value normally. Each value "hole" is recursively serialized. Identifier-like words in the literal template strings (including nested templates) are reserved, so generated variables cannot shadow your constructors, helpers or local bindings.
+
+You can also create local bindings with `js.identifier()`, and interpolate the returned identifier wherever that binding is declared or referenced:
 
 ```js
 devalue.uneval(vector, (value, js) => {
