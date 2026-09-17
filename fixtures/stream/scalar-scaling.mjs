@@ -55,7 +55,9 @@ try {
 	}
 	const results = [];
 	for (const count of counts) results.push(await run(count, unevalStream));
-	console.log(JSON.stringify({ node: process.version, fixture: 'resolved native Promise<number>[]', results }));
+	console.log(
+		JSON.stringify({ node: process.version, fixture: 'resolved native Promise<number>[]', results })
+	);
 } finally {
 	globalThis.Map = NativeMap;
 	globalThis.Set = NativeSet;

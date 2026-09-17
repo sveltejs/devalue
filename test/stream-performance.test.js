@@ -12,7 +12,6 @@ import { client } from './helpers/stream.js';
 // the domain of `pnpm bench`, not these tests.
 
 describe('unevalStream performance budgets', () => {
-
 	test('keeps the pending primitive Promise protocol compact', async () => {
 		const pending = Promise.withResolvers();
 		const result = await unevalStream(pending.promise, undefined, { id: 'size' });
@@ -26,7 +25,12 @@ describe('unevalStream performance budgets', () => {
 	});
 
 	test('keeps the native sequence adapter runtime compact', async () => {
-		const source = { async *[Symbol.asyncIterator]() { yield 1; return 2; } };
+		const source = {
+			async *[Symbol.asyncIterator]() {
+				yield 1;
+				return 2;
+			}
+		};
 		const result = await unevalStream(source, undefined, { id: 'native-size' });
 		const message = `head=${result.head.length}`;
 		// measured 1304 for head; the budget guards the queue runtime that
@@ -42,7 +46,9 @@ describe('unevalStream performance budgets', () => {
 				for (let i = 0; i < 100; i += 1) yield repeated;
 			}
 		};
-		const result = await unevalStream({ source, hold: hold.promise }, undefined, { id: 'repeated-budget' });
+		const result = await unevalStream({ source, hold: hold.promise }, undefined, {
+			id: 'repeated-budget'
+		});
 		const target = client();
 		const root = target.head(result.head);
 		hold.resolve('done');
@@ -65,8 +71,13 @@ describe('unevalStream performance budgets', () => {
 	});
 
 	test('trips on whole-Map and whole-Set copies of scalar Promise state', () => {
-		const fixture = fileURLToPath(new URL('../fixtures/stream/scalar-scaling.mjs', import.meta.url));
-		const child = spawnSync(process.execPath, [fixture, '100', '200', '400'], { encoding: 'utf8', timeout: 30_000 });
+		const fixture = fileURLToPath(
+			new URL('../fixtures/stream/scalar-scaling.mjs', import.meta.url)
+		);
+		const child = spawnSync(process.execPath, [fixture, '100', '200', '400'], {
+			encoding: 'utf8',
+			timeout: 30_000
+		});
 		expect(child.error, child.error?.stack).toBe(undefined);
 		expect(child.signal, child.stderr || child.stdout).toBe(null);
 		expect(child.status, child.stderr || child.stdout).toBe(0);
@@ -84,7 +95,9 @@ describe('unevalStream performance budgets', () => {
 	});
 
 	test('keeps overlapping opaque-root retention proportional to captured nodes', () => {
-		const fixture = fileURLToPath(new URL('../fixtures/stream/retained-scaling.mjs', import.meta.url));
+		const fixture = fileURLToPath(
+			new URL('../fixtures/stream/retained-scaling.mjs', import.meta.url)
+		);
 		const child = spawnSync(process.execPath, [fixture, '100', '200', '400', '800'], {
 			encoding: 'utf8',
 			timeout: 30_000
@@ -97,13 +110,18 @@ describe('unevalStream performance budgets', () => {
 		for (const result of measurement.results) {
 			// narrow instrumentation: Map.get probes bound the retained-graph
 			// lookup work; they are not proof of general big-O complexity
-			expect(result.map_gets <= 80 * result.count + 1_000, JSON.stringify(measurement)).toBeTruthy();
+			expect(
+				result.map_gets <= 80 * result.count + 1_000,
+				JSON.stringify(measurement)
+			).toBeTruthy();
 			expect(result.bytes > 0, JSON.stringify(measurement)).toBeTruthy();
 		}
 	});
 
 	test('keeps descriptor-root best-path traversal proportional to operation holes', () => {
-		const fixture = fileURLToPath(new URL('../fixtures/stream/operation-holes-scaling.mjs', import.meta.url));
+		const fixture = fileURLToPath(
+			new URL('../fixtures/stream/operation-holes-scaling.mjs', import.meta.url)
+		);
 		const child = spawnSync(process.execPath, [fixture, '100', '200', '400', '800'], {
 			encoding: 'utf8',
 			timeout: 30_000
@@ -114,13 +132,18 @@ describe('unevalStream performance budgets', () => {
 		const measurement = JSON.parse(child.stdout);
 		expect(measurement.results.map((result) => result.count)).toEqual([100, 200, 400, 800]);
 		for (const result of measurement.results) {
-			expect(result.map_gets <= 80 * result.count + 1_000, JSON.stringify(measurement)).toBeTruthy();
+			expect(
+				result.map_gets <= 80 * result.count + 1_000,
+				JSON.stringify(measurement)
+			).toBeTruthy();
 			expect(result.bytes > 0, JSON.stringify(measurement)).toBeTruthy();
 		}
 	});
 
 	test('keeps per-event scratch proportional when a later batch re-reaches earlier roots', () => {
-		const fixture = fileURLToPath(new URL('../fixtures/stream/operation-holes-scaling.mjs', import.meta.url));
+		const fixture = fileURLToPath(
+			new URL('../fixtures/stream/operation-holes-scaling.mjs', import.meta.url)
+		);
 		const child = spawnSync(process.execPath, [fixture, '--events', '100', '200', '400', '800'], {
 			encoding: 'utf8',
 			timeout: 30_000
@@ -131,13 +154,21 @@ describe('unevalStream performance budgets', () => {
 		const measurement = JSON.parse(child.stdout);
 		expect(measurement.results.map((result) => result.count)).toEqual([100, 200, 400, 800]);
 		for (const result of measurement.results) {
-			expect(result.event1.map_gets <= 80 * result.count + 1_000, JSON.stringify(measurement)).toBeTruthy();
-			expect(result.event2.map_gets <= 80 * result.count + 1_000, JSON.stringify(measurement)).toBeTruthy();
+			expect(
+				result.event1.map_gets <= 80 * result.count + 1_000,
+				JSON.stringify(measurement)
+			).toBeTruthy();
+			expect(
+				result.event2.map_gets <= 80 * result.count + 1_000,
+				JSON.stringify(measurement)
+			).toBeTruthy();
 		}
 	});
 
 	test('collects nested synchronous source holes with linear append work', () => {
-		const fixture = fileURLToPath(new URL('../fixtures/stream/source-values-scaling.mjs', import.meta.url));
+		const fixture = fileURLToPath(
+			new URL('../fixtures/stream/source-values-scaling.mjs', import.meta.url)
+		);
 		const child = spawnSync(process.execPath, [fixture, '100', '200', '400', '800'], {
 			encoding: 'utf8',
 			timeout: 30_000
@@ -151,5 +182,4 @@ describe('unevalStream performance budgets', () => {
 			expect(result.appended <= result.count * 2, JSON.stringify(measurement)).toBeTruthy();
 		}
 	});
-
 });

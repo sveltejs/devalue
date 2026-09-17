@@ -96,8 +96,8 @@ Promises are awaited and their resolved values are serialized. The output format
 import { unevalStream } from 'devalue';
 
 const { head, tail } = await unevalStream({
-	quick: 'data',
-	slow: fetch('/api/slow').then((response) => response.json())
+  quick: 'data',
+  slow: fetch('/api/slow').then((response) => response.json())
 });
 
 const data = (0, eval)(`(${head})`);
@@ -129,9 +129,9 @@ Active sessions are held in a private null-prototype table stored at `globalThis
 ```js
 const controller = new AbortController();
 const stream = await unevalStream(data, replacer, {
-	scope: 'globalThis.appStreams',
-	id: 'request-42',
-	signal: controller.signal
+  scope: 'globalThis.appStreams',
+  id: 'request-42',
+  signal: controller.signal
 });
 ```
 
@@ -157,31 +157,31 @@ A replacer receives a `js` template tag and may return a synchronous source frag
 
 ```js
 class ServerJob {
-	constructor(completion) {
-		this.completion = completion;
-	}
+  constructor(completion) {
+    this.completion = completion;
+  }
 }
 
 class RemoteJob {
-	resolve(value) {
-		this.value = value;
-	}
+  resolve(value) {
+    this.value = value;
+  }
 
-	reject(reason) {
-		this.error = reason;
-	}
+  reject(reason) {
+    this.error = reason;
+  }
 }
 
 const replacer = (value, js) => {
-	if (!(value instanceof ServerJob)) return;
+  if (!(value instanceof ServerJob)) return;
 
-	return {
-		type: 'async-value',
-		source: value.completion,
-		construct: () => js`new RemoteJob()`,
-		resolve: ({ target }, payload) => js`${target}.resolve(${payload})`,
-		reject: ({ target }, reason) => js`${target}.reject(${reason})`
-	};
+  return {
+    type: 'async-value',
+    source: value.completion,
+    construct: () => js`new RemoteJob()`,
+    resolve: ({ target }, payload) => js`${target}.resolve(${payload})`,
+    reject: ({ target }, reason) => js`${target}.reject(${reason})`
+  };
 };
 
 const { head, tail } = await unevalStream(new ServerJob(jobPromise), replacer);
@@ -193,17 +193,17 @@ AsyncIterables need no replacer when the client should receive a buffered async 
 
 ```js
 const sequenceReplacer = (value, js) => {
-	if (!value?.events) return;
+  if (!value?.events) return;
 
-	return {
-		type: 'async-sequence',
-		source: value.events,
-		construct: () => js`new RemoteSequence()`,
-		next: ({ target }, item) => js`${target}.next(${item})`,
-		complete: ({ target }, result) => js`${target}.complete(${result})`,
-		error: ({ target }, reason) => js`${target}.error(${reason})`,
-		cancel: () => value.close()
-	};
+  return {
+    type: 'async-sequence',
+    source: value.events,
+    construct: () => js`new RemoteSequence()`,
+    next: ({ target }, item) => js`${target}.next(${item})`,
+    complete: ({ target }, result) => js`${target}.complete(${result})`,
+    error: ({ target }, reason) => js`${target}.error(${reason})`,
+    cancel: () => value.close()
+  };
 };
 ```
 

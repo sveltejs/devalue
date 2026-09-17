@@ -5,7 +5,6 @@ import { describe, test, expect } from 'vitest';
 import { unevalStream } from '../index.js';
 
 describe('unevalStream lifecycle', () => {
-
 	const delay = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 	async function rejected(promise) {
@@ -49,7 +48,9 @@ describe('unevalStream lifecycle', () => {
 	}
 
 	test('keeps cleanup diagnostics isolated from disposed source getters', () => {
-		const fixture = fileURLToPath(new URL('../fixtures/stream/cleanup-diagnostics.mjs', import.meta.url));
+		const fixture = fileURLToPath(
+			new URL('../fixtures/stream/cleanup-diagnostics.mjs', import.meta.url)
+		);
 		const child = spawnSync(process.execPath, ['--unhandled-rejections=strict', fixture], {
 			encoding: 'utf8',
 			timeout: 10_000
@@ -72,14 +73,20 @@ describe('unevalStream lifecycle', () => {
 			const controller = new AbortController();
 			let cancels = 0;
 			class Job {}
-			const result = await unevalStream(new Job(), (_value, js) => ({
-				type: 'async-value',
-				source: Promise.resolve(1),
-				construct: () => js`0`,
-				resolve: () => js``,
-				reject: () => js``,
-				cancel() { cancels++; }
-			}), { signal: controller.signal });
+			const result = await unevalStream(
+				new Job(),
+				(_value, js) => ({
+					type: 'async-value',
+					source: Promise.resolve(1),
+					construct: () => js`0`,
+					resolve: () => js``,
+					reject: () => js``,
+					cancel() {
+						cancels++;
+					}
+				}),
+				{ signal: controller.signal }
+			);
 			expect(listeners(controller.signal)).toBe(0);
 			controller.abort(new Error('late'));
 			expect(cancels).toBe(0);
@@ -102,9 +109,15 @@ describe('unevalStream lifecycle', () => {
 
 		{
 			const controller = new AbortController();
-			const source = { async *[Symbol.asyncIterator]() { yield 1; yield 2; } };
+			const source = {
+				async *[Symbol.asyncIterator]() {
+					yield 1;
+					yield 2;
+				}
+			};
 			const result = await unevalStream(source, undefined, { signal: controller.signal });
-			for await (const _block of result.tail) {}
+			for await (const _block of result.tail) {
+			}
 			expect(listeners(controller.signal)).toBe(0);
 		}
 	});
@@ -116,7 +129,9 @@ describe('unevalStream lifecycle', () => {
 			expect(await rejected(unevalStream({}, undefined, { signal: pre.signal }))).toBe(reason);
 
 			const controller = new AbortController();
-			const result = await unevalStream(new Promise(() => {}), undefined, { signal: controller.signal });
+			const result = await unevalStream(new Promise(() => {}), undefined, {
+				signal: controller.signal
+			});
 			const next = result.tail.next();
 			controller.abort(reason);
 			expect(await rejected(next)).toBe(reason);
@@ -128,10 +143,18 @@ describe('unevalStream lifecycle', () => {
 			const pull = Promise.withResolvers();
 			let returns = 0;
 			const source = {
-				[Symbol.asyncIterator]() { return this; },
-				next() { return pull.promise; }
+				[Symbol.asyncIterator]() {
+					return this;
+				},
+				next() {
+					return pull.promise;
+				}
 			};
-			if (has_return) source.return = () => { returns++; return { done: true }; };
+			if (has_return)
+				source.return = () => {
+					returns++;
+					return { done: true };
+				};
 			const result = await unevalStream(source);
 			const waiting = result.tail.next();
 			try {
@@ -164,10 +187,16 @@ describe('unevalStream lifecycle', () => {
 		}
 		const values = [new Sequence('first'), new Sequence('second')];
 		const abort_reason = new Error('cleanup reentry');
-		const result = await unevalStream(values, (value, js) => value instanceof Sequence && sequence_descriptor(value, js, () => {
-			calls.push(`cancel:${value.name}`);
-			controller.abort(abort_reason);
-		}), { signal: controller.signal });
+		const result = await unevalStream(
+			values,
+			(value, js) =>
+				value instanceof Sequence &&
+				sequence_descriptor(value, js, () => {
+					calls.push(`cancel:${value.name}`);
+					controller.abort(abort_reason);
+				}),
+			{ signal: controller.signal }
+		);
 		const returning = result.tail.return();
 		// the abort fires reentrantly while the first return() is still gated: every hook
 		// still fires exactly once, in source order, before anything is awaited
@@ -187,17 +216,35 @@ describe('unevalStream lifecycle', () => {
 		const pull = Promise.withResolvers();
 		let reenter = () => {};
 		const iterator = {
-			next() { return pull.promise; },
+			next() {
+				return pull.promise;
+			},
 			get return() {
 				calls.push('get return');
 				reenter();
-				return () => { calls.push('return'); return { done: true }; };
+				return () => {
+					calls.push('return');
+					return { done: true };
+				};
 			}
 		};
-		const source = { [Symbol.asyncIterator]() { return iterator; } };
+		const source = {
+			[Symbol.asyncIterator]() {
+				return iterator;
+			}
+		};
 		const value = { source };
-		const result = await unevalStream(value, (candidate, js) => candidate === value && sequence_descriptor(candidate, js, () => { calls.push('cancel'); }));
-		reenter = () => { void result.tail.return(); };
+		const result = await unevalStream(
+			value,
+			(candidate, js) =>
+				candidate === value &&
+				sequence_descriptor(candidate, js, () => {
+					calls.push('cancel');
+				})
+		);
+		reenter = () => {
+			void result.tail.return();
+		};
 		expect(await result.tail.return()).toEqual({ done: true, value: undefined });
 		expect(calls).toEqual(['get return', 'return', 'cancel']);
 		pull.resolve({ done: true });
@@ -216,7 +263,11 @@ describe('unevalStream lifecycle', () => {
 				throw return_failure;
 			}
 		};
-		const source = { [Symbol.asyncIterator]() { return iterator; } };
+		const source = {
+			[Symbol.asyncIterator]() {
+				return iterator;
+			}
+		};
 		const value = { source };
 		const descriptor = sequence_descriptor(value, undefined);
 		Object.defineProperty(descriptor, 'cancel', {
@@ -226,14 +277,18 @@ describe('unevalStream lifecycle', () => {
 				throw cancel_failure;
 			}
 		});
-		const result = await unevalStream(value, (candidate, js) => {
-			if (candidate !== value) return;
-			descriptor.construct = () => js`({events:[]})`;
-			descriptor.next = ({ target }, item) => js`${target}.events.push(${item})`;
-			descriptor.complete = () => js``;
-			descriptor.error = () => js``;
-			return descriptor;
-		}, { onerror: (error) => reports.push(error) });
+		const result = await unevalStream(
+			value,
+			(candidate, js) => {
+				if (candidate !== value) return;
+				descriptor.construct = () => js`({events:[]})`;
+				descriptor.next = ({ target }, item) => js`${target}.events.push(${item})`;
+				descriptor.complete = () => js``;
+				descriptor.error = () => js``;
+				return descriptor;
+			},
+			{ onerror: (error) => reports.push(error) }
+		);
 		expect(await rejected(result.tail.return())).toBe(return_failure);
 		expect(reports).toEqual([cancel_failure]);
 		expect(return_gets).toBe(1);
@@ -247,22 +302,29 @@ describe('unevalStream lifecycle', () => {
 		const controller = new AbortController();
 		const calls = [];
 		class Job {
-			constructor(name) { this.name = name; }
+			constructor(name) {
+				this.name = name;
+			}
 		}
 		const values = [new Job('committed'), new Job('provisional')];
-		const replacer = (value, js) => value instanceof Job && ({
-			type: 'async-value',
-			source: new Promise(() => {}),
-			construct() {
-				if (value.name === 'provisional') controller.abort('stop');
-				return js`0`;
-			},
-			resolve: () => js``,
-			reject: () => js``,
-			cancel() { calls.push(value.name); }
-		});
+		const replacer = (value, js) =>
+			value instanceof Job && {
+				type: 'async-value',
+				source: new Promise(() => {}),
+				construct() {
+					if (value.name === 'provisional') controller.abort('stop');
+					return js`0`;
+				},
+				resolve: () => js``,
+				reject: () => js``,
+				cancel() {
+					calls.push(value.name);
+				}
+			};
 		// The root capture is one transaction, so neither source is committed until it completes.
-		expect(await rejected(unevalStream(values, replacer, { signal: controller.signal }))).toBe('stop');
+		expect(await rejected(unevalStream(values, replacer, { signal: controller.signal }))).toBe(
+			'stop'
+		);
 		expect(calls).toEqual([]);
 	});
 
@@ -273,17 +335,37 @@ describe('unevalStream lifecycle', () => {
 		class Nested {}
 		class Outer {}
 		const outer = new Outer();
-		const result = await unevalStream(outer, (value, js) => {
-			if (value === outer) return {
-				type: 'async-value', source: outcome.promise, construct: () => js`0`,
-				resolve: () => js``, reject: () => js``, cancel() { calls.push('outer'); }
-			};
-			if (value instanceof Nested) return {
-				type: 'async-value', source: new Promise(() => {}),
-				construct() { controller.abort('stop'); return js`0`; },
-				resolve: () => js``, reject: () => js``, cancel() { calls.push('nested'); }
-			};
-		}, { signal: controller.signal });
+		const result = await unevalStream(
+			outer,
+			(value, js) => {
+				if (value === outer)
+					return {
+						type: 'async-value',
+						source: outcome.promise,
+						construct: () => js`0`,
+						resolve: () => js``,
+						reject: () => js``,
+						cancel() {
+							calls.push('outer');
+						}
+					};
+				if (value instanceof Nested)
+					return {
+						type: 'async-value',
+						source: new Promise(() => {}),
+						construct() {
+							controller.abort('stop');
+							return js`0`;
+						},
+						resolve: () => js``,
+						reject: () => js``,
+						cancel() {
+							calls.push('nested');
+						}
+					};
+			},
+			{ signal: controller.signal }
+		);
 		const waiting = result.tail.next();
 		outcome.resolve(new Nested());
 		expect(await rejected(waiting)).toBe('stop');
@@ -296,19 +378,29 @@ describe('unevalStream lifecycle', () => {
 		const second = Promise.withResolvers();
 		const calls = [];
 		class Job {
-			constructor(name, source) { this.name = name; this.source = source; }
+			constructor(name, source) {
+				this.name = name;
+				this.source = source;
+			}
 		}
 		const jobs = [new Job('first', first), new Job('second', second)];
-		const result = await unevalStream(jobs, (value, js) => value instanceof Job && ({
-			type: 'async-value', source: value.source.promise, construct: () => js`0`,
-			resolve() {
-				calls.push(value.name);
-				if (value.name === 'first') controller.abort('stop');
-				return js``;
-			},
-			reject: () => js``,
-			cancel() {}
-		}), { signal: controller.signal });
+		const result = await unevalStream(
+			jobs,
+			(value, js) =>
+				value instanceof Job && {
+					type: 'async-value',
+					source: value.source.promise,
+					construct: () => js`0`,
+					resolve() {
+						calls.push(value.name);
+						if (value.name === 'first') controller.abort('stop');
+						return js``;
+					},
+					reject: () => js``,
+					cancel() {}
+				},
+			{ signal: controller.signal }
+		);
 		const waiting = result.tail.next();
 		first.resolve(1);
 		second.resolve(2);
@@ -321,16 +413,21 @@ describe('unevalStream lifecycle', () => {
 			const controller = new AbortController();
 			const reason = { trigger: 'descriptor discriminant presence' };
 			let type_reads = 0;
-			const descriptor = new Proxy({}, {
-				getOwnPropertyDescriptor(_target, key) {
-					if (key === 'type') controller.abort(reason);
-					return { configurable: true, enumerable: true, value: 'async-value' };
-				},
-				get(_target, key) {
-					if (key === 'type') type_reads++;
+			const descriptor = new Proxy(
+				{},
+				{
+					getOwnPropertyDescriptor(_target, key) {
+						if (key === 'type') controller.abort(reason);
+						return { configurable: true, enumerable: true, value: 'async-value' };
+					},
+					get(_target, key) {
+						if (key === 'type') type_reads++;
+					}
 				}
-			});
-			expect(await rejected(unevalStream({}, () => descriptor, { signal: controller.signal }))).toBe(reason);
+			);
+			expect(
+				await rejected(unevalStream({}, () => descriptor, { signal: controller.signal }))
+			).toBe(reason);
 			expect(type_reads).toBe(0);
 		}
 		const cases = [
@@ -359,7 +456,14 @@ describe('unevalStream lifecycle', () => {
 				}
 			});
 			const promise = new Promise(() => {});
-			const iterable = { [Symbol.asyncIterator]() { return this; }, next() { return new Promise(() => {}); } };
+			const iterable = {
+				[Symbol.asyncIterator]() {
+					return this;
+				},
+				next() {
+					return new Promise(() => {});
+				}
+			};
 			Object.defineProperty(descriptor, 'source', {
 				enumerable: true,
 				get() {
@@ -368,16 +472,19 @@ describe('unevalStream lifecycle', () => {
 					return current.kind === 'value' ? promise : iterable;
 				}
 			});
-			const keys = current.kind === 'value'
-				? ['construct', 'resolve', 'reject']
-				: ['construct', 'next', 'complete', 'error'];
+			const keys =
+				current.kind === 'value'
+					? ['construct', 'resolve', 'reject']
+					: ['construct', 'next', 'complete', 'error'];
 			for (const key of keys) {
 				Object.defineProperty(descriptor, key, {
 					enumerable: true,
 					get() {
 						calls.push(`get:${key}`);
 						if (current.trigger === key) controller.abort(reason);
-						return () => { calls.push(`call:${key}`); };
+						return () => {
+							calls.push(`call:${key}`);
+						};
 					}
 				});
 			}
@@ -386,10 +493,14 @@ describe('unevalStream lifecycle', () => {
 				get() {
 					calls.push('get:cancel');
 					if (current.trigger === 'cancel') controller.abort(reason);
-					return () => { calls.push(`call:cancel`); };
+					return () => {
+						calls.push(`call:cancel`);
+					};
 				}
 			});
-			expect(await rejected(unevalStream({}, () => descriptor, { signal: controller.signal }))).toBe(reason);
+			expect(
+				await rejected(unevalStream({}, () => descriptor, { signal: controller.signal }))
+			).toBe(reason);
 			// once cancellation is triggered, no method is invoked and no later
 			// descriptor stage runs, whatever lookup order the implementation uses
 			expect(calls).not.toContain('call:construct');
@@ -412,30 +523,47 @@ describe('unevalStream lifecycle', () => {
 		class Outer {}
 		class Nested {}
 		const outer = new Outer();
-		const result = await unevalStream(outer, (value, js) => {
-			if (value === outer) return {
-				type: 'async-value', source: gate.promise,
-				construct: () => js`0`, resolve: (_reference, outcome) => js`${outcome}`,
-				reject: () => js``, cancel() { calls.push('outer:cancel'); }
-			};
-			if (value instanceof Nested) {
-				const descriptor = {
-					type: 'async-value', source: new Promise(() => {}),
-					resolve: () => js``, reject: () => js``,
-					cancel() { calls.push('nested:cancel'); }
-				};
-				// aborting on the first construct acquisition: the method must be
-				// acquired-but-never-invoked once cancellation has been triggered
-				Object.defineProperty(descriptor, 'construct', {
-					get() {
-						calls.push('nested:get construct');
-						controller.abort(reason);
-						return () => { calls.push('nested:construct'); return js`0`; };
-					}
-				});
-				return descriptor;
-			}
-		}, { signal: controller.signal });
+		const result = await unevalStream(
+			outer,
+			(value, js) => {
+				if (value === outer)
+					return {
+						type: 'async-value',
+						source: gate.promise,
+						construct: () => js`0`,
+						resolve: (_reference, outcome) => js`${outcome}`,
+						reject: () => js``,
+						cancel() {
+							calls.push('outer:cancel');
+						}
+					};
+				if (value instanceof Nested) {
+					const descriptor = {
+						type: 'async-value',
+						source: new Promise(() => {}),
+						resolve: () => js``,
+						reject: () => js``,
+						cancel() {
+							calls.push('nested:cancel');
+						}
+					};
+					// aborting on the first construct acquisition: the method must be
+					// acquired-but-never-invoked once cancellation has been triggered
+					Object.defineProperty(descriptor, 'construct', {
+						get() {
+							calls.push('nested:get construct');
+							controller.abort(reason);
+							return () => {
+								calls.push('nested:construct');
+								return js`0`;
+							};
+						}
+					});
+					return descriptor;
+				}
+			},
+			{ signal: controller.signal }
+		);
 		const waiting = settled(result.tail.next());
 		gate.resolve(new Nested());
 		const outcome = await waiting;
@@ -494,11 +622,27 @@ describe('unevalStream lifecycle', () => {
 				type: kind === 'value' ? 'async-value' : 'async-sequence',
 				source: observed,
 				construct: (_capture) => tag`0`,
-				resolve: () => tag``, reject: () => tag``,
-				next: () => tag``, complete: () => tag``, error: () => tag``,
-				cancel() { calls.push('cancel'); }
+				resolve: () => tag``,
+				reject: () => tag``,
+				next: () => tag``,
+				complete: () => tag``,
+				error: () => tag``,
+				cancel() {
+					calls.push('cancel');
+				}
 			};
-			expect(await rejected(unevalStream({}, (_value, js) => { tag = js; return descriptor; }, { signal: controller.signal }))).toBe(reason);
+			expect(
+				await rejected(
+					unevalStream(
+						{},
+						(_value, js) => {
+							tag = js;
+							return descriptor;
+						},
+						{ signal: controller.signal }
+					)
+				)
+			).toBe(reason);
 			// cancellation at an acquisition boundary stops the startup sequence:
 			// no forbidden invocation or pull follows the abort
 			expect(calls).toContain('cancel');
@@ -517,8 +661,17 @@ describe('unevalStream lifecycle', () => {
 	});
 
 	test('does not invoke operation or fallback methods acquired after cancellation', async () => {
-		for (const phase of ['resolve', 'reject', 'next', 'complete', 'error', 'fallback reject', 'fallback error']) {
-			const sequence = phase === 'next' || phase === 'complete' || phase === 'error' || phase === 'fallback error';
+		for (const phase of [
+			'resolve',
+			'reject',
+			'next',
+			'complete',
+			'error',
+			'fallback reject',
+			'fallback error'
+		]) {
+			const sequence =
+				phase === 'next' || phase === 'complete' || phase === 'error' || phase === 'fallback error';
 			const fallback = phase.startsWith('fallback');
 			const method_name = fallback ? (sequence ? 'error' : 'reject') : phase;
 			const controller = new AbortController();
@@ -532,20 +685,45 @@ describe('unevalStream lifecycle', () => {
 			let pulls = 0;
 			let returns = 0;
 			const iterable = {
-				[Symbol.asyncIterator]() { return this; },
-				next() { pulls++; return gate.promise; },
-				return() { returns++; return { done: true }; }
+				[Symbol.asyncIterator]() {
+					return this;
+				},
+				next() {
+					pulls++;
+					return gate.promise;
+				},
+				return() {
+					returns++;
+					return { done: true };
+				}
 			};
 			const descriptor = {
 				type: sequence ? 'async-sequence' : 'async-value',
 				source: sequence ? iterable : gate.promise,
 				construct: () => tag`0`,
-				resolve() { calls.push('resolve'); return fallback ? null : tag``; },
-				reject() { calls.push('reject'); return tag``; },
-				next() { calls.push('next'); return fallback ? null : tag``; },
-				complete() { calls.push('complete'); return tag``; },
-				error() { calls.push('error'); return tag``; },
-				cancel() { calls.push('cancel'); }
+				resolve() {
+					calls.push('resolve');
+					return fallback ? null : tag``;
+				},
+				reject() {
+					calls.push('reject');
+					return tag``;
+				},
+				next() {
+					calls.push('next');
+					return fallback ? null : tag``;
+				},
+				complete() {
+					calls.push('complete');
+					return tag``;
+				},
+				error() {
+					calls.push('error');
+					return tag``;
+				},
+				cancel() {
+					calls.push('cancel');
+				}
 			};
 			Object.defineProperty(descriptor, method_name, {
 				get() {
@@ -565,10 +743,17 @@ describe('unevalStream lifecycle', () => {
 				}
 			});
 			const reports = [];
-			const result = await unevalStream({}, (_value, js) => { tag = js; return descriptor; }, {
-				signal: controller.signal,
-				onerror: (error) => reports.push(error)
-			});
+			const result = await unevalStream(
+				{},
+				(_value, js) => {
+					tag = js;
+					return descriptor;
+				},
+				{
+					signal: controller.signal,
+					onerror: (error) => reports.push(error)
+				}
+			);
 			const waiting = settled(result.tail.next());
 			armed = true;
 			if (!sequence) {
@@ -601,7 +786,9 @@ describe('unevalStream lifecycle', () => {
 			let operation_receiver;
 			let construct_receiver;
 			const iterator = {
-				next() { return { done: true, value: 1 }; }
+				next() {
+					return { done: true, value: 1 };
+				}
 			};
 			const observed = {};
 			Object.defineProperty(observed, kind === 'value' ? 'then' : Symbol.asyncIterator, {
@@ -619,12 +806,36 @@ describe('unevalStream lifecycle', () => {
 			});
 			const descriptor = {
 				type: kind === 'value' ? 'async-value' : 'async-sequence',
-				construct() { constructs++; construct_receiver = this; return tag`0`; },
-				resolve() { operations++; operation_receiver = this; return tag``; },
-				reject() { operations++; operation_receiver = this; return tag``; },
-				next() { operations++; operation_receiver = this; return tag``; },
-				complete() { operations++; operation_receiver = this; return tag``; },
-				error() { operations++; operation_receiver = this; return tag``; }
+				construct() {
+					constructs++;
+					construct_receiver = this;
+					return tag`0`;
+				},
+				resolve() {
+					operations++;
+					operation_receiver = this;
+					return tag``;
+				},
+				reject() {
+					operations++;
+					operation_receiver = this;
+					return tag``;
+				},
+				next() {
+					operations++;
+					operation_receiver = this;
+					return tag``;
+				},
+				complete() {
+					operations++;
+					operation_receiver = this;
+					return tag``;
+				},
+				error() {
+					operations++;
+					operation_receiver = this;
+					return tag``;
+				}
 			};
 			for (const key of ['construct', 'resolve', 'reject', 'next', 'complete', 'error']) {
 				Object.defineProperty(descriptor[key], 'call', {
@@ -632,10 +843,17 @@ describe('unevalStream lifecycle', () => {
 				});
 			}
 			Object.defineProperty(descriptor, 'source', {
-				get() { source_reads++; return observed; }
+				get() {
+					source_reads++;
+					return observed;
+				}
 			});
-			const result = await unevalStream({}, (_value, js) => { tag = js; return descriptor; });
-			for await (const _block of result.tail) {}
+			const result = await unevalStream({}, (_value, js) => {
+				tag = js;
+				return descriptor;
+			});
+			for await (const _block of result.tail) {
+			}
 			// the source may be read any number of times; the receivers are the contract
 			expect(constructs).toBe(1);
 			expect(operations).toBe(1);
@@ -666,11 +884,18 @@ describe('unevalStream lifecycle', () => {
 			}
 		});
 		iterator.next = next;
-		const source = { [Symbol.asyncIterator]() { return iterator; } };
-		const outcome = await settled((async () => {
-			const result = await unevalStream(source, undefined, { signal: controller.signal });
-			for await (const _block of result.tail) {}
-		})());
+		const source = {
+			[Symbol.asyncIterator]() {
+				return iterator;
+			}
+		};
+		const outcome = await settled(
+			(async () => {
+				const result = await unevalStream(source, undefined, { signal: controller.signal });
+				for await (const _block of result.tail) {
+				}
+			})()
+		);
 		expect(outcome.ok).toBe(true);
 		expect(controller.signal.aborted).toBe(false);
 		expect(call_reads).toBe(0);
@@ -697,7 +922,11 @@ describe('unevalStream lifecycle', () => {
 			}
 		});
 		iterator.return = return_method;
-		const source = { [Symbol.asyncIterator]() { return iterator; } };
+		const source = {
+			[Symbol.asyncIterator]() {
+				return iterator;
+			}
+		};
 		let descriptor;
 		const cancel = null_prototype_callable(function () {
 			calls.push(['cancel', this, arguments.length]);
@@ -709,10 +938,20 @@ describe('unevalStream lifecycle', () => {
 			}
 		});
 		const job = {};
-		const result = await unevalStream(job, (value, js) => value === job && (descriptor = {
-			type: 'async-sequence', source,
-			construct: () => js`0`, next: () => js``, complete: () => js``, error: () => js``, cancel
-		}));
+		const result = await unevalStream(
+			job,
+			(value, js) =>
+				value === job &&
+				(descriptor = {
+					type: 'async-sequence',
+					source,
+					construct: () => js`0`,
+					next: () => js``,
+					complete: () => js``,
+					error: () => js``,
+					cancel
+				})
+		);
 		const next_result = settled(result.tail.next());
 		expect(await result.tail.return()).toEqual({ done: true, value: undefined });
 		expect(await next_result).toEqual({ ok: true, value: { done: true, value: undefined } });
@@ -734,17 +973,42 @@ describe('unevalStream lifecycle', () => {
 		const iterator = {
 			get next() {
 				controller.abort(0);
-				return null_prototype_callable(function () { body_calls++; return { done: true }; });
+				return null_prototype_callable(function () {
+					body_calls++;
+					return { done: true };
+				});
 			},
-			return() { returns++; return { done: true }; }
+			return() {
+				returns++;
+				return { done: true };
+			}
 		};
-		const source = { [Symbol.asyncIterator]() { return iterator; } };
+		const source = {
+			[Symbol.asyncIterator]() {
+				return iterator;
+			}
+		};
 		const job = {};
-		expect(await rejected(unevalStream(job, (value, js) => value === job && ({
-			type: 'async-sequence', source,
-			construct: () => js`0`, next: () => js``, complete: () => js``, error: () => js``,
-			cancel() { cancels++; }
-		}), { signal: controller.signal }))).toBe(0);
+		expect(
+			await rejected(
+				unevalStream(
+					job,
+					(value, js) =>
+						value === job && {
+							type: 'async-sequence',
+							source,
+							construct: () => js`0`,
+							next: () => js``,
+							complete: () => js``,
+							error: () => js``,
+							cancel() {
+								cancels++;
+							}
+						},
+					{ signal: controller.signal }
+				)
+			)
+		).toBe(0);
 		expect(body_calls).toBe(0);
 		expect(returns).toBe(1);
 		expect(cancels).toBe(1);
@@ -761,15 +1025,37 @@ describe('unevalStream lifecycle', () => {
 				controller.abort(0);
 				return { done: false, value: 1 };
 			},
-			return() { returns++; return { done: true }; }
+			return() {
+				returns++;
+				return { done: true };
+			}
 		};
-		const source = { [Symbol.asyncIterator]() { return iterator; } };
+		const source = {
+			[Symbol.asyncIterator]() {
+				return iterator;
+			}
+		};
 		const job = {};
-		expect(await rejected(unevalStream(job, (value, js) => value === job && ({
-			type: 'async-sequence', source,
-			construct: () => js`0`, next: () => js``, complete: () => js``, error: () => js``,
-			cancel() { cancels++; }
-		}), { signal: controller.signal }))).toBe(0);
+		expect(
+			await rejected(
+				unevalStream(
+					job,
+					(value, js) =>
+						value === job && {
+							type: 'async-sequence',
+							source,
+							construct: () => js`0`,
+							next: () => js``,
+							complete: () => js``,
+							error: () => js``,
+							cancel() {
+								cancels++;
+							}
+						},
+					{ signal: controller.signal }
+				)
+			)
+		).toBe(0);
 		expect(pulls).toBe(1);
 		expect(returns).toBe(1);
 		expect(cancels).toBe(1);
@@ -794,16 +1080,47 @@ describe('unevalStream lifecycle', () => {
 					}
 				};
 			},
-			return() { stats.returns++; return { done: true }; }
+			return() {
+				stats.returns++;
+				return { done: true };
+			}
 		};
-		return { stats, source: { [Symbol.asyncIterator]() { return iterator; } } };
+		return {
+			stats,
+			source: {
+				[Symbol.asyncIterator]() {
+					return iterator;
+				}
+			}
+		};
 	}
 
 	const abort_cases = [
 		{ initial: true, abort: 'done', results: [{ done: 'abort' }], value_reads: 0, pulls: 1 },
-		{ initial: false, abort: 'done', results: [{ done: false, value: 1 }, { done: 'abort' }], value_reads: 1, pulls: 2 },
-		{ initial: true, abort: 'value', results: [{ done: false, value: 'abort' }], value_reads: 1, pulls: 1 },
-		{ initial: false, abort: 'value', results: [{ done: false, value: 1 }, { done: false, value: 'abort' }], value_reads: 2, pulls: 2 }
+		{
+			initial: false,
+			abort: 'done',
+			results: [{ done: false, value: 1 }, { done: 'abort' }],
+			value_reads: 1,
+			pulls: 2
+		},
+		{
+			initial: true,
+			abort: 'value',
+			results: [{ done: false, value: 'abort' }],
+			value_reads: 1,
+			pulls: 1
+		},
+		{
+			initial: false,
+			abort: 'value',
+			results: [
+				{ done: false, value: 1 },
+				{ done: false, value: 'abort' }
+			],
+			value_reads: 2,
+			pulls: 2
+		}
 	];
 
 	for (const current of abort_cases) {
@@ -814,12 +1131,22 @@ describe('unevalStream lifecycle', () => {
 				const job = {};
 				const stream = native
 					? unevalStream(fixture.source, undefined, { signal: controller.signal })
-					: unevalStream(job, (value, js) => value === job && ({
-						type: 'async-sequence', source: fixture.source,
-						construct: () => js`({events:[]})`,
-						next: () => js``, complete: () => js``, error: () => js``,
-						cancel() { fixture.stats.cancels++; }
-					}), { signal: controller.signal });
+					: unevalStream(
+							job,
+							(value, js) =>
+								value === job && {
+									type: 'async-sequence',
+									source: fixture.source,
+									construct: () => js`({events:[]})`,
+									next: () => js``,
+									complete: () => js``,
+									error: () => js``,
+									cancel() {
+										fixture.stats.cancels++;
+									}
+								},
+							{ signal: controller.signal }
+						);
 				if (current.initial) {
 					const outcome = await settled(stream);
 					expect(outcome.ok).toBe(false);
@@ -848,13 +1175,18 @@ describe('unevalStream lifecycle', () => {
 			const job = {};
 			const result = native
 				? await unevalStream(fixture.source, undefined)
-				: await unevalStream(job, (value, js) => value === job && ({
-					type: 'async-sequence', source: fixture.source,
-					construct: () => js`({events:[]})`,
-					next: (_reference, item) => js`${_reference.target}.events.push(${item})`,
-					complete: (_reference, item) => js`(${item})`,
-					error: () => js``
-				}));
+				: await unevalStream(
+						job,
+						(value, js) =>
+							value === job && {
+								type: 'async-sequence',
+								source: fixture.source,
+								construct: () => js`({events:[]})`,
+								next: (_reference, item) => js`${_reference.target}.events.push(${item})`,
+								complete: (_reference, item) => js`(${item})`,
+								error: () => js``
+							}
+					);
 			expect(fixture.stats.done_reads).toBe(2);
 			expect(fixture.stats.value_reads).toBe(2);
 			expect(fixture.stats.pulls).toBe(2);
@@ -878,30 +1210,62 @@ describe('unevalStream lifecycle', () => {
 			let returns = 0;
 			let cancels = 0;
 			const sequence = phase !== 'resolve';
-			const source = sequence ? {
-				[Symbol.asyncIterator]() { return this; },
-				next() { pulls++; return gate.promise; },
-				return() { returns++; return { done: true }; }
-			} : gate.promise;
+			const source = sequence
+				? {
+						[Symbol.asyncIterator]() {
+							return this;
+						},
+						next() {
+							pulls++;
+							return gate.promise;
+						},
+						return() {
+							returns++;
+							return { done: true };
+						}
+					}
+				: gate.promise;
 			const value = {};
-			const result = await unevalStream(value, (candidate, js) => candidate === value && ({
-				type: sequence ? 'async-sequence' : 'async-value',
-				source,
-				construct: () => js`0`,
-				resolve() { calls.push('resolve'); return null; },
-				reject() { calls.push('fallback'); return js``; },
-				next() { calls.push('next'); return null; },
-				complete() { calls.push('complete'); return null; },
-				error() { calls.push('fallback'); return js``; },
-				cancel() { cancels++; }
-			}), {
-				signal: controller.signal,
-				onerror(error) {
-					calls.push('report');
-					expect(error).toBeInstanceOf(TypeError);
-					controller.abort(reason);
+			const result = await unevalStream(
+				value,
+				(candidate, js) =>
+					candidate === value && {
+						type: sequence ? 'async-sequence' : 'async-value',
+						source,
+						construct: () => js`0`,
+						resolve() {
+							calls.push('resolve');
+							return null;
+						},
+						reject() {
+							calls.push('fallback');
+							return js``;
+						},
+						next() {
+							calls.push('next');
+							return null;
+						},
+						complete() {
+							calls.push('complete');
+							return null;
+						},
+						error() {
+							calls.push('fallback');
+							return js``;
+						},
+						cancel() {
+							cancels++;
+						}
+					},
+				{
+					signal: controller.signal,
+					onerror(error) {
+						calls.push('report');
+						expect(error).toBeInstanceOf(TypeError);
+						controller.abort(reason);
+					}
 				}
-			});
+			);
 			const waiting = settled(result.tail.next());
 			if (sequence) gate.resolve({ done: phase === 'complete', value: 1 });
 			else gate.resolve(1);
@@ -919,11 +1283,24 @@ describe('unevalStream lifecycle', () => {
 		const gate = Promise.withResolvers();
 		const calls = [];
 		const value = {};
-		const result = await unevalStream(value, (candidate, js) => candidate === value && ({
-			type: 'async-value', source: gate.promise, construct: () => js`0`,
-			resolve() { calls.push('resolve'); return null; },
-			reject() { calls.push('fallback'); return js``; }
-		}), { onerror: () => calls.push('report') });
+		const result = await unevalStream(
+			value,
+			(candidate, js) =>
+				candidate === value && {
+					type: 'async-value',
+					source: gate.promise,
+					construct: () => js`0`,
+					resolve() {
+						calls.push('resolve');
+						return null;
+					},
+					reject() {
+						calls.push('fallback');
+						return js``;
+					}
+				},
+			{ onerror: () => calls.push('report') }
+		);
 		gate.resolve(1);
 		expect((await result.tail.next()).done).toBe(false);
 		expect(calls).toEqual(['resolve', 'report', 'fallback']);
@@ -937,18 +1314,33 @@ describe('unevalStream lifecycle', () => {
 		let operations = 0;
 		let cancels = 0;
 		const value = {};
-		const result = await unevalStream(value, (candidate, js) => candidate === value && ({
-			type: 'async-value', source: gate.promise, construct: () => js`0`,
-			resolve() { operations++; return js``; },
-			reject() { operations++; return js``; },
-			cancel() { cancels++; }
-		}), {
-			signal: controller.signal,
-			onerror(error) {
-				expect(error.message).toMatch(/Cannot stringify a function/);
-				controller.abort(reason);
+		const result = await unevalStream(
+			value,
+			(candidate, js) =>
+				candidate === value && {
+					type: 'async-value',
+					source: gate.promise,
+					construct: () => js`0`,
+					resolve() {
+						operations++;
+						return js``;
+					},
+					reject() {
+						operations++;
+						return js``;
+					},
+					cancel() {
+						cancels++;
+					}
+				},
+			{
+				signal: controller.signal,
+				onerror(error) {
+					expect(error.message).toMatch(/Cannot stringify a function/);
+					controller.abort(reason);
+				}
 			}
-		});
+		);
 		const waiting = settled(result.tail.next());
 		gate.resolve(() => {});
 		const outcome = await waiting;
@@ -974,9 +1366,15 @@ describe('unevalStream lifecycle', () => {
 			}
 		}
 		const values = [new Sequence('first'), new Sequence('second')];
-		const result = await unevalStream(values, (value, js) => value instanceof Sequence && sequence_descriptor(value, js, () => {
-			if (value.name === 'first') throw cancel_failure;
-		}), { onerror: (error) => reports.push(error) });
+		const result = await unevalStream(
+			values,
+			(value, js) =>
+				value instanceof Sequence &&
+				sequence_descriptor(value, js, () => {
+					if (value.name === 'first') throw cancel_failure;
+				}),
+			{ onerror: (error) => reports.push(error) }
+		);
 		expect(await rejected(result.tail.return())).toBe(return_failure);
 		expect(reports).toEqual([cancel_failure, later_failure]);
 	});
@@ -1018,14 +1416,20 @@ describe('unevalStream lifecycle', () => {
 				}
 			}
 			const values = [new Sequence('first'), new Sequence('second')];
-			result = await unevalStream(outcome.promise, (value, js) => value instanceof Sequence && sequence_descriptor(value, js, () => {
-				calls.push(`cancel:${value.name}`);
-				if (value.name === 'first') first_cancels++;
-				else {
-					second_cancels++;
-					return cancel_gate.promise;
-				}
-			}), { onerror: (error) => reports.push(error) });
+			result = await unevalStream(
+				outcome.promise,
+				(value, js) =>
+					value instanceof Sequence &&
+					sequence_descriptor(value, js, () => {
+						calls.push(`cancel:${value.name}`);
+						if (value.name === 'first') first_cancels++;
+						else {
+							second_cancels++;
+							return cancel_gate.promise;
+						}
+					}),
+				{ onerror: (error) => reports.push(error) }
+			);
 			const next = settled(result.tail.next());
 			outcome.resolve(values);
 			// the finite per-test timeout guards against cleanup deadlock
@@ -1078,9 +1482,15 @@ describe('unevalStream lifecycle', () => {
 			}
 		}
 		const values = [new Sequence('first'), new Sequence('second')];
-		const result = await unevalStream(outcome.promise, (value, js) => value instanceof Sequence && sequence_descriptor(value, js, () => {
-			if (value.name === 'second') throw cancel_failure;
-		}), { signal: controller.signal, onerror: (error) => reports.push(error) });
+		const result = await unevalStream(
+			outcome.promise,
+			(value, js) =>
+				value instanceof Sequence &&
+				sequence_descriptor(value, js, () => {
+					if (value.name === 'second') throw cancel_failure;
+				}),
+			{ signal: controller.signal, onerror: (error) => reports.push(error) }
+		);
 		const next = rejected(result.tail.next());
 		outcome.resolve(values);
 		expect(await next).toBe(0);
@@ -1092,14 +1502,32 @@ describe('unevalStream lifecycle', () => {
 		let returns = 0;
 		let cancels = 0;
 		const iterable = {
-			[Symbol.asyncIterator]() { return this; },
-			next() { return { done: false, value: () => {} }; },
-			return() { returns++; return close_gate.promise; }
+			[Symbol.asyncIterator]() {
+				return this;
+			},
+			next() {
+				return { done: false, value: () => {} };
+			},
+			return() {
+				returns++;
+				return close_gate.promise;
+			}
 		};
-		class Sequence { constructor() { this.source = iterable; } }
+		class Sequence {
+			constructor() {
+				this.source = iterable;
+			}
+		}
 		const value = new Sequence();
 		const pending = new Promise(() => {});
-		const result = await unevalStream([value, pending], (candidate, js) => candidate === value && sequence_descriptor(candidate, js, () => { cancels++; }));
+		const result = await unevalStream(
+			[value, pending],
+			(candidate, js) =>
+				candidate === value &&
+				sequence_descriptor(candidate, js, () => {
+					cancels++;
+				})
+		);
 		expect(returns).toBe(1);
 		const returning = result.tail.return();
 		expect(returns).toBe(1);
@@ -1116,19 +1544,33 @@ describe('unevalStream lifecycle', () => {
 			const reports = [];
 			const close_failure = new Error(`late ${phase} close`);
 			const iterable = {
-				[Symbol.asyncIterator]() { return this; },
-				next() { return next_gate.promise; },
-				return() { return close_gate.promise; }
+				[Symbol.asyncIterator]() {
+					return this;
+				},
+				next() {
+					return next_gate.promise;
+				},
+				return() {
+					return close_gate.promise;
+				}
 			};
-			class Sequence { constructor() { this.source = iterable; } }
+			class Sequence {
+				constructor() {
+					this.source = iterable;
+				}
+			}
 			const value = new Sequence();
 			if (phase === 'head') {
 				next_gate.resolve({ done: false, value: () => {} });
 				healthy.resolve(1);
 			}
-			const result = await unevalStream([value, healthy.promise], (candidate, js) => candidate === value && sequence_descriptor(candidate, js), {
-				onerror: (error) => reports.push(error)
-			});
+			const result = await unevalStream(
+				[value, healthy.promise],
+				(candidate, js) => candidate === value && sequence_descriptor(candidate, js),
+				{
+					onerror: (error) => reports.push(error)
+				}
+			);
 			if (phase === 'tail') {
 				next_gate.resolve({ done: false, value: () => {} });
 				healthy.resolve(1);
@@ -1143,5 +1585,4 @@ describe('unevalStream lifecycle', () => {
 			expect(await result.tail.next()).toEqual({ done: true, value: undefined });
 		});
 	}
-
 });

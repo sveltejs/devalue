@@ -20,7 +20,8 @@ function run(count) {
 		Array.prototype.push = intrinsic_push;
 	}
 
-	if (values.length !== count) throw new Error(`expected ${count} holes, received ${values.length}`);
+	if (values.length !== count)
+		throw new Error(`expected ${count} holes, received ${values.length}`);
 	for (let i = 0; i < count; i++) {
 		if (values[i] !== expected[i]) throw new Error(`hole identity/order failed at ${i}`);
 	}
@@ -32,9 +33,11 @@ if (counts.length === 0 || counts.some((count) => !Number.isSafeInteger(count) |
 	throw new TypeError('pass one or more positive integer fixture sizes');
 }
 
-console.log(JSON.stringify({
-	node: process.version,
-	fixture: 'left-nested JavaScriptSource with one ordinary object hole per fragment',
-	counting: 'Array.prototype.push arguments during source_values(source)',
-	results: counts.map(run)
-}));
+console.log(
+	JSON.stringify({
+		node: process.version,
+		fixture: 'left-nested JavaScriptSource with one ordinary object hole per fragment',
+		counting: 'Array.prototype.push arguments during source_values(source)',
+		results: counts.map(run)
+	})
+);

@@ -3,7 +3,6 @@ import { describe, test, expect } from 'vitest';
 import { RUNTIMES } from './stream-source.js';
 
 describe('stream client runtime', () => {
-
 	function buffered_iterator() {
 		const context = vm.createContext({});
 		const iterator = vm.runInContext(`(${RUNTIMES.f('s')})(g=>{globalThis.update=g})`, context);
@@ -71,7 +70,10 @@ describe('stream client runtime', () => {
 		const { iterator, update } = buffered_iterator();
 		update(0, 'buffered');
 		update(1, 'server result');
-		expect(plain(await iterator.return('local result'))).toEqual({ done: true, value: 'local result' });
+		expect(plain(await iterator.return('local result'))).toEqual({
+			done: true,
+			value: 'local result'
+		});
 		update(0, 'ignored');
 		update(1, 'ignored');
 		expect(plain(await iterator.next())).toEqual({ done: true, value: undefined });
@@ -105,5 +107,4 @@ describe('stream client runtime', () => {
 		expect(plain(await iterator.next())).toEqual({ done: true, value: undefined });
 		await rejected(iterator.throw(false), false);
 	});
-
 });

@@ -17,7 +17,10 @@ export function client(extra = {}) {
 		block: (source) => vm.runInContext(source, context),
 		/** Evaluates a head and all blocks as one concatenated function body. */
 		combined: (head, blocks) =>
-			vm.runInContext(`(function(){const root=(${head});${blocks.join('')};return root})()`, context)
+			vm.runInContext(
+				`(function(){const root=(${head});${blocks.join('')};return root})()`,
+				context
+			)
 	};
 }
 

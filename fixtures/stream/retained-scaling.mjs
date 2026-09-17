@@ -18,7 +18,9 @@ class Wrapper {
 
 function deferred() {
 	let resolve;
-	const promise = new Promise((fulfil) => { resolve = fulfil; });
+	const promise = new Promise((fulfil) => {
+		resolve = fulfil;
+	});
 	return { promise, resolve };
 }
 
@@ -35,9 +37,13 @@ async function run(count, unevalStream) {
 		pending: pending.promise
 	};
 	map_gets = 0;
-	const result = await unevalStream(input, (value, js) => value instanceof Wrapper && js`({value:${value.value}})`, {
-		id: 'retained-scaling'
-	});
+	const result = await unevalStream(
+		input,
+		(value, js) => value instanceof Wrapper && js`({value:${value.value}})`,
+		{
+			id: 'retained-scaling'
+		}
+	);
 	const measured_gets = map_gets;
 	const slots = (result.head.match(/\.s\[\d+\]=/g) ?? []).length;
 	const context = vm.createContext({});
@@ -54,7 +60,7 @@ async function run(count, unevalStream) {
 		bytes += block.length;
 		vm.runInContext(block, context);
 	}
-	if (await root.pending !== root.wrappers[Math.floor(count / 2)].value) {
+	if ((await root.pending) !== root.wrappers[Math.floor(count / 2)].value) {
 		throw new Error('later Promise outcome did not reuse the retained wrapper child');
 	}
 	return { count, map_gets: measured_gets, slots, bytes };
@@ -69,12 +75,15 @@ try {
 	}
 	const results = [];
 	for (const count of counts) results.push(await run(count, unevalStream));
-	console.log(JSON.stringify({
-		node: process.version,
-		fixture: 'ascending overlapping opaque chain with one pending Promise',
-		counting: 'Map.get calls from immediately before unevalStream through its initial serialization',
-		results
-	}));
+	console.log(
+		JSON.stringify({
+			node: process.version,
+			fixture: 'ascending overlapping opaque chain with one pending Promise',
+			counting:
+				'Map.get calls from immediately before unevalStream through its initial serialization',
+			results
+		})
+	);
 } finally {
 	globalThis.Map = NativeMap;
 }

@@ -146,7 +146,8 @@ export function create_captured_graph(root, custom_classify) {
 		root_value: root,
 		nodes: [],
 		identities: new Map(),
-		classify: (value, node) => custom_classify(graph, node, value) || builtin_classify(graph, node, value),
+		classify: (value, node) =>
+			custom_classify(graph, node, value) || builtin_classify(graph, node, value),
 		unwind: [],
 		failure: undefined
 	};
@@ -225,7 +226,7 @@ export function discover(graph, value) {
 		rendering: false
 	};
 	graph.nodes.push(node);
-  graph.identities.set(value, node);
+	graph.identities.set(value, node);
 	// lest you miss it, this is where the cool stuff happens and the node gets populated
 	graph.classify(value, node);
 	return node;

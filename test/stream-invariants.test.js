@@ -3,7 +3,6 @@ import { uneval, unevalStream } from '../index.js';
 import { client } from './helpers/stream.js';
 
 describe('unevalStream cross-feature invariants', () => {
-
 	const turn = () => new Promise((resolve) => setImmediate(resolve));
 
 	async function rejected(operation) {
@@ -67,11 +66,16 @@ describe('unevalStream cross-feature invariants', () => {
 		const view = new Uint16Array(buffer, 2, 4);
 		const wrapped = new MatrixWrapper(`wrapper-${seed}`, shared);
 		const constructor_read = new MatrixWrapper(`constructor-${seed}`, { items: sparse });
-		const map = new Map(shuffle([
-			[shared, view],
-			[null_object, sparse],
-			[distinct, buffer]
-		], random));
+		const map = new Map(
+			shuffle(
+				[
+					[shared, view],
+					[null_object, sparse],
+					[distinct, buffer]
+				],
+				random
+			)
+		);
 		const set = new Set(shuffle([view, shared, null_object, distinct], random));
 
 		const outcome_a = {
@@ -86,26 +90,40 @@ describe('unevalStream cross-feature invariants', () => {
 			set: new Set([distinct, outcome_a, buffer])
 		});
 		const outcomes = [outcome_a, outcome_b, outcome_a];
-		const entries = shuffle([
-			['seed', seed],
-			['numeric', { '0': '0', '12': '12', '001': '001' }],
-			['nodes', nodes],
-			['shared', shared],
-			['distinct', distinct],
-			['null_object', null_object],
-			['sparse', sparse],
-			['map', map],
-			['set', set],
-			['buffer', buffer],
-			['view', view],
-			['wrapped', wrapped],
-			['constructor_read', constructor_read],
-			['promises', promises]
-		], random);
-		return { root: Object.fromEntries(entries), outcomes, wrappers: [wrapped, constructor_read], constructor_read };
+		const entries = shuffle(
+			[
+				['seed', seed],
+				['numeric', { 0: '0', 12: '12', '001': '001' }],
+				['nodes', nodes],
+				['shared', shared],
+				['distinct', distinct],
+				['null_object', null_object],
+				['sparse', sparse],
+				['map', map],
+				['set', set],
+				['buffer', buffer],
+				['view', view],
+				['wrapped', wrapped],
+				['constructor_read', constructor_read],
+				['promises', promises]
+			],
+			random
+		);
+		return {
+			root: Object.fromEntries(entries),
+			outcomes,
+			wrappers: [wrapped, constructor_read],
+			constructor_read
+		};
 	}
 
-	function compare_topology(server, revived, label, server_to_client = new Map(), client_to_server = new WeakMap()) {
+	function compare_topology(
+		server,
+		revived,
+		label,
+		server_to_client = new Map(),
+		client_to_server = new WeakMap()
+	) {
 		if (server === null || typeof server !== 'object') {
 			expect(Object.is(revived, server), `${label}: primitive values differ`).toBeTruthy();
 			return;
@@ -115,8 +133,14 @@ describe('unevalStream cross-feature invariants', () => {
 			expect(revived, `${label}: repeated identity differs`).toBe(server_to_client.get(server));
 			return;
 		}
-		expect(revived !== null && (typeof revived === 'object' || typeof revived === 'function'), `${label}: expected an object`).toBeTruthy();
-		expect(!client_to_server.has(revived), `${label}: distinct server nodes collapsed`).toBeTruthy();
+		expect(
+			revived !== null && (typeof revived === 'object' || typeof revived === 'function'),
+			`${label}: expected an object`
+		).toBeTruthy();
+		expect(
+			!client_to_server.has(revived),
+			`${label}: distinct server nodes collapsed`
+		).toBeTruthy();
 		server_to_client.set(server, revived);
 		client_to_server.set(revived, server);
 
@@ -125,22 +149,52 @@ describe('unevalStream cross-feature invariants', () => {
 			return;
 		}
 		if (server instanceof MatrixWrapper) {
-			expect(Object.keys(revived), `${label}: custom wrapper fields differ`).toEqual(['kind', 'value']);
-			compare_topology(server.kind, revived.kind, `${label}.kind`, server_to_client, client_to_server);
-			compare_topology(server.value, revived.value, `${label}.value`, server_to_client, client_to_server);
+			expect(Object.keys(revived), `${label}: custom wrapper fields differ`).toEqual([
+				'kind',
+				'value'
+			]);
+			compare_topology(
+				server.kind,
+				revived.kind,
+				`${label}.kind`,
+				server_to_client,
+				client_to_server
+			);
+			compare_topology(
+				server.value,
+				revived.value,
+				`${label}.value`,
+				server_to_client,
+				client_to_server
+			);
 			return;
 		}
 		if (server instanceof ArrayBuffer) {
-			expect(Object.prototype.toString.call(revived), `${label}: expected ArrayBuffer`).toBe('[object ArrayBuffer]');
-			expect(Array.from(new Uint8Array(revived)), `${label}: buffer bytes differ`).toEqual(Array.from(new Uint8Array(server)));
+			expect(Object.prototype.toString.call(revived), `${label}: expected ArrayBuffer`).toBe(
+				'[object ArrayBuffer]'
+			);
+			expect(Array.from(new Uint8Array(revived)), `${label}: buffer bytes differ`).toEqual(
+				Array.from(new Uint8Array(server))
+			);
 			return;
 		}
 		if (ArrayBuffer.isView(server)) {
-			expect(Object.prototype.toString.call(revived), `${label}: view kind differs`).toBe(Object.prototype.toString.call(server));
+			expect(Object.prototype.toString.call(revived), `${label}: view kind differs`).toBe(
+				Object.prototype.toString.call(server)
+			);
 			expect(revived.byteOffset, `${label}: view offset differs`).toBe(server.byteOffset);
 			expect(revived.byteLength, `${label}: view length differs`).toBe(server.byteLength);
-			compare_topology(server.buffer, revived.buffer, `${label}.buffer`, server_to_client, client_to_server);
-			expect(Array.from(new Uint8Array(revived.buffer, revived.byteOffset, revived.byteLength)), `${label}: view bytes differ`).toEqual(Array.from(new Uint8Array(server.buffer, server.byteOffset, server.byteLength)));
+			compare_topology(
+				server.buffer,
+				revived.buffer,
+				`${label}.buffer`,
+				server_to_client,
+				client_to_server
+			);
+			expect(
+				Array.from(new Uint8Array(revived.buffer, revived.byteOffset, revived.byteLength)),
+				`${label}: view bytes differ`
+			).toEqual(Array.from(new Uint8Array(server.buffer, server.byteOffset, server.byteLength)));
 			return;
 		}
 		if (server instanceof Map) {
@@ -148,8 +202,20 @@ describe('unevalStream cross-feature invariants', () => {
 			const revived_entries = Array.from(revived);
 			expect(revived_entries.length, `${label}: Map size differs`).toBe(server_entries.length);
 			for (let i = 0; i < server_entries.length; i += 1) {
-				compare_topology(server_entries[i][0], revived_entries[i][0], `${label}.key[${i}]`, server_to_client, client_to_server);
-				compare_topology(server_entries[i][1], revived_entries[i][1], `${label}.value[${i}]`, server_to_client, client_to_server);
+				compare_topology(
+					server_entries[i][0],
+					revived_entries[i][0],
+					`${label}.key[${i}]`,
+					server_to_client,
+					client_to_server
+				);
+				compare_topology(
+					server_entries[i][1],
+					revived_entries[i][1],
+					`${label}.value[${i}]`,
+					server_to_client,
+					client_to_server
+				);
 			}
 			return;
 		}
@@ -158,17 +224,31 @@ describe('unevalStream cross-feature invariants', () => {
 			const revived_values = Array.from(revived);
 			expect(revived_values.length, `${label}: Set size differs`).toBe(server_values.length);
 			for (let i = 0; i < server_values.length; i += 1) {
-				compare_topology(server_values[i], revived_values[i], `${label}.member[${i}]`, server_to_client, client_to_server);
+				compare_topology(
+					server_values[i],
+					revived_values[i],
+					`${label}.member[${i}]`,
+					server_to_client,
+					client_to_server
+				);
 			}
 			return;
 		}
 
 		expect(Array.isArray(revived), `${label}: Array kind differs`).toBe(Array.isArray(server));
-		expect(Object.getPrototypeOf(revived) === null, `${label}: prototype differs`).toBe(Object.getPrototypeOf(server) === null);
+		expect(Object.getPrototypeOf(revived) === null, `${label}: prototype differs`).toBe(
+			Object.getPrototypeOf(server) === null
+		);
 		const server_keys = Object.keys(server);
 		expect(Object.keys(revived), `${label}: property order differs`).toEqual(server_keys);
 		for (const key of server_keys) {
-			compare_topology(server[key], revived[key], `${label}[${JSON.stringify(key)}]`, server_to_client, client_to_server);
+			compare_topology(
+				server[key],
+				revived[key],
+				`${label}[${JSON.stringify(key)}]`,
+				server_to_client,
+				client_to_server
+			);
 		}
 	}
 
@@ -184,15 +264,25 @@ describe('unevalStream cross-feature invariants', () => {
 	}
 
 	async function run_matrix_case(seed, schedule) {
-		const gates = schedule === 'all-ready' ? null : [Promise.withResolvers(), Promise.withResolvers(), Promise.withResolvers()];
-		const placeholders = gates?.map((gate) => gate.promise) ?? [Promise.resolve(), Promise.resolve(), Promise.resolve()];
+		const gates =
+			schedule === 'all-ready'
+				? null
+				: [Promise.withResolvers(), Promise.withResolvers(), Promise.withResolvers()];
+		const placeholders = gates?.map((gate) => gate.promise) ?? [
+			Promise.resolve(),
+			Promise.resolve(),
+			Promise.resolve()
+		];
 		const graph = build_matrix_case(seed, placeholders);
 		if (!gates) {
-			for (let i = 0; i < placeholders.length; i += 1) placeholders[i] = Promise.resolve(graph.outcomes[i]);
+			for (let i = 0; i < placeholders.length; i += 1)
+				placeholders[i] = Promise.resolve(graph.outcomes[i]);
 			graph.root.promises = placeholders;
 		}
 		const calls = new Map();
-		const result = await unevalStream(graph.root, matrix_replacer(calls), { id: `matrix-${seed}-${schedule}` });
+		const result = await unevalStream(graph.root, matrix_replacer(calls), {
+			id: `matrix-${seed}-${schedule}`
+		});
 		const target = client();
 		const root = target.head(result.head);
 
@@ -212,7 +302,13 @@ describe('unevalStream cross-feature invariants', () => {
 
 			const server_to_client = new Map();
 			const client_to_server = new WeakMap();
-			compare_topology(graph.root, root, `seed ${seed}, ${schedule}`, server_to_client, client_to_server);
+			compare_topology(
+				graph.root,
+				root,
+				`seed ${seed}, ${schedule}`,
+				server_to_client,
+				client_to_server
+			);
 			for (let i = 0; i < graph.outcomes.length; i += 1) {
 				const revived = await root.promises[i];
 				compare_topology(
@@ -226,7 +322,10 @@ describe('unevalStream cross-feature invariants', () => {
 			for (const wrapper of graph.wrappers) {
 				expect(calls.get(wrapper), `seed ${seed}, ${schedule}: replacer call count`).toBe(1);
 			}
-			expect(server_to_client.get(graph.constructor_read).observed, `seed ${seed}, ${schedule}: sparse/null constructor read`).toBe('null-object');
+			expect(
+				server_to_client.get(graph.constructor_read).observed,
+				`seed ${seed}, ${schedule}: sparse/null constructor read`
+			).toBe('null-object');
 		} finally {
 			await result.tail.return();
 		}
@@ -244,7 +343,9 @@ describe('unevalStream cross-feature invariants', () => {
 
 	test('preserves ordinary custom-mode Object Map and Set cycle order in bounded release cases', () => {
 		class Wrapped {
-			constructor(value) { this.value = value; }
+			constructor(value) {
+				this.value = value;
+			}
 		}
 		const replacer = (value, js) => value instanceof Wrapped && js`({value:${value.value}})`;
 		for (const kind of ['Object', 'Map', 'Set']) {
@@ -267,7 +368,10 @@ describe('unevalStream cross-feature invariants', () => {
 					expect(Array.from(revived.keys()), `${label}: order`).toEqual(['key0', 'key1', 'key2']);
 					expect(revived.get(`key${position}`), `${label}: cycle`).toBe(revived);
 				} else if (kind === 'Set') {
-					expect(Array.from(revived, (entry) => entry === revived ? 'cycle' : entry), `${label}: order`).toEqual(Array.from({ length: 3 }, (_, i) => i === position ? 'cycle' : i));
+					expect(
+						Array.from(revived, (entry) => (entry === revived ? 'cycle' : entry)),
+						`${label}: order`
+					).toEqual(Array.from({ length: 3 }, (_, i) => (i === position ? 'cycle' : i)));
 				} else {
 					expect(Object.keys(revived), `${label}: order`).toEqual(['key0', 'key1', 'key2']);
 					expect(revived[`key${position}`], `${label}: cycle`).toBe(revived);
@@ -296,7 +400,10 @@ describe('unevalStream cross-feature invariants', () => {
 		const null_read = new ConstructionWrapper('null', null_child);
 		const sparse_read = new ConstructionWrapper('sparse', sparse_child);
 		const nested_read = new ConstructionWrapper('nested-containers', { items: nested_sparse });
-		const single_null = new ConstructionWrapper('null-single', Object.assign(Object.create(null), { x: 42 }));
+		const single_null = new ConstructionWrapper(
+			'null-single',
+			Object.assign(Object.create(null), { x: 42 })
+		);
 		const inner = new ConstructionWrapper('inner', { label: 'inner-ready' });
 		const nested = new ConstructionWrapper('nested', inner);
 		const hidden = new ConstructionWrapper('hidden', { label: 'hidden-ready' });
@@ -329,7 +436,20 @@ describe('unevalStream cross-feature invariants', () => {
 				holder,
 				cycle
 			},
-			wrappers: [repeated, null_read, sparse_read, nested_read, single_null, inner, nested, hidden, inline, multiple, typed, cycle]
+			wrappers: [
+				repeated,
+				null_read,
+				sparse_read,
+				nested_read,
+				single_null,
+				inner,
+				nested,
+				hidden,
+				inline,
+				multiple,
+				typed,
+				cycle
+			]
 		};
 	}
 
@@ -365,21 +485,43 @@ describe('unevalStream cross-feature invariants', () => {
 	function verify_construction_graph(root, calls, label) {
 		expect(root.repeated[0], `${label}: repeated custom identity`).toBe(root.repeated[1]);
 		expect(root.repeated[0].value, `${label}: acyclic child identity`).toBe(root.child);
-		expect(root.repeated[0].observed, `${label}: ordinary child unavailable during construction`).toBe('ready');
+		expect(
+			root.repeated[0].observed,
+			`${label}: ordinary child unavailable during construction`
+		).toBe('ready');
 		expect(root.null_read[0], `${label}: repeated null reader identity`).toBe(root.null_read[1]);
 		expect(root.null_read[0].value, `${label}: null child identity`).toBe(root.null_child);
-		expect(root.null_read[0].observed, `${label}: null child unavailable during construction`).toBe(42);
-		expect(root.sparse_read[0], `${label}: repeated sparse reader identity`).toBe(root.sparse_read[1]);
+		expect(root.null_read[0].observed, `${label}: null child unavailable during construction`).toBe(
+			42
+		);
+		expect(root.sparse_read[0], `${label}: repeated sparse reader identity`).toBe(
+			root.sparse_read[1]
+		);
 		expect(root.sparse_read[0].value, `${label}: sparse child identity`).toBe(root.sparse_child);
-		expect(root.sparse_read[0].observed, `${label}: sparse child unavailable during construction`).toBe(42);
-		expect(root.nested_read[0], `${label}: repeated nested reader identity`).toBe(root.nested_read[1]);
-		expect(root.nested_read[0].value.items, `${label}: nested sparse child identity`).toBe(root.nested_sparse);
-		expect(root.nested_read[0].observed, `${label}: nested container child unavailable during construction`).toBe(42);
-		expect(root.single_null.observed, `${label}: single-use null child unavailable during construction`).toBe(42);
+		expect(
+			root.sparse_read[0].observed,
+			`${label}: sparse child unavailable during construction`
+		).toBe(42);
+		expect(root.nested_read[0], `${label}: repeated nested reader identity`).toBe(
+			root.nested_read[1]
+		);
+		expect(root.nested_read[0].value.items, `${label}: nested sparse child identity`).toBe(
+			root.nested_sparse
+		);
+		expect(
+			root.nested_read[0].observed,
+			`${label}: nested container child unavailable during construction`
+		).toBe(42);
+		expect(
+			root.single_null.observed,
+			`${label}: single-use null child unavailable during construction`
+		).toBe(42);
 		expect(root.nested.value, `${label}: nested custom identity`).toBe(root.inner);
 		expect(root.nested.observed, `${label}: nested constructor order`).toBe('inner');
 		expect(root.inline.observed, `${label}: inline-container dependency order`).toBe('hidden');
-		expect(root.multiple.value, `${label}: repeated source-hole identity`).toBe(root.multiple.again);
+		expect(root.multiple.value, `${label}: repeated source-hole identity`).toBe(
+			root.multiple.again
+		);
 		expect(root.multiple.observed, `${label}: repeated source-hole constructor input`).toBe(true);
 		expect(root.typed.value.view, `${label}: typed view identity`).toBe(root.view);
 		expect(root.typed.value.buffer, `${label}: buffer identity`).toBe(root.buffer);
@@ -387,7 +529,20 @@ describe('unevalStream cross-feature invariants', () => {
 		expect(root.typed.observed, `${label}: view buffer unavailable during construction`).toBe(true);
 		expect(root.cycle, `${label}: mutable-container back-edge`).toBe(root.holder.custom);
 		expect(root.cycle.value, `${label}: mutable-container child`).toBe(root.holder);
-		for (const kind of ['read', 'null', 'sparse', 'nested-containers', 'null-single', 'inner', 'nested', 'hidden', 'inline', 'multiple', 'view', 'cycle']) {
+		for (const kind of [
+			'read',
+			'null',
+			'sparse',
+			'nested-containers',
+			'null-single',
+			'inner',
+			'nested',
+			'hidden',
+			'inline',
+			'multiple',
+			'view',
+			'cycle'
+		]) {
 			expect(calls.get(kind), `${label}: ${kind} client constructor call count`).toBe(1);
 		}
 	}
@@ -397,8 +552,15 @@ describe('unevalStream cross-feature invariants', () => {
 			const graph = build_construction_graph();
 			const replacer_calls = new Map();
 			const gate = Promise.withResolvers();
-			const value = region === 'head' ? graph.root : region === 'folded' ? Promise.resolve(graph.root) : gate.promise;
-			const result = await unevalStream(value, construction_replacer(replacer_calls), { id: `construction-${region}` });
+			const value =
+				region === 'head'
+					? graph.root
+					: region === 'folded'
+						? Promise.resolve(graph.root)
+						: gate.promise;
+			const result = await unevalStream(value, construction_replacer(replacer_calls), {
+				id: `construction-${region}`
+			});
 			const { target, calls } = construction_client();
 			let root = target.head(result.head);
 			try {
@@ -416,7 +578,8 @@ describe('unevalStream cross-feature invariants', () => {
 	});
 
 	test('rejects self and mutual atomic-only custom cycles in initial and outcome graphs', async () => {
-		const replacer = (value, js) => value instanceof ConstructionWrapper && js`({value:${value.value}})`;
+		const replacer = (value, js) =>
+			value instanceof ConstructionWrapper && js`({value:${value.value}})`;
 		const self = new ConstructionWrapper('self', null);
 		self.value = self;
 		const self_error = await rejected(unevalStream(self, replacer));
@@ -430,7 +593,10 @@ describe('unevalStream cross-feature invariants', () => {
 
 		const gate = Promise.withResolvers();
 		const reports = [];
-		const result = await unevalStream(gate.promise, replacer, { id: 'outcome-atomic-cycle', onerror: (error) => reports.push(error) });
+		const result = await unevalStream(gate.promise, replacer, {
+			id: 'outcome-atomic-cycle',
+			onerror: (error) => reports.push(error)
+		});
 		const target = client();
 		const root = target.head(result.head);
 		const client_error = rejected(root);
@@ -460,21 +626,26 @@ describe('unevalStream cross-feature invariants', () => {
 		const payload = new Payload({ type: 'reference', value: 7 });
 		let job_calls = 0;
 		let payload_calls = 0;
-		const result = await unevalStream(job, (value, js) => {
-			if (value instanceof Payload) {
-				payload_calls += 1;
-				return js`(globalThis.payload_constructions++,{value:${value.value}})`;
-			}
-			if (!(value instanceof Job)) return;
-			job_calls += 1;
-			return {
-				type: 'async-value',
-				source: value.ready.promise,
-				construct: () => js`({get:null,same:false})`,
-				resolve: ({ target }, outcome) => js`${target}.get=()=>${outcome};${target}.same=${outcome}===${outcome}`,
-				reject: () => js``
-			};
-		}, { id: 'private-immediate' });
+		const result = await unevalStream(
+			job,
+			(value, js) => {
+				if (value instanceof Payload) {
+					payload_calls += 1;
+					return js`(globalThis.payload_constructions++,{value:${value.value}})`;
+				}
+				if (!(value instanceof Job)) return;
+				job_calls += 1;
+				return {
+					type: 'async-value',
+					source: value.ready.promise,
+					construct: () => js`({get:null,same:false})`,
+					resolve: ({ target }, outcome) =>
+						js`${target}.get=()=>${outcome};${target}.same=${outcome}===${outcome}`,
+					reject: () => js``
+				};
+			},
+			{ id: 'private-immediate' }
+		);
 		const target = client({ payload_constructions: 0 });
 		const root = target.head(result.head);
 		job.ready.resolve(payload);
@@ -549,7 +720,8 @@ describe('unevalStream cross-feature invariants', () => {
 		const bytes = new TextEncoder().encode(source);
 		const decoder = new TextDecoder();
 		let reconstructed = '';
-		for (const byte of bytes) reconstructed += decoder.decode(Uint8Array.of(byte), { stream: true });
+		for (const byte of bytes)
+			reconstructed += decoder.decode(Uint8Array.of(byte), { stream: true });
 		reconstructed += decoder.decode();
 		return reconstructed;
 	}
@@ -577,7 +749,7 @@ describe('unevalStream cross-feature invariants', () => {
 		const reason = 'late </script> rejection 😀 \udfff';
 		const id = 'transport-001-😀-</script>-\ud800';
 		const server_root = {
-			numeric: { '0': '0', '12': '12', '001': '001' },
+			numeric: { 0: '0', 12: '12', '001': '001' },
 			lone: '\ud800',
 			pair: '😀',
 			closing: '</script><script>data</script>',
@@ -594,7 +766,9 @@ describe('unevalStream cross-feature invariants', () => {
 		for await (const block of result.tail) blocks.push(block);
 		const sources = [result.head, ...blocks];
 		for (let i = 0; i < sources.length; i += 1) {
-			expect(utf8_transport(sources[i]), `source ${i}: UTF-8 reconstruction differs`).toBe(sources[i]);
+			expect(utf8_transport(sources[i]), `source ${i}: UTF-8 reconstruction differs`).toBe(
+				sources[i]
+			);
 		}
 		expect(sources.join('')).not.toMatch(/<\/script/gi);
 
@@ -604,20 +778,26 @@ describe('unevalStream cross-feature invariants', () => {
 		await verify_transport_root(separate_root, shared, reason, 'separate');
 
 		const combined_target = client();
-		const combined_root = combined_target.combined(utf8_transport(result.head), blocks.map(utf8_transport));
+		const combined_root = combined_target.combined(
+			utf8_transport(result.head),
+			blocks.map(utf8_transport)
+		);
 		await verify_transport_root(combined_root, shared, reason, 'combined');
 
 		// the documented concatenation form: real tail statements execute before
 		// the combined function returns the reconstructed root
 		const later = Promise.withResolvers();
-		const documented = await unevalStream({ quick: 'data', slow: later.promise }, undefined, { id: 'docs-concatenation' });
+		const documented = await unevalStream({ quick: 'data', slow: later.promise }, undefined, {
+			id: 'docs-concatenation'
+		});
 		later.resolve('arrived after head');
 		const documented_blocks = [];
 		for await (const block of documented.tail) documented_blocks.push(block);
 		expect(documented_blocks.length > 0).toBeTruthy();
-		const documented_root = new Function(`const root=(${documented.head});${documented_blocks.join('')};return root`)();
+		const documented_root = new Function(
+			`const root=(${documented.head});${documented_blocks.join('')};return root`
+		)();
 		expect(documented_root.quick).toBe('data');
 		expect(await documented_root.slow).toBe('arrived after head');
 	});
-
 });

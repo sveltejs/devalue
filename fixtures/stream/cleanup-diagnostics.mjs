@@ -56,17 +56,24 @@ async function abort_with_closed_source(mode) {
 			throw cleanup_failure;
 		}
 	};
-	const onerror = mode === 'absent' ? undefined : (error, context) => {
-		reports.push([error, context]);
-		if (mode === 'throwing') throw new Error('ignored diagnostic callback failure');
-	};
-	const result = await unevalStream(value, (candidate, js) => {
-		if (candidate !== value) return;
-		descriptor.construct = () => js`0`;
-		descriptor.resolve = () => js``;
-		descriptor.reject = () => js``;
-		return descriptor;
-	}, { signal: controller.signal, onerror });
+	const onerror =
+		mode === 'absent'
+			? undefined
+			: (error, context) => {
+					reports.push([error, context]);
+					if (mode === 'throwing') throw new Error('ignored diagnostic callback failure');
+				};
+	const result = await unevalStream(
+		value,
+		(candidate, js) => {
+			if (candidate !== value) return;
+			descriptor.construct = () => js`0`;
+			descriptor.resolve = () => js``;
+			descriptor.reject = () => js``;
+			return descriptor;
+		},
+		{ signal: controller.signal, onerror }
+	);
 	const waiting = settled(result.tail.next());
 	controller.abort(0);
 	const outcome = await with_timeout(`abort cleanup (${mode})`, waiting);
@@ -89,8 +96,12 @@ async function return_with_closed_sources() {
 		let closed = false;
 		const diagnostic_failure = { failure, kind: 'diagnostic source' };
 		const iterable = {
-			[Symbol.asyncIterator]() { return this; },
-			next() { return new Promise(() => {}); },
+			[Symbol.asyncIterator]() {
+				return this;
+			},
+			next() {
+				return new Promise(() => {});
+			},
 			return() {
 				closed = true;
 				return Promise.reject(failure);
@@ -107,16 +118,20 @@ async function return_with_closed_sources() {
 			}
 		};
 	});
-	const result = await unevalStream(values, (candidate, js) => {
-		const value = values.find((value) => value === candidate);
-		if (!value) return;
-		return Object.assign(value.descriptor, {
-			construct: () => js`0`,
-			next: () => js``,
-			complete: () => js``,
-			error: () => js``
-		});
-	}, { onerror: (error, context) => reports.push([error, context]) });
+	const result = await unevalStream(
+		values,
+		(candidate, js) => {
+			const value = values.find((value) => value === candidate);
+			if (!value) return;
+			return Object.assign(value.descriptor, {
+				construct: () => js`0`,
+				next: () => js``,
+				complete: () => js``,
+				error: () => js``
+			});
+		},
+		{ onerror: (error, context) => reports.push([error, context]) }
+	);
 	const outcome = await with_timeout('ordered return cleanup', settled(result.tail.return()));
 	assert.equal(outcome.ok, false);
 	assert.equal(outcome.reason, failures[0]);
@@ -131,8 +146,12 @@ async function failed_sequence_close_uses_retained_context() {
 	const reports = [];
 	let closed = false;
 	const iterable = {
-		[Symbol.asyncIterator]() { return this; },
-		next() { return { done: false, value: () => {} }; },
+		[Symbol.asyncIterator]() {
+			return this;
+		},
+		next() {
+			return { done: false, value: () => {} };
+		},
 		return() {
 			closed = true;
 			return Promise.reject(close_failure);
@@ -146,15 +165,19 @@ async function failed_sequence_close_uses_retained_context() {
 			return iterable;
 		}
 	};
-	const result = await unevalStream([value, healthy.promise], (candidate, js) => {
-		if (candidate !== value) return;
-		return Object.assign(descriptor, {
-			construct: () => js`0`,
-			next: () => js``,
-			complete: () => js``,
-			error: () => js``
-		});
-	}, { onerror: (error, context) => reports.push([error, context]) });
+	const result = await unevalStream(
+		[value, healthy.promise],
+		(candidate, js) => {
+			if (candidate !== value) return;
+			return Object.assign(descriptor, {
+				construct: () => js`0`,
+				next: () => js``,
+				complete: () => js``,
+				error: () => js``
+			});
+		},
+		{ onerror: (error, context) => reports.push([error, context]) }
+	);
 	await Promise.resolve();
 	assert.equal(reports.length, 2);
 	assert.equal(reports[1][0], close_failure);

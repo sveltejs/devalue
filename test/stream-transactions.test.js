@@ -3,9 +3,12 @@ import { DevalueError, unevalStream } from '../index.js';
 import { client } from './helpers/stream.js';
 
 describe('unevalStream transactions', () => {
-
 	async function rejected(promise) {
-		try { await promise; } catch (error) { return error; }
+		try {
+			await promise;
+		} catch (error) {
+			return error;
+		}
 		expect.unreachable('expected rejection');
 	}
 
@@ -38,20 +41,29 @@ describe('unevalStream transactions', () => {
 				return job.ready.promise.then.bind(job.ready.promise);
 			}
 		});
-		const result = await unevalStream({ shared, failed, healthy }, (value, js) => value instanceof Job && ({
-			type: 'async-value',
-			source: source(value),
-			construct: (capture) => value === failed_nested
-				? js`({child:${later_child}})`
-				: js`({name:${value.name},control:${capture(js`[]`)},value:null,nested:null})`,
-			resolve: ({ target }, payload) => {
-				if (value === failed) return js`${target}.nested=${failed_nested};${() => {}}`;
-				if (value === healthy) return js`${target}.value=${payload};${target}.nested=${committed_nested}`;
-				return js``;
-			},
-			reject: ({ target }) => value === failed ? js`${target}.value=${shared}` : js``,
-			cancel() { cancels.push(value.name); }
-		}), { id: 'transaction-suffix', onerror: (error) => reports.push(error) });
+		const result = await unevalStream(
+			{ shared, failed, healthy },
+			(value, js) =>
+				value instanceof Job && {
+					type: 'async-value',
+					source: source(value),
+					construct: (capture) =>
+						value === failed_nested
+							? js`({child:${later_child}})`
+							: js`({name:${value.name},control:${capture(js`[]`)},value:null,nested:null})`,
+					resolve: ({ target }, payload) => {
+						if (value === failed) return js`${target}.nested=${failed_nested};${() => {}}`;
+						if (value === healthy)
+							return js`${target}.value=${payload};${target}.nested=${committed_nested}`;
+						return js``;
+					},
+					reject: ({ target }) => (value === failed ? js`${target}.value=${shared}` : js``),
+					cancel() {
+						cancels.push(value.name);
+					}
+				},
+			{ id: 'transaction-suffix', onerror: (error) => reports.push(error) }
+		);
 		const target = client();
 		const root = target.head(result.head);
 		expect(starts).toEqual(['failed', 'healthy']);
@@ -88,22 +100,29 @@ describe('unevalStream transactions', () => {
 		const starts = [];
 		const cancels = [];
 		let nested_constructs = 0;
-		const result = await unevalStream({ first, fatal }, (value, js) => value instanceof Job && ({
-			type: 'async-value',
-			source: {
-				get then() {
-					starts.push(value.name);
-					return value.ready.promise.then.bind(value.ready.promise);
-				}
-			},
-			construct: () => {
-				if (value === nested) nested_constructs++;
-				return js`({value:null})`;
-			},
-			resolve: ({ target }) => js`${target}.value=${nested}`,
-			reject: () => value === fatal ? null : js``,
-			cancel() { cancels.push(value.name); }
-		}), { id: 'transaction-outer-rollback' });
+		const result = await unevalStream(
+			{ first, fatal },
+			(value, js) =>
+				value instanceof Job && {
+					type: 'async-value',
+					source: {
+						get then() {
+							starts.push(value.name);
+							return value.ready.promise.then.bind(value.ready.promise);
+						}
+					},
+					construct: () => {
+						if (value === nested) nested_constructs++;
+						return js`({value:null})`;
+					},
+					resolve: ({ target }) => js`${target}.value=${nested}`,
+					reject: () => (value === fatal ? null : js``),
+					cancel() {
+						cancels.push(value.name);
+					}
+				},
+			{ id: 'transaction-outer-rollback' }
+		);
 		const target = client();
 		const root = target.head(result.head);
 		first_gate.resolve(1);
@@ -127,7 +146,15 @@ describe('unevalStream transactions', () => {
 				this.ready = ready;
 			}
 		}
-		const gates = [Promise.withResolvers(), Promise.withResolvers(), Promise.withResolvers(), Promise.withResolvers(), Promise.withResolvers(), Promise.withResolvers(), Promise.withResolvers()];
+		const gates = [
+			Promise.withResolvers(),
+			Promise.withResolvers(),
+			Promise.withResolvers(),
+			Promise.withResolvers(),
+			Promise.withResolvers(),
+			Promise.withResolvers(),
+			Promise.withResolvers()
+		];
 		const external_job = new Job('external', gates[0]);
 		const symbol_job = new Job('symbol', gates[1]);
 		const reused_job = new Job('reused', gates[2]);
@@ -138,36 +165,59 @@ describe('unevalStream transactions', () => {
 		const shared = { value: 42 };
 		const external_value = {};
 		const external_root = {};
-		const external = new DevalueError('external failure', ['.external'], external_value, external_root);
+		const external = new DevalueError(
+			'external failure',
+			['.external'],
+			external_value,
+			external_root
+		);
 		Object.freeze(external);
 		const external_hole = { provisional };
-		Object.defineProperty(external_hole, 'prop', { enumerable: true, get() { throw external; } });
+		Object.defineProperty(external_hole, 'prop', {
+			enumerable: true,
+			get() {
+				throw external;
+			}
+		});
 		const reused_hole = { provisional };
-		Object.defineProperty(reused_hole, 'prop', { enumerable: true, get() { throw reports[1]; } });
+		Object.defineProperty(reused_hole, 'prop', {
+			enumerable: true,
+			get() {
+				throw reports[1];
+			}
+		});
 		const bad = () => {};
 		const graph_hole = { deep: { bad } };
 		const starts = [];
 		const cancels = [];
 		const reports = [];
-		const result = await unevalStream({ shared, jobs: [external_job, symbol_job, reused_job, graph_job, healthy_job] }, (value, js) => value instanceof Job && ({
-			type: 'async-value',
-			source: {
-				get then() {
-					starts.push(value.name);
-					return value.ready.promise.then.bind(value.ready.promise);
-				}
-			},
-			construct: () => js`({name:${value.name},value:null})`,
-			resolve: ({ target }) => {
-				if (value === external_job) return js`${external_hole}`;
-				if (value === reused_job) return js`${reused_hole}`;
-				if (value === graph_job) return js`${graph_hole}`;
-				if (value === healthy_job) return js`${target}.value={shared:${shared},again:${shared},nested:${nested}}`;
-				return js`${target}.value="done"`;
-			},
-			reject: ({ target }, error) => js`${target}.value=${error}`,
-			cancel() { cancels.push(value.name); }
-		}), { id: 'owned-error-rollback', onerror: (error) => reports.push(error) });
+		const result = await unevalStream(
+			{ shared, jobs: [external_job, symbol_job, reused_job, graph_job, healthy_job] },
+			(value, js) =>
+				value instanceof Job && {
+					type: 'async-value',
+					source: {
+						get then() {
+							starts.push(value.name);
+							return value.ready.promise.then.bind(value.ready.promise);
+						}
+					},
+					construct: () => js`({name:${value.name},value:null})`,
+					resolve: ({ target }) => {
+						if (value === external_job) return js`${external_hole}`;
+						if (value === reused_job) return js`${reused_hole}`;
+						if (value === graph_job) return js`${graph_hole}`;
+						if (value === healthy_job)
+							return js`${target}.value={shared:${shared},again:${shared},nested:${nested}}`;
+						return js`${target}.value="done"`;
+					},
+					reject: ({ target }, error) => js`${target}.value=${error}`,
+					cancel() {
+						cancels.push(value.name);
+					}
+				},
+			{ id: 'owned-error-rollback', onerror: (error) => reports.push(error) }
+		);
 		const target = client();
 		const root = target.head(result.head);
 		expect(starts).toEqual(['external', 'symbol', 'reused', 'graph', 'healthy']);
@@ -235,21 +285,26 @@ describe('unevalStream transactions', () => {
 		const leaf = { retained: true };
 		const parent = { child: leaf };
 		const reports = [];
-		const result = await unevalStream({
-			wrappers: [new Wrapper(leaf), new Wrapper(parent)],
-			failed,
-			healthy
-		}, (value, js) => {
-			if (value instanceof Wrapper) return js`({value:${value.value}})`;
-			if (!(value instanceof Job)) return;
-			return {
-				type: 'async-value',
-				source: value.ready.promise,
-				construct: () => js`({value:null})`,
-				resolve: ({ target }) => value.fails ? js`${{ invalid: () => {} }}` : js`${target}.value=${leaf}`,
-				reject: ({ target }) => js`${target}.value=${leaf}`
-			};
-		}, { id: 'opaque-operation-rollback', onerror: (error) => reports.push(error) });
+		const result = await unevalStream(
+			{
+				wrappers: [new Wrapper(leaf), new Wrapper(parent)],
+				failed,
+				healthy
+			},
+			(value, js) => {
+				if (value instanceof Wrapper) return js`({value:${value.value}})`;
+				if (!(value instanceof Job)) return;
+				return {
+					type: 'async-value',
+					source: value.ready.promise,
+					construct: () => js`({value:null})`,
+					resolve: ({ target }) =>
+						value.fails ? js`${{ invalid: () => {} }}` : js`${target}.value=${leaf}`,
+					reject: ({ target }) => js`${target}.value=${leaf}`
+				};
+			},
+			{ id: 'opaque-operation-rollback', onerror: (error) => reports.push(error) }
+		);
 		const target = client();
 		const root = target.head(result.head);
 		failed_gate.resolve(1);
@@ -276,20 +331,27 @@ describe('unevalStream transactions', () => {
 		const r1 = { value: 42 };
 		const r2 = { child: r1 };
 		const reports = [];
-		const result = await unevalStream({ failed, healthy }, (value, js) => {
-			if (!(value instanceof Job)) return;
-			const template = ({ target }) => js`${target}.value=${r2};${target}.also=${r1}`;
-			return {
-				type: 'async-value',
-				source: value.ready.promise,
-				construct: (capture) => js`({value:null,also:null,control:${capture(js`[]`)}})`,
-				// The failed operation provisions the same overlapping ordinary holes as the
-				// healthy fallback; its rollback must leave no anchors, slots, or promises.
-				resolve: ({ target }) => value === failed ? js`${target}.value=${r2};${target}.also=${r1};${{ invalid: () => {} }}` : template({ target }),
-				reject: template,
-				cancel() {}
-			};
-		}, { id: 'ordinary-operation-rollback', onerror: (error) => reports.push(error) });
+		const result = await unevalStream(
+			{ failed, healthy },
+			(value, js) => {
+				if (!(value instanceof Job)) return;
+				const template = ({ target }) => js`${target}.value=${r2};${target}.also=${r1}`;
+				return {
+					type: 'async-value',
+					source: value.ready.promise,
+					construct: (capture) => js`({value:null,also:null,control:${capture(js`[]`)}})`,
+					// The failed operation provisions the same overlapping ordinary holes as the
+					// healthy fallback; its rollback must leave no anchors, slots, or promises.
+					resolve: ({ target }) =>
+						value === failed
+							? js`${target}.value=${r2};${target}.also=${r1};${{ invalid: () => {} }}`
+							: template({ target }),
+					reject: template,
+					cancel() {}
+				};
+			},
+			{ id: 'ordinary-operation-rollback', onerror: (error) => reports.push(error) }
+		);
 		const target = client();
 		const root = target.head(result.head);
 		failed_gate.resolve(1);
@@ -304,5 +366,4 @@ describe('unevalStream transactions', () => {
 		expect(root.failed.value.child.value).toBe(42);
 		expect(await result.tail.next()).toEqual({ done: true, value: undefined });
 	});
-
 });

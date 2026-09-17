@@ -48,7 +48,10 @@ function mixed_graph() {
 		again: shared,
 		date: new Date(1_700_000_000_000),
 		regexp: /devalue/giu,
-		map: new Map([[key, shared], [shared, bytes]]),
+		map: new Map([
+			[key, shared],
+			[shared, bytes]
+		]),
 		set: new Set([key, shared, bytes.buffer]),
 		buffer: bytes.buffer,
 		view: new Uint16Array(bytes.buffer)
@@ -82,7 +85,11 @@ function wide_dag() {
 }
 
 function cyclic_graph() {
-	const nodes = Array.from({ length: 512 }, (_, index) => ({ index, next: undefined, shared: undefined }));
+	const nodes = Array.from({ length: 512 }, (_, index) => ({
+		index,
+		next: undefined,
+		shared: undefined
+	}));
 	for (let i = 0; i < nodes.length; i++) {
 		nodes[i].next = nodes[(i + 1) % nodes.length];
 		nodes[i].shared = nodes[(i * 31) % nodes.length];
@@ -164,11 +171,14 @@ function scalar_scaling_benchmark(count) {
 			Function(block)();
 		}
 		const values = await Promise.all(root);
-		if (values.length !== count || values[count - 1] !== count - 1) throw new Error('scalar scaling fixture was not consumed');
+		if (values.length !== count || values[count - 1] !== count - 1)
+			throw new Error('scalar scaling fixture was not consumed');
 		blackhole += bytes + values.length;
 		if (!described) {
 			described = true;
-			console.log(`  ${process.version}; resolved native Promise<number>[]; N=${count}; generated=${bytes} bytes`);
+			console.log(
+				`  ${process.version}; resolved native Promise<number>[]; N=${count}; generated=${bytes} bytes`
+			);
 		}
 	};
 	return {
@@ -192,11 +202,9 @@ function retained_scaling_benchmark(count) {
 		}
 		const pending = deferred();
 		const wrappers = nodes.map((value) => new Wrapper(value));
-		const result = await unevalStream(
-			{ wrappers, pending: pending.promise },
-			replacer,
-			{ id: 'retained-scaling' }
-		);
+		const result = await unevalStream({ wrappers, pending: pending.promise }, replacer, {
+			id: 'retained-scaling'
+		});
 		const root = Function(`return (${result.head})`)();
 		pending.resolve(nodes[Math.floor(count / 2)]);
 		let bytes = result.head.length;
@@ -205,13 +213,17 @@ function retained_scaling_benchmark(count) {
 			Function(block)();
 		}
 		for (let i = 1; i < count; i++) {
-			if (root.wrappers[i].value.child !== root.wrappers[i - 1].value) throw new Error('retained scaling chain identity failed');
+			if (root.wrappers[i].value.child !== root.wrappers[i - 1].value)
+				throw new Error('retained scaling chain identity failed');
 		}
-		if (await root.pending !== root.wrappers[Math.floor(count / 2)].value) throw new Error('retained scaling outcome identity failed');
+		if ((await root.pending) !== root.wrappers[Math.floor(count / 2)].value)
+			throw new Error('retained scaling outcome identity failed');
 		blackhole += bytes + wrappers.length;
 		if (!described) {
 			described = true;
-			console.log(`  ${process.version}; ascending overlapping opaque chain + pending Promise; N=${count}; generated=${bytes} bytes; warmup=1; median samples=3`);
+			console.log(
+				`  ${process.version}; ascending overlapping opaque chain + pending Promise; N=${count}; generated=${bytes} bytes; warmup=1; median samples=3`
+			);
 		}
 	};
 	return {
@@ -236,20 +248,25 @@ function operation_holes_scaling_benchmark(count) {
 		}
 		const pending = deferred();
 		const job = {};
-		const result = await unevalStream(job, (value, js) => value === job && ({
-			type: 'async-value',
-			source: pending.promise,
-			construct: () => js`({children:[]})`,
-			resolve: (reference) => {
-				let operation;
-				for (let i = 0; i < count; i++) {
-					const push = js`${reference.target}.children.push(${nodes[i]})`;
-					operation = i === 0 ? push : js`${operation};${push}`;
-				}
-				return operation;
-			},
-			reject: () => js``
-		}), { id: `operation-holes-scaling-${count}` });
+		const result = await unevalStream(
+			job,
+			(value, js) =>
+				value === job && {
+					type: 'async-value',
+					source: pending.promise,
+					construct: () => js`({children:[]})`,
+					resolve: (reference) => {
+						let operation;
+						for (let i = 0; i < count; i++) {
+							const push = js`${reference.target}.children.push(${nodes[i]})`;
+							operation = i === 0 ? push : js`${operation};${push}`;
+						}
+						return operation;
+					},
+					reject: () => js``
+				},
+			{ id: `operation-holes-scaling-${count}` }
+		);
 		const root = Function(`return (${result.head})`)();
 		pending.resolve(undefined);
 		let bytes = result.head.length;
@@ -258,12 +275,15 @@ function operation_holes_scaling_benchmark(count) {
 			Function(block)();
 		}
 		for (let i = 0; i < count; i++) {
-			if (root.children[i].child !== (i === 0 ? undefined : root.children[i - 1])) throw new Error('operation holes chain identity failed');
+			if (root.children[i].child !== (i === 0 ? undefined : root.children[i - 1]))
+				throw new Error('operation holes chain identity failed');
 		}
 		blackhole += bytes + nodes.length;
 		if (!described) {
 			described = true;
-			console.log(`  ${process.version}; ascending overlapping ordinary roots in one descriptor operation; N=${count}; generated=${bytes} bytes; warmup=1; median samples=3`);
+			console.log(
+				`  ${process.version}; ascending overlapping ordinary roots in one descriptor operation; N=${count}; generated=${bytes} bytes; warmup=1; median samples=3`
+			);
 		}
 	};
 	return {
@@ -300,16 +320,18 @@ const benchmarks = [
 	sync_benchmark('unevalStream edge/collections', collection_graph(), 100),
 	sync_benchmark('unevalStream custom/nested', custom_graph(), 100, replacer),
 	sync_benchmark('unevalStream custom/atomic cycle', atomic_graph(), 150, replacer),
-	...([100, 400, 1000, 4000].map(scalar_scaling_benchmark)),
-	...([100, 200, 400, 800].map(retained_scaling_benchmark)),
-	...([100, 200, 400, 800].map(operation_holes_scaling_benchmark)),
+	...[100, 400, 1000, 4000].map(scalar_scaling_benchmark),
+	...[100, 200, 400, 800].map(retained_scaling_benchmark),
+	...[100, 200, 400, 800].map(operation_holes_scaling_benchmark),
 	{
 		label: 'unevalStream stream/resolved head',
 		async fn() {
 			const run = async () => {
 				for (let iteration = 0; iteration < 3; iteration++) {
 					const outcome = wide_dag();
-					const promises = Array.from({ length: 128 }, (_, index) => Promise.resolve(index & 1 ? outcome[index] : outcome));
+					const promises = Array.from({ length: 128 }, (_, index) =>
+						Promise.resolve(index & 1 ? outcome[index] : outcome)
+					);
 					await consume(await unevalStream(promises, undefined, { id: 'benchmark' }));
 				}
 			};
@@ -324,7 +346,9 @@ const benchmarks = [
 			const run = async () => {
 				for (let iteration = 0; iteration < 8; iteration++) {
 					const pending = deferred();
-					const result = await unevalStream({ pending: pending.promise }, undefined, { id: 'benchmark' });
+					const result = await unevalStream({ pending: pending.promise }, undefined, {
+						id: 'benchmark'
+					});
 					pending.resolve(outcome);
 					await consume(result);
 				}
@@ -345,7 +369,8 @@ const benchmarks = [
 						undefined,
 						{ id: 'benchmark' }
 					);
-					for (let i = 0; i < pending.length; i++) pending[i].resolve(i & 1 ? shared : Array.from(shared.map.keys())[i]);
+					for (let i = 0; i < pending.length; i++)
+						pending[i].resolve(i & 1 ? shared : Array.from(shared.map.keys())[i]);
 					await consume(result);
 				}
 			};
@@ -360,7 +385,11 @@ const benchmarks = [
 			const run = async () => {
 				for (let iteration = 0; iteration < 20; iteration++) {
 					const pending = Array.from({ length: 64 }, () => deferred());
-					const result = await unevalStream(pending.map((item) => item.promise), undefined, { id: 'benchmark' });
+					const result = await unevalStream(
+						pending.map((item) => item.promise),
+						undefined,
+						{ id: 'benchmark' }
+					);
 					for (const item of pending) item.resolve(repeated);
 					await consume(result);
 				}

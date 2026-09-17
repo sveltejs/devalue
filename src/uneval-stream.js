@@ -14,7 +14,14 @@
  */
 
 import { DevalueError, is_primitive, stringify_primitive, stringify_string } from './utils.js';
-import { child, create_captured_graph, discover, graph_error_message, is_node, roll_back } from './graph.js';
+import {
+	child,
+	create_captured_graph,
+	discover,
+	graph_error_message,
+	is_node,
+	roll_back
+} from './graph.js';
 import { is_source, js, raw_source } from './javascript-source.js';
 import {
 	RUNTIMES,
@@ -150,7 +157,9 @@ class Session {
 		this.#replacer = replacer;
 		this.#signal = signal;
 		this.#onerror = options.onerror;
-		this.#graph = create_captured_graph(root, (graph, node, value) => this.#classify(graph, node, value));
+		this.#graph = create_captured_graph(root, (graph, node, value) =>
+			this.#classify(graph, node, value)
+		);
 		this.#abort = () => void this.#cancel(signal?.reason, true);
 		signal?.addEventListener('abort', this.#abort, { once: true });
 	}
@@ -164,9 +173,9 @@ class Session {
 			// walk the graph and capture the synchronous values and the first layer of async sources
 			this.#capture(value, true);
 			this.#active = this.#sources.length;
-      if (!this.#is_active()) {
-        await this.#throw_failure(undefined)
-      };
+			if (!this.#is_active()) {
+				await this.#throw_failure(undefined);
+			}
 
 			if (this.#sources.length === 0) {
 				const head = render_stream_source(this.#emit_region(value, false));
@@ -179,12 +188,12 @@ class Session {
 			this.#start_sources();
 			// Give newly started sources the same host-scheduled flush window used by tail
 			// batching. This is an operational scheduling window, not a task-count guarantee.
-      do {
-        await macrotask();
-      } while (this.#flushing && this.#is_active());
-      if (!this.#is_active()) {
-        await this.#throw_failure(undefined)
-      }
+			do {
+				await macrotask();
+			} while (this.#flushing && this.#is_active());
+			if (!this.#is_active()) {
+				await this.#throw_failure(undefined);
+			}
 
 			const head_region = this.#emit_region(value, true, 0, 0);
 			this.#assign_references(value, { kind: 'anchor', index: 0, segments: [] }, new Map(), 0);
@@ -291,7 +300,8 @@ class Session {
 	 */
 	#commit_transaction(checkpoint, commit_sources) {
 		if (commit_sources) {
-			for (let i = checkpoint.sources; i < this.#sources.length; i++) this.#sources[i].committed = true;
+			for (let i = checkpoint.sources; i < this.#sources.length; i++)
+				this.#sources[i].committed = true;
 		}
 		this.#transaction_depth--;
 		if (this.#transaction_depth === 0) {
@@ -303,10 +313,13 @@ class Session {
 
 	/** @param {TransactionCheckpoint} checkpoint @param {unknown} error */
 	#roll_back_transaction(checkpoint, error) {
-		for (let i = this.#sources.length - 1; i >= checkpoint.sources; i--) this.#deactivate(this.#sources[i]);
-		for (let i = this.#opaque_increments.length - 1; i >= checkpoint.opaque; i--) this.#opaque_increments[i].opaque--;
+		for (let i = this.#sources.length - 1; i >= checkpoint.sources; i--)
+			this.#deactivate(this.#sources[i]);
+		for (let i = this.#opaque_increments.length - 1; i >= checkpoint.opaque; i--)
+			this.#opaque_increments[i].opaque--;
 		this.#opaque_increments.length = checkpoint.opaque;
-		for (let i = this.#validated_additions.length - 1; i >= checkpoint.validated; i--) this.#validated.delete(this.#validated_additions[i]);
+		for (let i = this.#validated_additions.length - 1; i >= checkpoint.validated; i--)
+			this.#validated.delete(this.#validated_additions[i]);
 		this.#validated_additions.length = checkpoint.validated;
 		for (let i = this.#reference_mutations.length - 1; i >= checkpoint.references; i--) {
 			const mutation = this.#reference_mutations[i];
@@ -352,7 +365,8 @@ class Session {
 		/** @param {CapturedNode} node */
 		const validate = (node) => {
 			if (this.#validated.has(node) || validated.has(node)) return;
-			if (validating.has(node)) throw this.#error('Cannot stringify an atomic custom cycle', node.value);
+			if (validating.has(node))
+				throw this.#error('Cannot stringify an atomic custom cycle', node.value);
 			validating.add(node);
 			for (const child of node.children) {
 				if (is_node(child) && is_atomic(child)) validate(child);
@@ -407,7 +421,11 @@ class Session {
 				const type = result.type;
 				if (!this.#is_active()) throw this.#terminal_reason();
 				if (type === 'async-value') {
-					const source = this.#validate_descriptor(result, 'async-value', ['construct', 'resolve', 'reject']);
+					const source = this.#validate_descriptor(result, 'async-value', [
+						'construct',
+						'resolve',
+						'reject'
+					]);
 					if (!this.#is_active()) throw this.#terminal_reason();
 					this.#add_source(node, result, 'value', false, source);
 					return true;
@@ -415,7 +433,12 @@ class Session {
 				const sequence_type = result.type;
 				if (!this.#is_active()) throw this.#terminal_reason();
 				if (sequence_type === 'async-sequence') {
-					const source = this.#validate_descriptor(result, 'async-sequence', ['construct', 'next', 'complete', 'error']);
+					const source = this.#validate_descriptor(result, 'async-sequence', [
+						'construct',
+						'next',
+						'complete',
+						'error'
+					]);
 					if (!this.#is_active()) throw this.#terminal_reason();
 					this.#add_source(node, result, 'sequence', false, source);
 					return true;
@@ -429,30 +452,27 @@ class Session {
 		if (typeof value === 'object' && value !== null) {
 			/** @type {{ active: boolean, dispatch?: (type: 'resolve' | 'reject', result: unknown) => void } | undefined} */
 			let observer;
-			if (is_native_promise(value)) try {
-				/** @type {{ active: boolean, dispatch?: (type: 'resolve' | 'reject', result: unknown) => void }} */
-				const current = observer = { active: true };
-				/**
-				 * Forwards a native Promise fulfillment while its provisional observer is active.
-				 *
-				 * @param {unknown} result
-				 */
-				const resolve = (result) => current.active && current.dispatch?.('resolve', result);
-				/**
-				 * Forwards a native Promise rejection while its provisional observer is active.
-				 *
-				 * @param {unknown} reason
-				 */
-				const reject = (reason) => current.active && current.dispatch?.('reject', reason);
-				const observed = promise_then.call(
-					value,
-					resolve,
-					reject
-				);
-				promise_then.call(observed, undefined, () => {});
-			} catch {
-				observer = undefined;
-			}
+			if (is_native_promise(value))
+				try {
+					/** @type {{ active: boolean, dispatch?: (type: 'resolve' | 'reject', result: unknown) => void }} */
+					const current = (observer = { active: true });
+					/**
+					 * Forwards a native Promise fulfillment while its provisional observer is active.
+					 *
+					 * @param {unknown} result
+					 */
+					const resolve = (result) => current.active && current.dispatch?.('resolve', result);
+					/**
+					 * Forwards a native Promise rejection while its provisional observer is active.
+					 *
+					 * @param {unknown} reason
+					 */
+					const reject = (reason) => current.active && current.dispatch?.('reject', reason);
+					const observed = promise_then.call(value, resolve, reject);
+					promise_then.call(observed, undefined, () => {});
+				} catch {
+					observer = undefined;
+				}
 			if (observer) {
 				const descriptor = this.#native_descriptor(/** @type {Promise<unknown>} */ (value));
 				try {
@@ -495,8 +515,14 @@ class Session {
 		const pending = this.#pending;
 		/** @param {JavaScriptSource} expression */
 		const control = (expression) => {
-			if (capture_called) throw new TypeError('devalue: capture may only be called once per async descriptor construct(); capture one js expression containing all private controls, such as js`[resolve,reject]`');
-			if (!is_source(expression)) throw new TypeError(`Invalid async descriptor capture: capture() received ${describe_received(expression)}. Pass an expression built with the js tagged template, not a raw value or source string.`);
+			if (capture_called)
+				throw new TypeError(
+					'devalue: capture may only be called once per async descriptor construct(); capture one js expression containing all private controls, such as js`[resolve,reject]`'
+				);
+			if (!is_source(expression))
+				throw new TypeError(
+					`Invalid async descriptor capture: capture() received ${describe_received(expression)}. Pass an expression built with the js tagged template, not a raw value or source string.`
+				);
 			capture_called = true;
 			return capture_source(pending, expression);
 		};
@@ -504,14 +530,27 @@ class Session {
 		if (!this.#is_active()) throw this.#terminal_reason();
 		const source = Reflect.apply(construct, descriptor, [control]);
 		if (!this.#is_active()) throw this.#terminal_reason();
-		if (!is_source(source)) throw new TypeError(`Invalid async descriptor construct result: construct() returned ${describe_received(source)}. It must synchronously return a js tagged template representing the client construction expression.`);
+		if (!is_source(source))
+			throw new TypeError(
+				`Invalid async descriptor construct result: construct() returned ${describe_received(source)}. It must synchronously return a js tagged template representing the client construction expression.`
+			);
 		// Reserve the control index and provisional source before recursive hole discovery.
 		this.#pending = pending + 1;
 		// `node` is reserved but unclassified; this call classifies it, so the cast records
 		// the mutation that TypeScript cannot follow.
 		const async_node = /** @type {AsyncNode} */ (node);
 		/** @type {Source} */
-		const state = { node: async_node, descriptor, context, type, immediate, committed: false, started: false, terminal: false, active: true };
+		const state = {
+			node: async_node,
+			descriptor,
+			context,
+			type,
+			immediate,
+			committed: false,
+			started: false,
+			terminal: false,
+			active: true
+		};
 		async_node.kind = 'Async';
 		async_node.data = { source, pending, captured: false, state };
 		this.#sources.push(state);
@@ -523,7 +562,14 @@ class Session {
 			try {
 				captured = child(this.#graph, entry.value);
 			} catch (error) {
-				throw descriptor_interpolation_error(error, entry.value, entry.capture ? 'async descriptor capture()' : 'async descriptor construct()', entry.index, true, descriptor_error_detail(this.#graph, error));
+				throw descriptor_interpolation_error(
+					error,
+					entry.value,
+					entry.capture ? 'async descriptor capture()' : 'async descriptor construct()',
+					entry.index,
+					true,
+					descriptor_error_detail(this.#graph, error)
+				);
 			}
 			children[i] = captured;
 			if (is_node(captured)) this.#make_opaque(captured);
@@ -531,7 +577,8 @@ class Session {
 		async_node.children = children;
 		let contains_capture = false;
 		visit_source_instructions(source, (instruction) => {
-			if (instruction.type === 'capture' && instruction.pending === pending) contains_capture = true;
+			if (instruction.type === 'capture' && instruction.pending === pending)
+				contains_capture = true;
 		});
 		async_node.data.captured = capture_called && (type === 'native' || contains_capture);
 		this.#new_custom.push(async_node);
@@ -553,8 +600,11 @@ class Session {
 		if (entries.length === 0) return { prerequisites: [], source };
 		if (entries.every((entry) => is_primitive(entry.value))) {
 			const lowered = map_descriptor_source(source, (value, index) => {
-				if (typeof value === 'symbol') throw descriptor_interpolation_error(undefined, value, context, index);
-				return stringify_primitive(/** @type {null | undefined | boolean | number | string | bigint} */ (value));
+				if (typeof value === 'symbol')
+					throw descriptor_interpolation_error(undefined, value, context, index);
+				return stringify_primitive(
+					/** @type {null | undefined | boolean | number | string | bigint} */ (value)
+				);
 			});
 			return { prerequisites: [], source: lowered };
 		}
@@ -567,7 +617,14 @@ class Session {
 					const node = discover(this.#graph, entry.value);
 					if (node) nodes.set(/** @type {object} */ (entry.value), node);
 				} catch (error) {
-					throw descriptor_interpolation_error(error, entry.value, context, entry.index, true, descriptor_error_detail(this.#graph, error));
+					throw descriptor_interpolation_error(
+						error,
+						entry.value,
+						context,
+						entry.index,
+						true,
+						descriptor_error_detail(this.#graph, error)
+					);
 				}
 			}
 			this.#validate_new_custom(checkpoint.new_custom);
@@ -612,12 +669,17 @@ class Session {
 
 			const lowered = map_descriptor_source(source, (value, index) => {
 				if (is_primitive(value)) {
-					if (typeof value === 'symbol') throw descriptor_interpolation_error(undefined, value, context, index);
+					if (typeof value === 'symbol')
+						throw descriptor_interpolation_error(undefined, value, context, index);
 					return stringify_primitive(value);
 				}
 				const node = nodes.get(/** @type {object} */ (value));
 				const binding = node && bindings.get(node);
-				if (!binding) throw this.#error('Cannot stringify value: a descriptor template hole was not captured before lowering (internal emitter error)', value);
+				if (!binding)
+					throw this.#error(
+						'Cannot stringify value: a descriptor template hole was not captured before lowering (internal emitter error)',
+						value
+					);
 				return binding;
 			});
 			return { checkpoint, prerequisites, source: lowered };
@@ -684,27 +746,37 @@ class Session {
 		const source = descriptor.source;
 		if (!this.#is_active()) throw this.#terminal_reason();
 		if ((typeof source !== 'object' || source === null) && typeof source !== 'function') {
-			const requirement = type === 'async-value'
-				? 'The source must be a Promise or a Promise-like object or function with a callable then method.'
-				: 'The source must be an async iterable with a callable Symbol.asyncIterator method.';
-			throw new TypeError(`Invalid ${type} source: received ${describe_received(source)}. ${requirement}`);
+			const requirement =
+				type === 'async-value'
+					? 'The source must be a Promise or a Promise-like object or function with a callable then method.'
+					: 'The source must be an async iterable with a callable Symbol.asyncIterator method.';
+			throw new TypeError(
+				`Invalid ${type} source: received ${describe_received(source)}. ${requirement}`
+			);
 		}
 		for (const key of methods) {
 			const method = descriptor[key];
 			if (!this.#is_active()) throw this.#terminal_reason();
-			if (typeof method !== 'function') throw new TypeError(`Invalid ${type} ${key}: received ${describe_received(method)}. The descriptor must provide a ${key}() function.`);
+			if (typeof method !== 'function')
+				throw new TypeError(
+					`Invalid ${type} ${key}: received ${describe_received(method)}. The descriptor must provide a ${key}() function.`
+				);
 		}
 		const cancel = descriptor.cancel;
 		if (!this.#is_active()) throw this.#terminal_reason();
 		if (cancel !== undefined && typeof cancel !== 'function') {
-			throw new TypeError(`Invalid ${type} cancel: received ${describe_received(cancel)}. Omit cancel or provide a cleanup function.`);
+			throw new TypeError(
+				`Invalid ${type} cancel: received ${describe_received(cancel)}. Omit cancel or provide a cleanup function.`
+			);
 		}
 		return source;
 	}
 
 	/** @param {unknown} result @returns {TypeError} */
 	#invalid_replacer_result(result) {
-		return new TypeError(`Invalid unevalStream replacer result: received ${describe_received(result)}. Return a js tagged template, a descriptor with its own type of "async-value" or "async-sequence", or undefined, null, or false to serialize normally. The replacer must be synchronous; Promise results are not supported.`);
+		return new TypeError(
+			`Invalid unevalStream replacer result: received ${describe_received(result)}. Return a js tagged template, a descriptor with its own type of "async-value" or "async-sequence", or undefined, null, or false to serialize normally. The replacer must be synchronous; Promise results are not supported.`
+		);
 	}
 
 	/** Starts every committed source unless the constructor's AbortSignal listener has cancelled the session. */
@@ -963,7 +1035,8 @@ class Session {
 	#emit_region(value, persistent, available = this.#availability, retained_at = available) {
 		// A primitive region has neither graph planning nor unresolved source dependencies.
 		if (is_primitive(value)) {
-			if (typeof value === 'symbol') throw this.#error('Cannot stringify a Symbol primitive', value);
+			if (typeof value === 'symbol')
+				throw this.#error('Cannot stringify a Symbol primitive', value);
 			return stringify_primitive(value);
 		}
 		const identities = this.#graph.identities;
@@ -989,7 +1062,9 @@ class Session {
 			}
 			node.position = order.push(node) - 1;
 		};
-		const root_node = is_primitive(value) ? undefined : identities.get(/** @type {object} */ (value));
+		const root_node = is_primitive(value)
+			? undefined
+			: identities.get(/** @type {object} */ (value));
 		if (root_node) visit(root_node);
 
 		// In-region use counts; a node used once can be inlined at its single use site.
@@ -1109,11 +1184,16 @@ class Session {
 		 */
 		const expression = (thing) => {
 			if (is_primitive(thing)) {
-				if (typeof thing === 'symbol') throw this.#error('Cannot stringify a Symbol primitive', thing);
+				if (typeof thing === 'symbol')
+					throw this.#error('Cannot stringify a Symbol primitive', thing);
 				return stringify_primitive(thing);
 			}
 			const node = identities.get(/** @type {object} */ (thing));
-			if (!node) throw this.#error('Cannot stringify value: a custom template hole was not discovered in the captured graph; do not change template holes after the replacer returns', thing);
+			if (!node)
+				throw this.#error(
+					'Cannot stringify value: a custom template hole was not discovered in the captured graph; do not change template holes after the replacer returns',
+					thing
+				);
 			return expression_node(node);
 		};
 		/**
@@ -1127,7 +1207,11 @@ class Session {
 			}
 			if (node.region_id === region_id && node.name) return node.name;
 			// `rendering` guards against unexpected re-entry while expanding inline.
-			if (node.rendering) throw this.#error('Cannot stringify value: inline construction re-entered the same node without a declared reference (internal emitter error)', node.value);
+			if (node.rendering)
+				throw this.#error(
+					'Cannot stringify value: inline construction re-entered the same node without a declared reference (internal emitter error)',
+					node.value
+				);
 			node.rendering = true;
 			try {
 				return inline(node);
@@ -1138,21 +1222,31 @@ class Session {
 		/** @param {Child} child */
 		const expression_child = (child) => {
 			if (is_node(child)) return expression_node(child);
-			if (typeof child === 'symbol') throw this.#error('Cannot stringify a Symbol primitive', child);
+			if (typeof child === 'symbol')
+				throw this.#error('Cannot stringify a Symbol primitive', child);
 			return stringify_primitive(child);
 		};
 
 		/** @param {Child[]} children */
-		const set_literal = (children) => children.length
-			? join_sources(['new Set([', join_sources(children.map(expression_child), ','), '])'])
-			: 'new Set';
+		const set_literal = (children) =>
+			children.length
+				? join_sources(['new Set([', join_sources(children.map(expression_child), ','), '])'])
+				: 'new Set';
 		/** @param {Child[]} children */
 		const map_literal = (children) => {
 			if (children.length === 0) return 'new Map';
 			/** @type {Emission[]} */
 			const entries = [];
 			for (let i = 0; i < children.length; i += 2) {
-				entries.push(join_sources(['[', expression_child(children[i]), ',', expression_child(children[i + 1]), ']']));
+				entries.push(
+					join_sources([
+						'[',
+						expression_child(children[i]),
+						',',
+						expression_child(children[i + 1]),
+						']'
+					])
+				);
 			}
 			return join_sources(['new Map([', join_sources(entries, ','), '])']);
 		};
@@ -1173,7 +1267,9 @@ class Session {
 					/** @type {Emission[]} */
 					const properties = [];
 					for (let i = 0; i < keys.length; i++) {
-						properties.push(join_sources([`${literal_key(keys[i])}:`, expression_child(children[i])]));
+						properties.push(
+							join_sources([`${literal_key(keys[i])}:`, expression_child(children[i])])
+						);
 					}
 					return join_sources(['{', join_sources(properties, ','), '}']);
 				}
@@ -1224,24 +1320,34 @@ class Session {
 		const fill_entries = (node, name, available) => {
 			const children = node.children;
 			const keys = node.keys;
-			if (node.kind === 'Array') return children.map((child, i) => ({
-				source: join_sources([`${name}[${keys[i]}]=`, expression_child(child)]),
-				ready: available(child)
-			}));
-			if (node.kind === 'Object' || node.kind === 'NullObject') return children.map((child, i) => ({
-				source: join_sources([`${name}${prop(keys[i])}=`, expression_child(child)]),
-				ready: available(child)
-			}));
-			if (node.kind === 'Set') return children.map((child) => ({
-				source: join_sources([`${name}.add(`, expression_child(child), ')']),
-				ready: available(child)
-			}));
+			if (node.kind === 'Array')
+				return children.map((child, i) => ({
+					source: join_sources([`${name}[${keys[i]}]=`, expression_child(child)]),
+					ready: available(child)
+				}));
+			if (node.kind === 'Object' || node.kind === 'NullObject')
+				return children.map((child, i) => ({
+					source: join_sources([`${name}${prop(keys[i])}=`, expression_child(child)]),
+					ready: available(child)
+				}));
+			if (node.kind === 'Set')
+				return children.map((child) => ({
+					source: join_sources([`${name}.add(`, expression_child(child), ')']),
+					ready: available(child)
+				}));
 			/** @type {{ source: Emission, ready: boolean }[]} */
 			const entries = [];
-			for (let i = 0; i < children.length; i += 2) entries.push({
-				source: join_sources([`${name}.set(`, expression_child(children[i]), ',', expression_child(children[i + 1]), ')']),
-				ready: available(children[i]) && available(children[i + 1])
-			});
+			for (let i = 0; i < children.length; i += 2)
+				entries.push({
+					source: join_sources([
+						`${name}.set(`,
+						expression_child(children[i]),
+						',',
+						expression_child(children[i + 1]),
+						')'
+					]),
+					ready: available(children[i]) && available(children[i + 1])
+				});
 			return entries;
 		};
 		// Shells needed across back-edges exist before any atomic initializer. Their
@@ -1254,7 +1360,9 @@ class Session {
 					break;
 				case 'Object':
 				case 'NullObject':
-					declarations.push(`${node.name}=${node.kind === 'NullObject' ? 'Object.create(null)' : '{}'}`);
+					declarations.push(
+						`${node.name}=${node.kind === 'NullObject' ? 'Object.create(null)' : '{}'}`
+					);
 					break;
 				case 'Set':
 					declarations.push(`${node.name}=new Set`);
@@ -1263,7 +1371,10 @@ class Session {
 					declarations.push(`${node.name}=new Map`);
 					break;
 				default:
-					throw this.#error(`Cannot stringify value: a ${node.kind} node was scheduled for empty construction, but only mutable containers support it (internal emitter error)`, node.value);
+					throw this.#error(
+						`Cannot stringify value: a ${node.kind} node was scheduled for empty construction, but only mutable containers support it (internal emitter error)`,
+						node.value
+					);
 			}
 		}
 		for (const node of order) {
@@ -1297,7 +1408,9 @@ class Session {
 						}
 						// A trailing elision needs one extra comma to preserve length.
 						const trailing = parts.length && !available(children[children.length - 1]) ? ',' : '';
-						declarations.push(join_sources([`${name}=[`, join_sources(parts, ','), `${trailing}]`]));
+						declarations.push(
+							join_sources([`${name}=[`, join_sources(parts, ','), `${trailing}]`])
+						);
 						break;
 					}
 					case 'Object': {
@@ -1312,7 +1425,9 @@ class Session {
 								// Once one key must wait for a later declaration, every following key is
 								// populated through ordered fills so no available value leapfrogs it.
 								filling = true;
-								deferred_fill.push(join_sources([`${name}${prop(keys[i])}=`, expression_child(child)]));
+								deferred_fill.push(
+									join_sources([`${name}${prop(keys[i])}=`, expression_child(child)])
+								);
 							}
 						}
 						declarations.push(join_sources([`${name}={`, join_sources(embedded, ','), '}']));
@@ -1357,9 +1472,16 @@ class Session {
 				}
 				if (elements.length) {
 					const index = this.#collection++;
-					sidecars.push(join_sources([`s.c[${index}]=[`, join_sources(elements.map(expression_node), ','), ']']));
+					sidecars.push(
+						join_sources([`s.c[${index}]=[`, join_sources(elements.map(expression_node), ','), ']'])
+					);
 					for (let i = 0; i < elements.length; i++) {
-						this.#assign_references_node(elements[i], { kind: 'collection', index, segments: [`[${i}]`] }, retained_seen, retained_at);
+						this.#assign_references_node(
+							elements[i],
+							{ kind: 'collection', index, segments: [`[${i}]`] },
+							retained_seen,
+							retained_at
+						);
 					}
 				}
 			}
@@ -1378,14 +1500,13 @@ class Session {
 				this.#assign_references(node.value, reference, retained_seen, retained_at);
 			}
 		}
-		const statements = [
-			...construction,
-			...deferred_fill,
-			...sidecars,
-			...slots
-		];
+		const statements = [...construction, ...deferred_fill, ...sidecars, ...slots];
 		return statements.length
-			? join_sources(['(()=>{', join_sources([...statements, join_sources(['return ', root])], ';'), '})()'])
+			? join_sources([
+					'(()=>{',
+					join_sources([...statements, join_sources(['return ', root])], ';'),
+					'})()'
+				])
 			: root;
 	}
 
@@ -1430,14 +1551,19 @@ class Session {
 	 */
 	#resolve_reference(hole, available = this.#availability) {
 		const reference = hole.path ?? this.#reference_at(hole.node, available)?.path;
-		if (!reference) throw this.#error('Cannot stringify value: a client identity has no retained anchor, slot, or collection path before operation generation (internal emitter error)', hole.node.value);
+		if (!reference)
+			throw this.#error(
+				'Cannot stringify value: a client identity has no retained anchor, slot, or collection path before operation generation (internal emitter error)',
+				hole.node.value
+			);
 		return reference;
 	}
 
 	/** Resolves every reachable structured reference before final rendering. @param {Emission} source */
 	#resolve_references(source, available = this.#availability) {
 		visit_source_instructions(source, (instruction) => {
-			if (instruction.type === 'reference') instruction.path = this.#resolve_reference(instruction, available);
+			if (instruction.type === 'reference')
+				instruction.path = this.#resolve_reference(instruction, available);
 		});
 	}
 
@@ -1471,15 +1597,32 @@ class Session {
 		if (node.kind === 'Array') {
 			for (let i = 0; i < children.length; i++) {
 				const child = children[i];
-				if (is_node(child)) this.#assign_references_node(child, append_reference(reference, `[${node.keys[i]}]`), seen, available);
+				if (is_node(child))
+					this.#assign_references_node(
+						child,
+						append_reference(reference, `[${node.keys[i]}]`),
+						seen,
+						available
+					);
 			}
 		} else if (node.kind === 'Object' || node.kind === 'NullObject') {
 			for (let i = 0; i < children.length; i++) {
 				const child = children[i];
-				if (is_node(child)) this.#assign_references_node(child, append_reference(reference, prop(node.keys[i])), seen, available);
+				if (is_node(child))
+					this.#assign_references_node(
+						child,
+						append_reference(reference, prop(node.keys[i])),
+						seen,
+						available
+					);
 			}
 		} else if (is_view(node)) {
-			this.#assign_references_node(node.children[0], append_reference(reference, '.buffer'), seen, available);
+			this.#assign_references_node(
+				node.children[0],
+				append_reference(reference, '.buffer'),
+				seen,
+				available
+			);
 		}
 	}
 
@@ -1499,9 +1642,19 @@ class Session {
 		const dispatch = this.#emit_dispatch ? ';s.b=f=>f(s,n)' : '';
 		const table = `let n=${scope}||(${scope}={__proto__:null}),s=n[${id}]={a:[],s:[],c:[],p:[]}${dispatch};`;
 		const definitions = definitions_source();
-		const source = operations === undefined
-			? join_sources(['(()=>{', table, definitions, ';return s.a[0]=', region, '})()'])
-			: join_sources(['(()=>{', table, definitions, ';let r=s.a[0]=', region, ';', operations, ';return r})()']);
+		const source =
+			operations === undefined
+				? join_sources(['(()=>{', table, definitions, ';return s.a[0]=', region, '})()'])
+				: join_sources([
+						'(()=>{',
+						table,
+						definitions,
+						';let r=s.a[0]=',
+						region,
+						';',
+						operations,
+						';return r})()'
+					]);
 		return this.#render_final(source);
 	}
 
@@ -1533,126 +1686,152 @@ class Session {
 			/** @type {Source[]} */
 			const close = [];
 			for (const event of events) {
-			if (!this.#is_active()) throw this.#terminal_reason();
-			const source = event.source;
-			const node = source.node;
-			const available = this.#availability;
-			const retained_at = ++this.#availability;
-			const target = reference_source(node, this.#reference_at(node, available)?.path);
-			const control = node.data.captured ? raw_source(`s.p[${node.data.pending}]`) : undefined;
-			const reference = {
-				target,
-				control
-			};
-			/** @type {JavaScriptSource | undefined} */
-			let value_source;
-			/** @type {Emission | undefined} */
-			let anchor;
-			/** @type {Emission | undefined} */
-			let materialization;
-			if (!event.invalid) {
-				if (!is_primitive(event.value)) {
-					const outcome_node = this.#graph.identities.get(/** @type {object} */ (event.value));
-					const retained = outcome_node && this.#reference_at(outcome_node, available);
-					/** @type {Emission} */
-					let expression;
-					if (retained) {
-						expression = reference_source(outcome_node, retained.path);
+				if (!this.#is_active()) throw this.#terminal_reason();
+				const source = event.source;
+				const node = source.node;
+				const available = this.#availability;
+				const retained_at = ++this.#availability;
+				const target = reference_source(node, this.#reference_at(node, available)?.path);
+				const control = node.data.captured ? raw_source(`s.p[${node.data.pending}]`) : undefined;
+				const reference = {
+					target,
+					control
+				};
+				/** @type {JavaScriptSource | undefined} */
+				let value_source;
+				/** @type {Emission | undefined} */
+				let anchor;
+				/** @type {Emission | undefined} */
+				let materialization;
+				if (!event.invalid) {
+					if (!is_primitive(event.value)) {
+						const outcome_node = this.#graph.identities.get(/** @type {object} */ (event.value));
+						const retained = outcome_node && this.#reference_at(outcome_node, available);
+						/** @type {Emission} */
+						let expression;
+						if (retained) {
+							expression = reference_source(outcome_node, retained.path);
+						} else {
+							// Persistent: async outcomes must retain Map/Set element and opaque custom
+							// child identities for future regions, exactly like the head region.
+							const region = this.#emit_region(event.value, true, available, retained_at);
+							this.#resolve_references(region, available);
+							const index = this.#anchor++;
+							const path = { kind: /** @type {const} */ ('anchor'), index, segments: [] };
+							this.#assign_references(event.value, path, new Map(), retained_at);
+							const name = `s.a[${index}]`;
+							// Anchor indices are allocated only for new roots, monotonically and densely.
+							// Once the push helper pays for itself the client can derive the position.
+							const use_helper = this.#runtimes_emitted.v || index > 5;
+							const write = use_helper
+								? join_sources([runtime_source('v'), '(', region, ')'])
+								: join_sources([name, '=', region]);
+							expression = write;
+							if (source.immediate) {
+								const folded = use_helper ? write : join_sources(['(', write, ')']);
+								anchor = write;
+								value_source = template_source(folded);
+							}
+						}
+						if (!source.immediate) {
+							const local = `o${this.#local++}`;
+							materialization = join_sources([`const ${local}=`, expression]);
+							value_source = raw_source(local);
+						} else if (!value_source) {
+							value_source = template_source(expression);
+						}
 					} else {
-						// Persistent: async outcomes must retain Map/Set element and opaque custom
-						// child identities for future regions, exactly like the head region.
 						const region = this.#emit_region(event.value, true, available, retained_at);
 						this.#resolve_references(region, available);
-						const index = this.#anchor++;
-						const path = { kind: /** @type {const} */ ('anchor'), index, segments: [] };
-						this.#assign_references(event.value, path, new Map(), retained_at);
-						const name = `s.a[${index}]`;
-						// Anchor indices are allocated only for new roots, monotonically and densely.
-						// Once the push helper pays for itself the client can derive the position.
-						const use_helper = this.#runtimes_emitted.v || index > 5;
-						const write = use_helper
-							? join_sources([runtime_source('v'), '(', region, ')'])
-							: join_sources([name, '=', region]);
-						expression = write;
-						if (source.immediate) {
-							const folded = use_helper ? write : join_sources(['(', write, ')']);
-							anchor = write;
-							value_source = template_source(folded);
-						}
+						value_source = template_source(region);
 					}
-					if (!source.immediate) {
+				} else {
+					if (source.immediate) {
+						value_source = generic_error;
+					} else {
 						const local = `o${this.#local++}`;
-						materialization = join_sources([`const ${local}=`, expression]);
+						materialization = `const ${local}=new Error("devalue: failed to serialize asynchronous value")`;
 						value_source = raw_source(local);
-					} else if (!value_source) {
-						value_source = template_source(expression);
 					}
-				} else {
-					const region = this.#emit_region(event.value, true, available, retained_at);
-					this.#resolve_references(region, available);
-					value_source = template_source(region);
 				}
-			} else {
-				if (source.immediate) {
-					value_source = generic_error;
-				} else {
-					const local = `o${this.#local++}`;
-					materialization = `const ${local}=new Error("devalue: failed to serialize asynchronous value")`;
-					value_source = raw_source(local);
-				}
-			}
-			if (!value_source) throw this.#error('Cannot stringify value: an async outcome has no materialized client expression before operation generation (internal emitter error)', event.value);
+				if (!value_source)
+					throw this.#error(
+						'Cannot stringify value: an async outcome has no materialized client expression before operation generation (internal emitter error)',
+						event.value
+					);
 
-			try {
-				const method = source.descriptor[event.type];
-				if (!this.#is_active()) throw this.#terminal_reason();
-				const operation = Reflect.apply(method, source.descriptor, [reference, value_source]);
-				if (!this.#is_active()) throw this.#terminal_reason();
-				if (!is_source(operation)) throw new TypeError(`Invalid async descriptor operation: ${event.type}() returned ${describe_received(operation)}. It must synchronously return a js tagged template containing client statements; use js\`\` for an empty operation.`);
-				const lowered = this.#lower_descriptor_source(operation, `async descriptor ${event.type}()`, retained_at);
-				if (materialization) operations.push(materialization);
-				operations.push(...lowered.prerequisites, source.immediate ? lowered.source : complete_statement_source(lowered.source));
-				if (lowered.checkpoint) this.#commit_transaction(lowered.checkpoint, false);
-			} catch (error) {
-				if (!this.#is_active()) throw error;
-				if (event.type === 'resolve' || event.type === 'next' || event.type === 'complete') {
-					this.#report(error, event.value);
+				try {
+					const method = source.descriptor[event.type];
 					if (!this.#is_active()) throw this.#terminal_reason();
-					// A privately folded adapter publishes its separate anchor write if its callback
-					// unexpectedly fails. The failed operation containing the folded expression was
-					// never added to output. Arbitrary operations retain their eager local instead.
-					if (anchor) {
-						operations.push(anchor);
-					} else if (materialization) {
-						operations.push(materialization);
-					}
-					let fallback_value = generic_error;
-					if (!source.immediate) {
-						const local = `o${this.#local++}`;
-						operations.push(`const ${local}=new Error("devalue: failed to serialize asynchronous value")`);
-						fallback_value = raw_source(local);
-					}
-					const method = source.type === 'sequence' ? source.descriptor.error : source.descriptor.reject;
+					const operation = Reflect.apply(method, source.descriptor, [reference, value_source]);
 					if (!this.#is_active()) throw this.#terminal_reason();
-					const fallback = Reflect.apply(method, source.descriptor, [reference, fallback_value]);
-					if (!this.#is_active()) throw this.#terminal_reason();
-					if (!is_source(fallback)) throw new TypeError(`Invalid async descriptor operation: fallback ${source.type === 'sequence' ? 'error' : 'reject'}() returned ${describe_received(fallback)}. It must synchronously return a js tagged template containing client statements; use js\`\` for an empty operation.`);
-					const context = source.type === 'sequence' ? 'async descriptor fallback error()' : 'async descriptor fallback reject()';
-					const lowered = this.#lower_descriptor_source(fallback, context, retained_at);
-					operations.push(...lowered.prerequisites, source.immediate ? lowered.source : complete_statement_source(lowered.source));
+					if (!is_source(operation))
+						throw new TypeError(
+							`Invalid async descriptor operation: ${event.type}() returned ${describe_received(operation)}. It must synchronously return a js tagged template containing client statements; use js\`\` for an empty operation.`
+						);
+					const lowered = this.#lower_descriptor_source(
+						operation,
+						`async descriptor ${event.type}()`,
+						retained_at
+					);
+					if (materialization) operations.push(materialization);
+					operations.push(
+						...lowered.prerequisites,
+						source.immediate ? lowered.source : complete_statement_source(lowered.source)
+					);
 					if (lowered.checkpoint) this.#commit_transaction(lowered.checkpoint, false);
-					event.type = source.type === 'sequence' ? 'error' : 'reject';
-				} else {
-					throw error;
+				} catch (error) {
+					if (!this.#is_active()) throw error;
+					if (event.type === 'resolve' || event.type === 'next' || event.type === 'complete') {
+						this.#report(error, event.value);
+						if (!this.#is_active()) throw this.#terminal_reason();
+						// A privately folded adapter publishes its separate anchor write if its callback
+						// unexpectedly fails. The failed operation containing the folded expression was
+						// never added to output. Arbitrary operations retain their eager local instead.
+						if (anchor) {
+							operations.push(anchor);
+						} else if (materialization) {
+							operations.push(materialization);
+						}
+						let fallback_value = generic_error;
+						if (!source.immediate) {
+							const local = `o${this.#local++}`;
+							operations.push(
+								`const ${local}=new Error("devalue: failed to serialize asynchronous value")`
+							);
+							fallback_value = raw_source(local);
+						}
+						const method =
+							source.type === 'sequence' ? source.descriptor.error : source.descriptor.reject;
+						if (!this.#is_active()) throw this.#terminal_reason();
+						const fallback = Reflect.apply(method, source.descriptor, [reference, fallback_value]);
+						if (!this.#is_active()) throw this.#terminal_reason();
+						if (!is_source(fallback))
+							throw new TypeError(
+								`Invalid async descriptor operation: fallback ${source.type === 'sequence' ? 'error' : 'reject'}() returned ${describe_received(fallback)}. It must synchronously return a js tagged template containing client statements; use js\`\` for an empty operation.`
+							);
+						const context =
+							source.type === 'sequence'
+								? 'async descriptor fallback error()'
+								: 'async descriptor fallback reject()';
+						const lowered = this.#lower_descriptor_source(fallback, context, retained_at);
+						operations.push(
+							...lowered.prerequisites,
+							source.immediate ? lowered.source : complete_statement_source(lowered.source)
+						);
+						if (lowered.checkpoint) this.#commit_transaction(lowered.checkpoint, false);
+						event.type = source.type === 'sequence' ? 'error' : 'reject';
+					} else {
+						throw error;
+					}
 				}
-			}
-			if (event.type !== 'next' && node.data.captured && source.type !== 'native') {
-				operations.push(`delete s.p[${node.data.pending}]`);
-			}
-			if (event.type !== 'next') {
-				this.#active--;
-				if (source.type === 'sequence' && event.type === 'error') close.push(source);
-			}
+				if (event.type !== 'next' && node.data.captured && source.type !== 'native') {
+					operations.push(`delete s.p[${node.data.pending}]`);
+				}
+				if (event.type !== 'next') {
+					this.#active--;
+					if (source.type === 'sequence' && event.type === 'error') close.push(source);
+				}
 			}
 			const rendered = this.#render_operations(operations, block_start);
 			if (block && this.#active === 0 && this.#batch.length === 0) {
@@ -1661,7 +1840,9 @@ class Session {
 			const body = join_sources(rendered, ';');
 			const structured = block
 				? join_sources([prefix, definitions_source(), ';', body, '})'])
-				: rendered.length ? join_sources([';', body]) : '';
+				: rendered.length
+					? join_sources([';', body])
+					: '';
 			const result = { source: structured, close };
 			this.#commit_transaction(transaction, true);
 			return result;
@@ -1705,7 +1886,11 @@ class Session {
 			const reference = { kind: /** @type {const} */ ('slot'), index: this.#slot, segments: [] };
 			const slot = render_reference(reference);
 			const path_length = reference_length(path);
-			if (reference_length(reference) + 1 + path_length + 1 + reference_length(reference) * uses >= path_length * uses) continue;
+			if (
+				reference_length(reference) + 1 + path_length + 1 + reference_length(reference) * uses >=
+				path_length * uses
+			)
+				continue;
 			this.#slot++;
 			prefix.push(`${slot}=${render_reference(path)}`);
 			aliases.set(node, reference);
@@ -1714,7 +1899,8 @@ class Session {
 		for (const operation of operations) {
 			visit_source_instructions(operation, (instruction) => {
 				if (instruction.type !== 'reference') return;
-				instruction.path = aliases.get(instruction.node) ?? this.#resolve_reference(instruction, available);
+				instruction.path =
+					aliases.get(instruction.node) ?? this.#resolve_reference(instruction, available);
 			});
 		}
 		return /** @type {Emission[]} */ (prefix).concat(operations);
@@ -1793,9 +1979,11 @@ class Session {
 
 	/** Suspends the tail generator until the next `#notify`. The generator is the only waiter. */
 	#sleep() {
-		return new Promise(/** @param {(value?: void | PromiseLike<void>) => void} resolve */ (resolve) => {
-			this.#wake = resolve;
-		});
+		return new Promise(
+			/** @param {(value?: void | PromiseLike<void>) => void} resolve */ (resolve) => {
+				this.#wake = resolve;
+			}
+		);
 	}
 
 	/** Wakes the tail generator if it is waiting for delivery or a lifecycle change. */
@@ -1823,7 +2011,8 @@ class Session {
 	/** Throws the terminal reason when one is present, independently of its truthiness. */
 	#throw_terminal_reason() {
 		const status = this.#status;
-		if ((status.state === 'cancelled' || status.state === 'failed') && status.has_reason) throw status.reason;
+		if ((status.state === 'cancelled' || status.state === 'failed') && status.has_reason)
+			throw status.reason;
 	}
 
 	/**
@@ -1874,7 +2063,9 @@ class Session {
 				status.has_reason = true;
 				status.reason = reason;
 			}
-			return status.state === 'cancelled' || status.state === 'failed' ? status.cleanup : Promise.resolve();
+			return status.state === 'cancelled' || status.state === 'failed'
+				? status.cleanup
+				: Promise.resolve();
 		}
 		return this.#terminate('cancelled', reason, has_reason);
 	}
@@ -1908,7 +2099,9 @@ class Session {
 	#terminate(state, reason, has_reason) {
 		/** @type {(value?: void | PromiseLike<void>) => void} */
 		let finish = () => {};
-		const cleanup = new Promise((resolve) => { finish = resolve; });
+		const cleanup = new Promise((resolve) => {
+			finish = resolve;
+		});
 		/** @type {TerminatingLifecycle} */
 		const status = { state, has_reason, reason, cleanup };
 		this.#status = status;
@@ -2029,7 +2222,9 @@ class Session {
 	#create_cleanup(source) {
 		/** @type {(result: CleanupResult) => void} */
 		let settle = () => {};
-		const result = new Promise((resolve) => { settle = resolve; });
+		const result = new Promise((resolve) => {
+			settle = resolve;
+		});
 		/** @type {CleanupOperation} */
 		const operation = { source, reported: false, result, settle };
 		return operation;
@@ -2056,7 +2251,8 @@ class Session {
 		if (!operation) return;
 		void operation.result.then((result) => {
 			const status = this.#status;
-			if (!result.ok && status.state !== 'cancelled' && status.state !== 'failed') this.#report_cleanup(operation, result.error);
+			if (!result.ok && status.state !== 'cancelled' && status.state !== 'failed')
+				this.#report_cleanup(operation, result.error);
 		});
 	}
 
@@ -2124,7 +2320,11 @@ function scalar(node, expression) {
 			// Native TypedArray join; avoids materializing a JS number array first.
 			return `new Uint8Array([${node.data.toString()}]).buffer`;
 		case 'DataView': {
-			return join_sources(['new DataView(', expression(node.children[0]), `,${node.data.byteOffset},${node.data.byteLength})`]);
+			return join_sources([
+				'new DataView(',
+				expression(node.children[0]),
+				`,${node.data.byteOffset},${node.data.byteLength})`
+			]);
 		}
 		case 'Temporal.Duration':
 		case 'Temporal.Instant':
@@ -2137,7 +2337,11 @@ function scalar(node, expression) {
 			return `${node.kind}.from(${stringify_string(node.data)})`;
 		default:
 			if (is_view(node)) {
-				return join_sources([`new ${node.kind}(`, expression(node.children[0]), `,${node.data.byteOffset},${node.data.length})`]);
+				return join_sources([
+					`new ${node.kind}(`,
+					expression(node.children[0]),
+					`,${node.data.byteOffset},${node.data.length})`
+				]);
 			}
 			throw new Error(`Unknown stream node ${node.kind}`);
 	}
@@ -2151,7 +2355,7 @@ function scalar(node, expression) {
  */
 function is_view(node) {
 	const kind = node.kind;
-	return kind === 'DataView' || kind.endsWith('Array') && kind !== 'Array';
+	return kind === 'DataView' || (kind.endsWith('Array') && kind !== 'Array');
 }
 
 /**
@@ -2174,8 +2378,12 @@ function is_atomic(node) {
  * @param {string} [detail]
  */
 function descriptor_interpolation_error(error, value, context, index, has_cause = false, detail) {
-	const suffix = typeof value === 'symbol' ? ' Symbol values cannot be serialized as data.'
-		: detail === undefined ? '' : ` ${detail}`;
+	const suffix =
+		typeof value === 'symbol'
+			? ' Symbol values cannot be serialized as data.'
+			: detail === undefined
+				? ''
+				: ` ${detail}`;
 	const message = `Invalid JavaScript source interpolation in ${context}, template hole ${index + 1}: received ${describe_received(value)}.${suffix}`;
 	const wrapped = has_cause ? new TypeError(message, { cause: error }) : new TypeError(message);
 	if (has_cause) descriptor_error_causes.set(wrapped, error);
@@ -2258,7 +2466,10 @@ function empty_tail() {
 
 /** Resolves in a fresh macrotask, after any flush already scheduled with `setTimeout(..., 0)`. */
 function macrotask() {
-	return new Promise(/** @param {(value?: void | PromiseLike<void>) => void} resolve */ (resolve) => setTimeout(resolve, 0));
+	return new Promise(
+		/** @param {(value?: void | PromiseLike<void>) => void} resolve */ (resolve) =>
+			setTimeout(resolve, 0)
+	);
 }
 
 /** @typedef {{ path: ClientPath, available: number, previous: RetainedReference | undefined }} RetainedReference */

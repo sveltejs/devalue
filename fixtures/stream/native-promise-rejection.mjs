@@ -32,7 +32,9 @@ process.on('unhandledRejection', (reason) => unhandled.push(reason));
 // A rejection folded into the head is observed before application code receives it.
 {
 	const reason = { kind: 'folded' };
-	const result = await unevalStream({ reason, promise: Promise.reject(reason) }, undefined, { id: 'fixture-folded' });
+	const result = await unevalStream({ reason, promise: Promise.reject(reason) }, undefined, {
+		id: 'fixture-folded'
+	});
 	const target = client();
 	const root = target.head(result.head);
 	await host_turn();
@@ -50,7 +52,9 @@ process.on('unhandledRejection', (reason) => unhandled.push(reason));
 {
 	const pending = deferred();
 	const reason = { kind: 'tail' };
-	const result = await unevalStream({ reason, promise: pending.promise }, undefined, { id: 'fixture-tail' });
+	const result = await unevalStream({ reason, promise: pending.promise }, undefined, {
+		id: 'fixture-tail'
+	});
 	const target = client();
 	const root = target.head(result.head);
 	pending.reject(reason);
