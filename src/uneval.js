@@ -1,7 +1,7 @@
 /**
- * @import { JavaScriptSource, UnevalReplacer } from './types';
+ * @import { UnevalReplacer } from './types';
  */
-import { is_source, js, render_source, visit_source } from './javascript-source.js';
+import { js, JavaScriptSource } from './javascript-source.js';
 import {
 	DevalueError,
 	enumerable_symbols,
@@ -48,9 +48,9 @@ export function uneval(value, replacer) {
 			if (replacer) {
 				const source = replacer(thing, js);
 
-				if (is_source(source)) {
+				if (JavaScriptSource.is(source)) {
 					custom.set(thing, source);
-					visit_source(source, walk, reserved, templates);
+					source.visit(walk, reserved, templates);
 					return;
 				}
 
@@ -289,7 +289,7 @@ export function uneval(value, replacer) {
 		const source = custom.get(thing);
 
 		if (source) {
-			return render_source(source, stringify);
+			return source.render(stringify);
 		}
 
 		const type = get_type(thing);
