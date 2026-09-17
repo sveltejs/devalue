@@ -46,15 +46,10 @@ export type TypedArray =
 /**
  * A tagged template function for building trusted JavaScript. The string bits are emitted verbatim,
  * while the "holes" are recursively serialized. Identifier-like words in the string bits are
- * reserved when generating names. Use `identifier()` to create reusable generated local bindings.
+ * reserved when generating names.
  */
 export interface JavaScriptTag {
 	(strings: TemplateStringsArray, ...values: unknown[]): JavaScriptSource;
-	/**
-	 * Creates a reusable generated identifier for interpolation into trusted JavaScript source.
-	 * Reusing the token preserves its name; the generated spelling is private.
-	 */
-	identifier(): JavaScriptSource;
 }
 
 /**

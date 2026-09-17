@@ -253,8 +253,7 @@ test('preserves ordered prefixes through inline and named mixed containers', () 
 		const root = shared ? [wrapper, options, list, map, data] : wrapper;
 		const source = uneval(root, (value, js) => {
 			if (!(value instanceof Wrapper)) return;
-			const local = js.identifier();
-			return js`(()=>{const ${local}=${value.options};return new Wrapper(${local},${value.map})})()`;
+			return js`(()=>{const options=${value.options};return new Wrapper(options,${value.map})})()`;
 		});
 		Wrapper.calls = 0;
 		const result = vm.runInNewContext(source, { Wrapper });

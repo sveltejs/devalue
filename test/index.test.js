@@ -1214,22 +1214,6 @@ custom_source_test('literal local bindings do not capture serialized references'
 	assert.is(result[2].inner, result[0]);
 	assert.is(result[2].total, 3);
 });
-custom_source_test('generated identifiers do not shadow literal names in later or nested chunks', () => {
-	class Wrapper {
-		constructor(inner) {
-			this.inner = inner;
-		}
-	}
-
-	const source = uneval(new Wrapper(42), (value, js) => {
-		if (!(value instanceof Wrapper)) return;
-		const local = js.identifier();
-		return js`(()=>{const ${local}=${js`new a(${value.inner})`};return b(${local})})()`;
-	});
-	const result = vm.runInNewContext(source, { a: Wrapper, b: (value) => value });
-	assert.ok(result instanceof Wrapper);
-	assert.is(result.inner, 42);
-});
 custom_source_test('names allocated while breaking custom cycles do not shadow literal names', () => {
 	class Wrapper {
 		constructor(inner) {
@@ -1294,46 +1278,6 @@ custom_source_test('preserves identities referenced by custom source', () => {
 	);
 	const result = eval(source);
 	assert.is(result.wrapped.inner, result.shared);
-});
-custom_source_test('generates collision-free custom source identifiers', () => {
-	class Wrapper {
-		constructor(inner, total) {
-			this.inner = inner;
-			this.total = total;
-		}
-	}
-
-	const container = {};
-	const wrapper = new Wrapper(container, 0);
-	container.wrapper = wrapper;
-	const source = uneval([wrapper, wrapper, container], (value, js) => {
-		if (value instanceof Wrapper) {
-			const a = js.identifier();
-			const o0 = js.identifier();
-			const result = js.identifier();
-			return js`(()=>{const ${a}=1,${o0}=2;const read=({value:${result}},${a})=>${result}+${a};return new Wrapper(${value.inner},read({value:${o0}},${a}))})()`;
-		}
-	});
-	const result = vm.runInNewContext(source, { Wrapper });
-
-	assert.is(result[0], result[1]);
-	assert.is(result[0].inner, result[2]);
-	assert.is(result[0].inner.wrapper, result[0]);
-	assert.is(result[0].total, 3);
-
-	class Marker {}
-	const left = {};
-	const right = {};
-	left.peer = right;
-	right.peer = left;
-	const cycle_source = uneval([left, new Marker()], (value, js) => {
-		if (!(value instanceof Marker)) return;
-		const local = js.identifier();
-		return js`(()=>{const ${local}=42;return ${local}})()`;
-	});
-	const cycle = vm.runInNewContext(cycle_source);
-	assert.is(cycle[0].peer.peer, cycle[0]);
-	assert.is(cycle[1], 42);
 });
 custom_source_test('constructs a repeated wrapper after its shared child is populated', () => {
 	class Wrapper {

@@ -289,16 +289,7 @@ export function uneval(value, replacer) {
 		const source = custom.get(thing);
 
 		if (source) {
-			const rendered = render_source(source, stringify, (id) => {
-				let name = names.get(id);
-				if (!name) {
-					name = next_name();
-					names.set(id, name);
-				}
-				return name;
-			});
-
-			return rendered;
+			return render_source(source, stringify);
 		}
 
 		const type = get_type(thing);
