@@ -69,24 +69,29 @@ export function render_source(source, render, render_identifier) {
  * @param {JavaScriptSource} source
  * @param {(value: unknown) => void} visit
  * @param {Set<string>} reserved
+ * @param {Set<readonly string[]>} templates
  */
-export function visit_source(source, visit, reserved) {
+export function visit_source(source, visit, reserved, templates) {
 	if (is_identifier(source)) return;
 	const { strings, values } = source[SOURCE];
-	for (const string of strings) {
-		// Generated names are ASCII, but literal identifiers can use Unicode escapes.
-		const decoded = string.replace(
-			/\\u(?:([\da-f]{4})|\{([\da-f]+)\})/gi,
-			(escape, hex, code_point) => {
-				const code = parseInt(hex || code_point, 16);
-				return code < 128 ? String.fromCharCode(code) : escape;
-			}
-		);
-		// Conservatively reserve words even in property names, strings and comments.
-		for (const name of decoded.match(/[a-zA-Z_$][\w$]*/g) || []) reserved.add(name);
+	// Each template site reuses its string array, but its interpolations can change.
+	if (!templates.has(strings)) {
+		templates.add(strings);
+		for (const string of strings) {
+			// Generated names are ASCII, but literal identifiers can use Unicode escapes.
+			const decoded = string.replace(
+				/\\u(?:([\da-f]{4})|\{([\da-f]+)\})/gi,
+				(escape, hex, code_point) => {
+					const code = parseInt(hex || code_point, 16);
+					return code < 128 ? String.fromCharCode(code) : escape;
+				}
+			);
+			// Conservatively reserve words even in property names, strings and comments.
+			for (const name of decoded.match(/[a-zA-Z_$][\w$]*/g) || []) reserved.add(name);
+		}
 	}
 	for (const value of values) {
-		if (is_source(value)) visit_source(value, visit, reserved);
+		if (is_source(value)) visit_source(value, visit, reserved, templates);
 		else visit(value);
 	}
 }
