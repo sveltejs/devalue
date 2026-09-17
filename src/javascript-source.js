@@ -9,15 +9,6 @@ export function js(strings, ...values) {
 	if (!Array.isArray(strings) || !('raw' in strings) || !Array.isArray(strings.raw)) {
 		throw new TypeError('`js` must be used as a tagged template, but was called as a regular function');
 	}
-	return create_source(strings, values);
-}
-
-/**
- * @param {readonly string[]} strings
- * @param {readonly unknown[]} values
- * @returns {JavaScriptSource}
- */
-export function create_source(strings, values) {
 	return { [SOURCE]: { strings, values } };
 }
 
@@ -27,14 +18,6 @@ export function create_source(strings, values) {
  */
 export function is_source(value) {
 	return typeof value === 'object' && value !== null && SOURCE in value;
-}
-
-/**
- * @param {string} text
- * @returns {JavaScriptSource}
- */
-export function raw_source(text) {
-	return create_source([text], []);
 }
 
 /**
