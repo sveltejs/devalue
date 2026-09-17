@@ -41,7 +41,8 @@ function sequenceDescriptor(js: JavaScriptTag): AsyncSequenceDescriptor<number, 
 	return {
 		type: 'async-sequence',
 		source: sequence,
-		construct: (capture) => js`new RemoteSequence(${config},${capture(js`(type,value)=>dispatch(type,value,${config})`)})`,
+		construct: (capture) =>
+			js`new RemoteSequence(${config},${capture(js`(type,value)=>dispatch(type,value,${config})`)})`,
 		next: ({ control }, item) => js`${control}(0,${item},${config})`,
 		complete: ({ control }, result) => js`${control}(1,${result},${config})`,
 		error: ({ control }, reason) => js`${control}(2,${reason},${config})`

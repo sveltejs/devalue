@@ -23,7 +23,6 @@ import {
 } from './stream-source.js';
 
 describe('structured stream source', () => {
-
 	test('classifies real instructions by private brand rather than shape', () => {
 		const node = /** @type {any} */ ({});
 		const source = reference_source(node, { kind: 'anchor', index: 0, segments: [] });
@@ -48,10 +47,11 @@ describe('structured stream source', () => {
 	});
 
 	test('composes ordered statements without flattening children', () => {
-		const source = join_sources(['(()=>{', join_sources([
-			js`const a=1`,
-			join_sources(['return ', expression_source(js`a,2`)])
-		], ';'), '})()']);
+		const source = join_sources([
+			'(()=>{',
+			join_sources([js`const a=1`, join_sources(['return ', expression_source(js`a,2`)])], ';'),
+			'})()'
+		]);
 		expect(render_stream_source(source)).toBe('(()=>{const a=1;return (a,2)})()');
 		expect(render_stream_source(join_sources([js`a`, js`b`, js`c`], ','))).toBe('a,b,c');
 	});
@@ -79,13 +79,25 @@ describe('structured stream source', () => {
 
 	test('describes rejected holes without invoking user conversion or inspection hooks', () => {
 		const value = {
-			get constructor() { expect.unreachable('read constructor'); },
-			get [Symbol.toStringTag]() { expect.unreachable('read toStringTag'); },
-			[Symbol.toPrimitive]() { expect.unreachable('converted value'); },
-			toString() { expect.unreachable('called toString'); }
+			get constructor() {
+				expect.unreachable('read constructor');
+			},
+			get [Symbol.toStringTag]() {
+				expect.unreachable('read toStringTag');
+			},
+			[Symbol.toPrimitive]() {
+				expect.unreachable('converted value');
+			},
+			toString() {
+				expect.unreachable('called toString');
+			}
 		};
-		expect(() => render_stream_source(js`${value}`)).toThrow(/source rendering: received an object.*internal emitter error/);
-		expect(() => render_stream_source(js`${Symbol('data')}`)).toThrow(/received a Symbol.*Symbol values cannot be serialized as data/);
+		expect(() => render_stream_source(js`${value}`)).toThrow(
+			/source rendering: received an object.*internal emitter error/
+		);
+		expect(() => render_stream_source(js`${Symbol('data')}`)).toThrow(
+			/received a Symbol.*Symbol values cannot be serialized as data/
+		);
 		expect(describe_received(value)).toBe('an object');
 		const proxy = Proxy.revocable({}, {});
 		proxy.revoke();
@@ -94,20 +106,34 @@ describe('structured stream source', () => {
 
 	test('describes rejected primitive categories without printing user payloads', () => {
 		for (const [value, description] of [
-			[undefined, 'undefined'], [null, 'null'], [false, 'false'], [true, 'true'],
-			[0, 'a number (0)'], [-0, 'a number (-0)'], [NaN, 'a number (NaN)'],
-			[1n, 'a bigint'], ['private text', 'a string'], [Symbol('private'), 'a Symbol']
-		]) expect(describe_received(value)).toBe(description);
+			[undefined, 'undefined'],
+			[null, 'null'],
+			[false, 'false'],
+			[true, 'true'],
+			[0, 'a number (0)'],
+			[-0, 'a number (-0)'],
+			[NaN, 'a number (NaN)'],
+			[1n, 'a bigint'],
+			['private text', 'a string'],
+			[Symbol('private'), 'a Symbol']
+		])
+			expect(describe_received(value)).toBe(description);
 	});
 
 	test('explains unresolved-reference failures', () => {
-		expect(() => render_stream_source(reference_source(/** @type {any} */ ({}), undefined))).toThrow(/no assigned anchor, slot, or collection path before rendering.*internal emitter error/);
+		expect(() =>
+			render_stream_source(reference_source(/** @type {any} */ ({}), undefined))
+		).toThrow(
+			/no assigned anchor, slot, or collection path before rendering.*internal emitter error/
+		);
 	});
 
 	test('ordinary instruction-shaped objects remain data holes', () => {
 		const inherited = Object.create({ type: 'outcome' });
 		const values = [{ type: 'reference' }, { type: 'capture' }, { type: 'outcome' }, inherited];
-		expect(source_values(js`${values[0]}${js`${values[1]}`}${values[2]}${inherited}`)).toEqual(values);
+		expect(source_values(js`${values[0]}${js`${values[1]}`}${values[2]}${inherited}`)).toEqual(
+			values
+		);
 	});
 
 	test('collects nested source holes in occurrence order without deduplicating fragments', () => {
@@ -116,7 +142,16 @@ describe('structured stream source', () => {
 		const shaped = { type: 'capture', source: js`${{ hidden: false }}` };
 		const reused = js`${first},${undefined},${shaped}`;
 		const source = js`${js`[${0},${reused}`}${js`,${second},${reused}]`}`;
-		expect(source_values(source)).toEqual([0, first, undefined, shaped, second, first, undefined, shaped]);
+		expect(source_values(source)).toEqual([
+			0,
+			first,
+			undefined,
+			shaped,
+			second,
+			first,
+			undefined,
+			shaped
+		]);
 	});
 
 	test('keeps resolved emission as strings, including expressions and statements', () => {
@@ -126,7 +161,10 @@ describe('structured stream source', () => {
 		const object = join_sources(['{value:', join_sources(['1', '2'], '+'), '}']);
 		expect(object).toBe('{value:1+2}');
 		expect(expression_source(object)).toBe('({value:1+2})');
-		const statements = join_sources(['let a=1', join_sources(['a=', expression_source('a,2')])], ';');
+		const statements = join_sources(
+			['let a=1', join_sources(['a=', expression_source('a,2')])],
+			';'
+		);
 		expect(statements).toBe('let a=1;a=(a,2)');
 		expect(source_helpers(statements)).toEqual([]);
 		let instructions = 0;
@@ -142,7 +180,9 @@ describe('structured stream source', () => {
 		expect(source.values).toEqual([pending]);
 		expect(source_helpers(source)).toEqual(['w']);
 		expect(render_stream_source(source)).toBe('{text:"0",pending:s.w(12),other:"001"}');
-		expect(render_stream_source(join_sources([pending, '"0"', pending], ','))).toBe('s.w(12),"0",s.w(12)');
+		expect(render_stream_source(join_sources([pending, '"0"', pending], ','))).toBe(
+			's.w(12),"0",s.w(12)'
+		);
 	});
 
 	test('compiles nested partial templates without confusing data strings with source', () => {
@@ -167,7 +207,7 @@ describe('structured stream source', () => {
 		visit_source_instructions(source, (instruction) => instructions.push(instruction));
 		expect(instructions.map((instruction) => instruction.type)).toEqual(['reference', 'promise']);
 		let reference_instruction;
-		visit_source_instructions(reference, (instruction) => reference_instruction = instruction);
+		visit_source_instructions(reference, (instruction) => (reference_instruction = instruction));
 		expect(instructions[0]).toBe(reference_instruction);
 		expect(source_helpers(source)).toEqual(['w']);
 		expect(render_stream_source(source)).toBe('["0",s.s[0],s.w(1)]');
@@ -190,5 +230,4 @@ describe('structured stream source', () => {
 		expect(source_helpers(source)).toEqual(['w']);
 		expect(render_stream_source(source)).toBe('f((s.p[0]=("0",s.w(12)\n)))');
 	});
-
 });

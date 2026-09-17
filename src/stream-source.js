@@ -19,7 +19,7 @@ function brand(instruction) {
  * @returns {value is StreamInstruction}
  */
 export function is_stream_instruction(value) {
-	return !!/** @type {Partial<InstructionBrand> | null | undefined} */ (value)?.[INSTRUCTION];
+	return !!(/** @type {Partial<InstructionBrand> | null | undefined} */ (value)?.[INSTRUCTION]);
 }
 
 /**
@@ -54,7 +54,9 @@ export function capture_source(pending, source, compact = false) {
  * @returns {Emission}
  */
 export function expression_source(source) {
-	return typeof source === 'string' ? `(${source})` : instruction_source(brand({ type: 'expression', source }));
+	return typeof source === 'string'
+		? `(${source})`
+		: instruction_source(brand({ type: 'expression', source }));
 }
 
 /**
@@ -62,7 +64,9 @@ export function expression_source(source) {
  * @param {Emission} source
  */
 export function complete_expression_source(source) {
-	return typeof source === 'string' ? `(${source}\n)` : instruction_source(brand({ type: 'expression', source, complete: true }));
+	return typeof source === 'string'
+		? `(${source}\n)`
+		: instruction_source(brand({ type: 'expression', source, complete: true }));
 }
 
 /**
@@ -166,8 +170,11 @@ function map_fragment(source, map, map_instruction) {
 	let output_values;
 	for (let i = 0; i < values.length; i++) {
 		const value = values[i];
-		const mapped = is_source(value) ? map_fragment(value, map, map_instruction)
-			: is_stream_instruction(value) ? map_instruction(value, map) : map(value, i);
+		const mapped = is_source(value)
+			? map_fragment(value, map, map_instruction)
+			: is_stream_instruction(value)
+				? map_instruction(value, map)
+				: map(value, i);
 		if (typeof mapped === 'string') text += mapped;
 		else {
 			(output_strings ??= []).push(text);
@@ -193,9 +200,10 @@ function preserve_instruction(instruction) {
  */
 function map_descriptor_instruction(instruction, map) {
 	if (instruction.type !== 'capture') return instruction_source(instruction);
-	const source = typeof instruction.source === 'string'
-		? instruction.source
-		: map_fragment(instruction.source, map, map_descriptor_instruction);
+	const source =
+		typeof instruction.source === 'string'
+			? instruction.source
+			: map_fragment(instruction.source, map, map_descriptor_instruction);
 	return instruction_source(brand({ ...instruction, source }));
 }
 
@@ -235,7 +243,6 @@ export function descriptor_source_values(source) {
 	const values = [];
 	/** @param {JavaScriptSource} fragment @param {boolean} capture */
 	const walk = (fragment, capture) => {
-		if (is_identifier(fragment)) return;
 		const source_values = fragment.values;
 		for (let i = 0; i < source_values.length; i++) {
 			const value = source_values[i];
@@ -259,7 +266,12 @@ export function source_helpers(source) {
 	const helpers = [];
 	const seen = new Set();
 	visit_source_instructions(source, (instruction) => {
-		const key = instruction.type === 'runtime' ? instruction.key : instruction.type === 'promise' ? 'w' : undefined;
+		const key =
+			instruction.type === 'runtime'
+				? instruction.key
+				: instruction.type === 'promise'
+					? 'w'
+					: undefined;
 		if (key && !seen.has(key)) {
 			seen.add(key);
 			helpers.push(key);
@@ -269,24 +281,25 @@ export function source_helpers(source) {
 }
 
 /**
- * Renders structured stream source with the coordinated session binding and identifier allocator.
+ * Renders structured stream source.
  * @param {Emission} source
- * @param {(keyof typeof RUNTIMES)[]} definitions
- * @param {string} session
- * @param {(identifier: JavaScriptSource) => string} render_identifier
+ * @param {(keyof typeof RUNTIMES)[]} [definitions]
  */
-export function render_stream_source_with_names(source, definitions, session, render_identifier) {
+export function render_stream_source(source, definitions = []) {
 	if (typeof source === 'string') return source;
-	const definition_source = definitions.map((key) => `${session}.${key}=${RUNTIMES[key](session)}`).join(';');
+	const definition_source = definitions.map((key) => `s.${key}=${RUNTIMES[key]('s')}`).join(';');
 	/** @param {Emission} fragment */
 	const render = (fragment) => {
 		if (typeof fragment === 'string') return fragment;
-		if (is_identifier(fragment)) return render_identifier(fragment);
 		const { strings, values } = fragment;
 		let result = strings[0];
 		for (let i = 0; i < values.length; i++) {
 			const value = values[i];
-			result += is_source(value) ? render(value) : is_stream_instruction(value) ? render_instruction(value) : render_hole(value);
+			result += is_source(value)
+				? render(value)
+				: is_stream_instruction(value)
+					? render_instruction(value)
+					: render_hole(value);
 			result += strings[i + 1];
 		}
 		return result;
@@ -295,16 +308,19 @@ export function render_stream_source_with_names(source, definitions, session, re
 	const render_instruction = (instruction) => {
 		switch (instruction.type) {
 			case 'reference':
-				if (!instruction.path) throw new TypeError('Unresolved stream reference: a client identity has no assigned anchor, slot, or collection path before rendering (internal emitter error)');
-				return render_reference(instruction.path, session);
+				if (!instruction.path)
+					throw new TypeError(
+						'Unresolved stream reference: a client identity has no assigned anchor, slot, or collection path before rendering (internal emitter error)'
+					);
+				return render_reference(instruction.path);
 			case 'capture':
-				return `(${session}.p[${instruction.pending}]=(${render(instruction.source)}${instruction.compact ? '' : '\n'}))`;
+				return `(s.p[${instruction.pending}]=(${render(instruction.source)}${instruction.compact ? '' : '\n'}))`;
 			case 'expression':
 				return `(${render(instruction.source)}${instruction.complete ? '\n' : ''})`;
 			case 'runtime':
-				return `${session}.${instruction.key}`;
+				return `s.${instruction.key}`;
 			case 'promise':
-				return `${session}.w(${instruction.pending})`;
+				return `s.w(${instruction.pending})`;
 			case 'definitions':
 				return definition_source;
 		}
@@ -314,7 +330,8 @@ export function render_stream_source_with_names(source, definitions, session, re
 
 /** @param {unknown} value */
 function render_hole(value) {
-	if (!is_primitive(value) || typeof value === 'symbol') throw interpolation_error(value, 'source rendering');
+	if (!is_primitive(value) || typeof value === 'symbol')
+		throw interpolation_error(value, 'source rendering');
 	return stringify_primitive(value);
 }
 
@@ -326,14 +343,22 @@ function render_hole(value) {
 export function describe_received(value) {
 	if (value === null) return 'null';
 	switch (typeof value) {
-		case 'undefined': return 'undefined';
-		case 'boolean': return String(value);
-		case 'number': return `a number (${Object.is(value, -0) ? '-0' : value})`;
-		case 'bigint': return 'a bigint';
-		case 'string': return 'a string';
-		case 'symbol': return 'a Symbol';
-		case 'function': return 'a function';
-		default: return 'an object';
+		case 'undefined':
+			return 'undefined';
+		case 'boolean':
+			return String(value);
+		case 'number':
+			return `a number (${Object.is(value, -0) ? '-0' : value})`;
+		case 'bigint':
+			return 'a bigint';
+		case 'string':
+			return 'a string';
+		case 'symbol':
+			return 'a Symbol';
+		case 'function':
+			return 'a function';
+		default:
+			return 'an object';
 	}
 }
 
@@ -342,10 +367,13 @@ export function describe_received(value) {
  * @param {string} context
  */
 function interpolation_error(value, context) {
-	const reason = typeof value === 'symbol'
-		? 'Symbol values cannot be serialized as data. If you intended trusted JavaScript, write it in a nested js tagged template instead.'
-		: 'This ordinary value reached source rendering without first being serialized through the captured graph (internal emitter error).';
-	return new TypeError(`Invalid JavaScript source interpolation in ${context}: received ${describe_received(value)}. ${reason}`);
+	const reason =
+		typeof value === 'symbol'
+			? 'Symbol values cannot be serialized as data. If you intended trusted JavaScript, write it in a nested js tagged template instead.'
+			: 'This ordinary value reached source rendering without first being serialized through the captured graph (internal emitter error).';
+	return new TypeError(
+		`Invalid JavaScript source interpolation in ${context}: received ${describe_received(value)}. ${reason}`
+	);
 }
 
 /**
@@ -354,12 +382,12 @@ function interpolation_error(value, context) {
  */
 export function visit_source_instructions(source, callback) {
 	if (typeof source === 'string') return;
-	if (is_identifier(source)) return;
 	for (const value of source.values) {
 		if (is_source(value)) visit_source_instructions(value, callback);
 		else if (is_stream_instruction(value)) {
 			callback(value);
-			if (value.type === 'capture' || value.type === 'expression') visit_source_instructions(value.source, callback);
+			if (value.type === 'capture' || value.type === 'expression')
+				visit_source_instructions(value.source, callback);
 		}
 	}
 }
@@ -382,7 +410,11 @@ export function reference_length(reference) {
  * @returns {ClientPath}
  */
 export function append_reference(reference, segment) {
-	return { kind: reference.kind, index: reference.index, segments: [...reference.segments, segment] };
+	return {
+		kind: reference.kind,
+		index: reference.index,
+		segments: [...reference.segments, segment]
+	};
 }
 
 /**

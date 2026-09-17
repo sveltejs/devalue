@@ -80,7 +80,7 @@ export interface ClientReference {
 	 * ```
 	 *
 	 * ...this would be the source expression that evaluates to the captured `[resolve, reject]` tuple.
-   */
+	 */
 	control?: JavaScriptSource;
 }
 

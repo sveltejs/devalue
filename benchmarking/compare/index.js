@@ -40,7 +40,8 @@ if (branches.length === 1) {
 process.on('exit', () => checkout(current_ref));
 
 const runs = Number(process.env.BENCHMARK_RUNS ?? 3);
-if (!Number.isInteger(runs) || runs < 1) throw new Error('BENCHMARK_RUNS must be a positive integer');
+if (!Number.isInteger(runs) || runs < 1)
+	throw new Error('BENCHMARK_RUNS must be a positive integer');
 /** @type {Array<Array<Array<{ benchmark: string, time: number, gc_time: number }>>>} */
 const samples = branches.map(() => []);
 
@@ -51,22 +52,26 @@ for (let run = 0; run < runs; run++) {
 		const branch = branches[index];
 		console.group(`Benchmarking ${branch} (${run + 1}/${runs})`);
 		checkout(branch);
-		samples[index].push(await new Promise((fulfil, reject) => {
-			const child = fork(runner);
-			child.on('message', fulfil);
-			child.on('error', reject);
-		}));
+		samples[index].push(
+			await new Promise((fulfil, reject) => {
+				const child = fork(runner);
+				child.on('message', fulfil);
+				child.on('error', reject);
+			})
+		);
 		console.groupEnd();
 	}
 }
 
 // Select wall and GC medians independently across fresh runner processes; unlike a
 // single timed sample, the two aggregate metrics need not originate from the same run.
-const results = samples.map((runs) => runs[0].map((benchmark, index) => ({
-	benchmark: benchmark.benchmark,
-	time: median(runs.map((run) => run[index].time)),
-	gc_time: median(runs.map((run) => run[index].gc_time))
-})));
+const results = samples.map((runs) =>
+	runs[0].map((benchmark, index) => ({
+		benchmark: benchmark.benchmark,
+		time: median(runs.map((run) => run[index].time)),
+		gc_time: median(runs.map((run) => run[index].gc_time))
+	}))
+);
 
 for (let i = 0; i < results[0].length; i += 1) {
 	console.group(`${results[0][i].benchmark}`);

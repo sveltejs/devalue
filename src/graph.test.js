@@ -136,10 +136,20 @@ describe('shared graph', () => {
 		const mark = graph.nodes.length;
 		const external_value = {};
 		const external_root = {};
-		const external = new DevalueError('external failure', ['.external'], external_value, external_root);
+		const external = new DevalueError(
+			'external failure',
+			['.external'],
+			external_value,
+			external_root
+		);
 		Object.freeze(external);
 		const failed = {};
-		Object.defineProperty(failed, 'prop', { enumerable: true, get() { throw external; } });
+		Object.defineProperty(failed, 'prop', {
+			enumerable: true,
+			get() {
+				throw external;
+			}
+		});
 		let thrown;
 		try {
 			discover(graph, failed);
@@ -174,7 +184,12 @@ describe('shared graph', () => {
 		const { proxy, revoke } = Proxy.revocable({}, {});
 		revoke();
 		const failed = {};
-		Object.defineProperty(failed, 'prop', { enumerable: true, get() { throw proxy; } });
+		Object.defineProperty(failed, 'prop', {
+			enumerable: true,
+			get() {
+				throw proxy;
+			}
+		});
 		let thrown;
 		try {
 			discover(graph, failed);
@@ -200,7 +215,12 @@ describe('shared graph', () => {
 
 		const second = create_test_graph(null);
 		const failed = {};
-		Object.defineProperty(failed, 'foreign', { enumerable: true, get() { throw foreign; } });
+		Object.defineProperty(failed, 'foreign', {
+			enumerable: true,
+			get() {
+				throw foreign;
+			}
+		});
 		let thrown;
 		try {
 			discover(second, failed);
@@ -212,5 +232,4 @@ describe('shared graph', () => {
 		expect(foreign.path).toBe('.original');
 		expect(second.unwind.length).toBe(0);
 	});
-
 });

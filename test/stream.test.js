@@ -6,7 +6,6 @@ import { unevalStream } from '../index.js';
 import { client, drain } from './helpers/stream.js';
 
 describe('unevalStream', () => {
-
 	function null_prototype_callable(callback) {
 		return Object.setPrototypeOf(callback, null);
 	}
@@ -106,7 +105,11 @@ describe('unevalStream', () => {
 		const replacer = (value, js) => value instanceof Wrapper && js`({value:${value.value}})`;
 
 		const pending = Promise.withResolvers();
-		const result = await unevalStream({ head: create_graph('head'), tail: pending.promise }, replacer, { id: 'object-order' });
+		const result = await unevalStream(
+			{ head: create_graph('head'), tail: pending.promise },
+			replacer,
+			{ id: 'object-order' }
+		);
 		const target = client();
 		const root = target.head(result.head);
 		verify(root.head);
@@ -129,7 +132,9 @@ describe('unevalStream', () => {
 		const buffer = new Uint8Array([1, 2, 3, 4]).buffer;
 		const view = new Uint16Array(buffer, 0, 2);
 		const key = {};
-		const { root } = await drain(await unevalStream({ array, map: new Map([[key, view]]), set: new Set([key]), buffer }));
+		const { root } = await drain(
+			await unevalStream({ array, map: new Map([[key, view]]), set: new Set([key]), buffer })
+		);
 		expect(root.array.length).toBe(8);
 		expect(!(0 in root.array)).toBeTruthy();
 		expect(root.array[3]).toBe('x');
@@ -141,7 +146,9 @@ describe('unevalStream', () => {
 	test('preserves identity from head into a promise outcome', async () => {
 		const pending = Promise.withResolvers();
 		const shared = { value: 1 };
-		const result = await unevalStream({ shared, pending: pending.promise }, undefined, { id: 'head-tail' });
+		const result = await unevalStream({ shared, pending: pending.promise }, undefined, {
+			id: 'head-tail'
+		});
 		const target = client();
 		const root = target.head(result.head);
 		pending.resolve(shared);
@@ -169,18 +176,24 @@ describe('unevalStream', () => {
 		const r1 = { value: 42 };
 		const r2 = { child: r1 };
 		let constructions = 0;
-		const result = await unevalStream({ job }, (value, js) => value === job && ({
-			type: 'async-value',
-			source: ready.promise,
-			construct: () => {
-				constructions++;
-				return js`({value:null,also:null,dup:null,again:null})`;
-			},
-			// The parent root precedes its child root (descending), and r1 plus r2 are
-			// each repeated: duplicates must reuse one eager local, not re-anchor.
-			resolve: ({ target }) => js`${target}.value=${r2};${target}.also=${r1};${target}.dup=${r1};${target}.again=${r2}`,
-			reject: () => js``
-		}), { id: 'descriptor-descending-holes' });
+		const result = await unevalStream(
+			{ job },
+			(value, js) =>
+				value === job && {
+					type: 'async-value',
+					source: ready.promise,
+					construct: () => {
+						constructions++;
+						return js`({value:null,also:null,dup:null,again:null})`;
+					},
+					// The parent root precedes its child root (descending), and r1 plus r2 are
+					// each repeated: duplicates must reuse one eager local, not re-anchor.
+					resolve: ({ target }) =>
+						js`${target}.value=${r2};${target}.also=${r1};${target}.dup=${r1};${target}.again=${r2}`,
+					reject: () => js``
+				},
+			{ id: 'descriptor-descending-holes' }
+		);
 		const target = client();
 		const root = target.head(result.head);
 		const data = target.context.__d['descriptor-descending-holes'];
@@ -232,7 +245,9 @@ describe('unevalStream', () => {
 		target.block(first_block);
 		expect(data.s.length).toBe(1);
 		expect((first_block.match(/\.s\[0\]/g) ?? []).length >= 2, first_block).toBeTruthy();
-		expect((first_block.match(/\.veryLongPropertyName\.anotherLongPropertyName/g) ?? []).length).toEqual(1);
+		expect(
+			(first_block.match(/\.veryLongPropertyName\.anotherLongPropertyName/g) ?? []).length
+		).toEqual(1);
 		gates[2].resolve(3);
 		const second_block = (await result.tail.next()).value;
 		target.block(second_block);
@@ -318,7 +333,13 @@ describe('unevalStream', () => {
 			};
 		};
 		const result = await unevalStream(
-			{ ignored: jobs[0], lazy: jobs[1], conditional: jobs[2], repeated: jobs[3], shared: shared.promise },
+			{
+				ignored: jobs[0],
+				lazy: jobs[1],
+				conditional: jobs[2],
+				repeated: jobs[3],
+				shared: shared.promise
+			},
 			replacer,
 			{ id: 'materialized-custom' }
 		);
@@ -339,13 +360,20 @@ describe('unevalStream', () => {
 	test('passes one materialized fallback Error to every repeated fallback use', async () => {
 		class Job {}
 		const ready = Promise.withResolvers();
-		const result = await unevalStream(new Job(), (value, js) => value instanceof Job && ({
-			type: 'async-value',
-			source: ready.promise,
-			construct: () => js`({errors:[]})`,
-			resolve: () => { throw new Error('generation failed'); },
-			reject: ({ target }, error) => js`${target}.errors=[${error},${error}]`
-		}), { id: 'fallback-identity' });
+		const result = await unevalStream(
+			new Job(),
+			(value, js) =>
+				value instanceof Job && {
+					type: 'async-value',
+					source: ready.promise,
+					construct: () => js`({errors:[]})`,
+					resolve: () => {
+						throw new Error('generation failed');
+					},
+					reject: ({ target }, error) => js`${target}.errors=[${error},${error}]`
+				},
+			{ id: 'fallback-identity' }
+		);
 		const target = client();
 		const root = target.head(result.head);
 		ready.resolve({ unused: true });
@@ -369,17 +397,29 @@ describe('unevalStream', () => {
 		const first = Promise.withResolvers();
 		const second = Promise.withResolvers();
 		const reason = { message: 'shared' };
-		const result = await unevalStream({ reason, first: first.promise, second: second.promise }, undefined, { id: 'reason-identity' });
+		const result = await unevalStream(
+			{ reason, first: first.promise, second: second.promise },
+			undefined,
+			{ id: 'reason-identity' }
+		);
 		const target = client();
 		const root = target.head(result.head);
 		first.reject(reason);
 		target.block((await result.tail.next()).value);
 		let first_reason;
-		try { await root.first; } catch (error) { first_reason = error; }
+		try {
+			await root.first;
+		} catch (error) {
+			first_reason = error;
+		}
 		second.reject(reason);
 		target.block((await result.tail.next()).value);
 		let second_reason;
-		try { await root.second; } catch (error) { second_reason = error; }
+		try {
+			await root.second;
+		} catch (error) {
+			second_reason = error;
+		}
 		expect(first_reason).toBe(root.reason);
 		expect(second_reason).toBe(root.reason);
 	});
@@ -387,7 +427,9 @@ describe('unevalStream', () => {
 	test('collects ordered settlements until the ready batch is consumed', async () => {
 		const a = Promise.withResolvers();
 		const b = Promise.withResolvers();
-		const result = await unevalStream([a.promise, b.promise], undefined, { id: 'ready-until-consumed' });
+		const result = await unevalStream([a.promise, b.promise], undefined, {
+			id: 'ready-until-consumed'
+		});
 		const target = client();
 		const root = target.head(result.head);
 		const first_settled = Promise.withResolvers();
@@ -445,12 +487,24 @@ describe('unevalStream', () => {
 		let cancels = 0;
 		class Job {}
 		const job = new Job();
-		const source = { get then() { then_reads++; return nested.promise.then.bind(nested.promise); } };
-		const replacer = (value, js) => value === job && ({
-			type: 'async-value', source, construct: () => js`({})`,
-			resolve: () => js``, reject: () => js``,
-			cancel() { cancels++; return Promise.reject(new Error('cleanup')); }
-		});
+		const source = {
+			get then() {
+				then_reads++;
+				return nested.promise.then.bind(nested.promise);
+			}
+		};
+		const replacer = (value, js) =>
+			value === job && {
+				type: 'async-value',
+				source,
+				construct: () => js`({})`,
+				resolve: () => js``,
+				reject: () => js``,
+				cancel() {
+					cancels++;
+					return Promise.reject(new Error('cleanup'));
+				}
+			};
 		const result = await unevalStream(outer.promise, replacer, { id: 'transaction-rollback' });
 		const target = client();
 		const root = target.head(result.head);
@@ -467,7 +521,11 @@ describe('unevalStream', () => {
 	test('preserves map key identity through a collection sidecar', async () => {
 		const pending = Promise.withResolvers();
 		const key = {};
-		const result = await unevalStream({ map: new Map([[key, 1]]), pending: pending.promise }, undefined, { id: 'map' });
+		const result = await unevalStream(
+			{ map: new Map([[key, 1]]), pending: pending.promise },
+			undefined,
+			{ id: 'map' }
+		);
 		expect(result.head).not.toMatch(/Array\.from\(/);
 		const target = client();
 		const root = target.head(result.head);
@@ -481,7 +539,11 @@ describe('unevalStream', () => {
 	test('preserves set member identity through a collection sidecar', async () => {
 		const pending = Promise.withResolvers();
 		const member = {};
-		const result = await unevalStream({ set: new Set([member]), pending: pending.promise }, undefined, { id: 'set' });
+		const result = await unevalStream(
+			{ set: new Set([member]), pending: pending.promise },
+			undefined,
+			{ id: 'set' }
+		);
 		const target = client();
 		const root = target.head(result.head);
 		pending.resolve(member);
@@ -499,13 +561,17 @@ describe('unevalStream', () => {
 		const key = { nested: [key_child] };
 		const value = { nested: { child: value_child } };
 		const member = { nested: [member_child] };
-		const result = await unevalStream({
-			map: new Map([[key, value]]),
-			set: new Set([member]),
-			pending_key: pending_key.promise,
-			pending_value: pending_value.promise,
-			pending_member: pending_member.promise
-		}, undefined, { id: 'collection-descendants' });
+		const result = await unevalStream(
+			{
+				map: new Map([[key, value]]),
+				set: new Set([member]),
+				pending_key: pending_key.promise,
+				pending_value: pending_value.promise,
+				pending_member: pending_member.promise
+			},
+			undefined,
+			{ id: 'collection-descendants' }
+		);
 		const target = client();
 		const root = target.head(result.head);
 		pending_key.resolve(key_child);
@@ -536,12 +602,16 @@ describe('unevalStream', () => {
 		const key = { nested: [shared] };
 		const value = { nested: { shared } };
 		const member = { nested: [shared] };
-		const result = await unevalStream({
-			introduced: introduced.promise,
-			same_a: same_a.promise,
-			same_b: same_b.promise,
-			later: later.promise
-		}, undefined, { id: 'outcome-collection-descendants' });
+		const result = await unevalStream(
+			{
+				introduced: introduced.promise,
+				same_a: same_a.promise,
+				same_b: same_b.promise,
+				later: later.promise
+			},
+			undefined,
+			{ id: 'outcome-collection-descendants' }
+		);
 		const target = client();
 		const root = target.head(result.head);
 		introduced.resolve({ map: new Map([[key, value]]), set: new Set([member]) });
@@ -574,13 +644,14 @@ describe('unevalStream', () => {
 		const holder = { nested: [task] };
 		const result = await unevalStream(
 			new Set([holder]),
-			(value, js) => value instanceof Task && ({
-				type: 'async-value',
-				source: value.ready.promise,
-				construct: () => js`({value:void 0})`,
-				resolve: ({ target }, payload) => js`${target}.value=${payload}`,
-				reject: ({ target }, reason) => js`${target}.error=${reason}`
-			}),
+			(value, js) =>
+				value instanceof Task && {
+					type: 'async-value',
+					source: value.ready.promise,
+					construct: () => js`({value:void 0})`,
+					resolve: ({ target }, payload) => js`${target}.value=${payload}`,
+					reject: ({ target }, reason) => js`${target}.error=${reason}`
+				},
 			{ id: 'collection-async-target' }
 		);
 		const target = client();
@@ -604,15 +675,22 @@ describe('unevalStream', () => {
 		holder.self = holder;
 		set.add(holder);
 		const map_value = { nested: [shared] };
-		const result = await unevalStream({
-			set,
-			map: new Map([[holder, map_value]]),
-			primitive_set: new Set([1, 'two']),
-			primitive_map: new Map([['one', 1], ['two', 2]]),
-			pending_shared: pending_shared.promise,
-			pending_view: pending_view.promise,
-			pending_buffer: pending_buffer.promise
-		}, undefined, { id: 'collection-mixed-descendants' });
+		const result = await unevalStream(
+			{
+				set,
+				map: new Map([[holder, map_value]]),
+				primitive_set: new Set([1, 'two']),
+				primitive_map: new Map([
+					['one', 1],
+					['two', 2]
+				]),
+				pending_shared: pending_shared.promise,
+				pending_view: pending_view.promise,
+				pending_buffer: pending_buffer.promise
+			},
+			undefined,
+			{ id: 'collection-mixed-descendants' }
+		);
 		const target = client();
 		const root = target.head(result.head);
 		pending_shared.resolve(shared);
@@ -644,7 +722,9 @@ describe('unevalStream', () => {
 	test('preserves a typed view backing buffer across regions', async () => {
 		const pending = Promise.withResolvers();
 		const view = new Uint8Array([1, 2]);
-		const result = await unevalStream({ view, pending: pending.promise }, undefined, { id: 'buffer' });
+		const result = await unevalStream({ view, pending: pending.promise }, undefined, {
+			id: 'buffer'
+		});
 		const target = client();
 		const root = target.head(result.head);
 		pending.resolve(view.buffer);
@@ -653,17 +733,18 @@ describe('unevalStream', () => {
 	});
 
 	test('preserves custom child identity from the shared replacer session', async () => {
-		class Wrapper { constructor(value) { this.value = value; } }
+		class Wrapper {
+			constructor(value) {
+				this.value = value;
+			}
+		}
 		const shared = {};
 		let calls = 0;
-		const result = await unevalStream(
-			{ shared, wrapped: new Wrapper(shared) },
-			(value, js) => {
-				if (!(value instanceof Wrapper)) return;
-				calls++;
-				return js`({value:${value.value}})`;
-			}
-		);
+		const result = await unevalStream({ shared, wrapped: new Wrapper(shared) }, (value, js) => {
+			if (!(value instanceof Wrapper)) return;
+			calls++;
+			return js`({value:${value.value}})`;
+		});
 		const { root } = await drain(result);
 		expect(calls).toBe(1);
 		expect(root.shared).toBe(root.wrapped.value);
@@ -702,17 +783,24 @@ describe('unevalStream', () => {
 				const pending = streaming ? Promise.withResolvers() : undefined;
 				const later = streaming ? Promise.withResolvers() : undefined;
 				const job = streaming ? new Job() : undefined;
-				const input = streaming ? { wrappers, pending: pending.promise, later: later.promise, job } : { wrappers };
-				const result = await unevalStream(input, (value, js) => {
-					if (value instanceof Wrapper) return js`({value:${value.value}})`;
-					if (value instanceof Job) return {
-						type: 'async-value',
-						source: value.ready.promise,
-						construct: () => js`({value:null})`,
-						resolve: ({ target }) => js`${target}.value=${nodes[4]}`,
-						reject: () => js``
-					};
-				}, { id: `overlapping-opaque-${reverse}-${streaming}` });
+				const input = streaming
+					? { wrappers, pending: pending.promise, later: later.promise, job }
+					: { wrappers };
+				const result = await unevalStream(
+					input,
+					(value, js) => {
+						if (value instanceof Wrapper) return js`({value:${value.value}})`;
+						if (value instanceof Job)
+							return {
+								type: 'async-value',
+								source: value.ready.promise,
+								construct: () => js`({value:null})`,
+								resolve: ({ target }) => js`${target}.value=${nodes[4]}`,
+								reject: () => js``
+							};
+					},
+					{ id: `overlapping-opaque-${reverse}-${streaming}` }
+				);
 				const target = client();
 				const root = target.head(result.head);
 				if (streaming) {
@@ -722,8 +810,10 @@ describe('unevalStream', () => {
 					for await (const block of result.tail) target.block(block);
 				}
 				const revived_by_node = [];
-				for (let i = 0; i < wrappers.length; i++) revived_by_node[index_by_node.get(wrappers[i].value)] = root.wrappers[i].value;
-				for (let i = 1; i < revived_by_node.length; i++) expect(revived_by_node[i].child).toBe(revived_by_node[i - 1]);
+				for (let i = 0; i < wrappers.length; i++)
+					revived_by_node[index_by_node.get(wrappers[i].value)] = root.wrappers[i].value;
+				for (let i = 1; i < revived_by_node.length; i++)
+					expect(revived_by_node[i].child).toBe(revived_by_node[i - 1]);
 				const revived_leaf = revived_by_node[0];
 				expect(revived_leaf.self).toBe(revived_leaf);
 				expect(revived_leaf.sparse[2]).toBe(revived_leaf);
@@ -761,7 +851,9 @@ describe('unevalStream', () => {
 		expect(block).not.toMatch(/veryLongPropertyName|anotherLongPropertyName/);
 		target.block(block);
 		expect(await root.pending).toBe(root.wrapped.value.child);
-		expect(root.wrapped.value).toBe(Array.from(root.collection)[0].veryLongPropertyName.anotherLongPropertyName);
+		expect(root.wrapped.value).toBe(
+			Array.from(root.collection)[0].veryLongPropertyName.anotherLongPropertyName
+		);
 	});
 
 	test('retains overlapping opaque roots introduced by an outcome for same and later batches', async () => {
@@ -802,12 +894,18 @@ describe('unevalStream', () => {
 	});
 
 	test('plans legacy custom emission synchronously and invokes replacers once', async () => {
-		class Wrapper { constructor(value) { this.value = value; } }
+		class Wrapper {
+			constructor(value) {
+				this.value = value;
+			}
+		}
 		const pending = Promise.withResolvers();
 		const child = { count: 1, values: [1] };
 		let calls = 0;
 		let yielded = false;
-		queueMicrotask(() => { yielded = true; });
+		queueMicrotask(() => {
+			yielded = true;
+		});
 		const result_promise = unevalStream(
 			{ child, wrapped: new Wrapper(child), pending: pending.promise },
 			(value, js) => {
@@ -830,49 +928,75 @@ describe('unevalStream', () => {
 	});
 
 	test('composes a custom object dependency exactly once', async () => {
-		class Wrapper { constructor(value) { this.value = value; } }
+		class Wrapper {
+			constructor(value) {
+				this.value = value;
+			}
+		}
 		let calls = 0;
-		const { root } = await drain(await unevalStream(new Wrapper({ x: 1 }), (value, js) => {
-			if (!(value instanceof Wrapper)) return;
-			calls++;
-			return js`({value:${value.value}})`;
-		}));
+		const { root } = await drain(
+			await unevalStream(new Wrapper({ x: 1 }), (value, js) => {
+				if (!(value instanceof Wrapper)) return;
+				calls++;
+				return js`({value:${value.value}})`;
+			})
+		);
 		expect(calls).toBe(1);
 		expect({ ...root.value }).toEqual({ x: 1 });
 	});
 
 	test('emits object children reachable only through custom source', async () => {
-		class Wrapper { constructor(value) { this.value = value; } }
-		const { root } = await drain(await unevalStream(
-			new Wrapper({ x: 1 }),
-			(value, js) => value instanceof Wrapper && js`({value:${value.value}})`
-		));
+		class Wrapper {
+			constructor(value) {
+				this.value = value;
+			}
+		}
+		const { root } = await drain(
+			await unevalStream(
+				new Wrapper({ x: 1 }),
+				(value, js) => value instanceof Wrapper && js`({value:${value.value}})`
+			)
+		);
 		expect({ ...root.value }).toEqual({ x: 1 });
 	});
 
 	test('preserves identity when one custom child source is repeated', async () => {
-		class Wrapper { constructor(value) { this.value = value; } }
-		const { root } = await drain(await unevalStream(new Wrapper({}), (value, js) => {
-			if (!(value instanceof Wrapper)) return;
-			const child = js`${value.value}`;
-			return js`[${child},${child}]`;
-		}));
+		class Wrapper {
+			constructor(value) {
+				this.value = value;
+			}
+		}
+		const { root } = await drain(
+			await unevalStream(new Wrapper({}), (value, js) => {
+				if (!(value instanceof Wrapper)) return;
+				const child = js`${value.value}`;
+				return js`[${child},${child}]`;
+			})
+		);
 		expect(root[0]).toBe(root[1]);
 	});
 
 	test('preserves composed repeated custom holes in synchronous and streamed regions', async () => {
-		class Wrapper { constructor(value) { this.value = value; } }
+		class Wrapper {
+			constructor(value) {
+				this.value = value;
+			}
+		}
 		const synchronous = new Wrapper({ region: 'head' });
 		const streamed = new Wrapper({ region: 'tail' });
 		const pending = Promise.withResolvers();
 		const calls = new Map();
-		const result = await unevalStream({ synchronous, streamed: pending.promise }, (value, js) => {
-			if (!(value instanceof Wrapper)) return;
-			calls.set(value, (calls.get(value) ?? 0) + 1);
-			const partial = js`[${value.value}`;
-			const repeated = js`${value.value}`;
-			return js`${partial},${repeated}]`;
-		}, { id: 'composed-repeated-holes' });
+		const result = await unevalStream(
+			{ synchronous, streamed: pending.promise },
+			(value, js) => {
+				if (!(value instanceof Wrapper)) return;
+				calls.set(value, (calls.get(value) ?? 0) + 1);
+				const partial = js`[${value.value}`;
+				const repeated = js`${value.value}`;
+				return js`${partial},${repeated}]`;
+			},
+			{ id: 'composed-repeated-holes' }
+		);
 		const target = client();
 		const root = target.head(result.head);
 		expect(root.synchronous[0]).toBe(root.synchronous[1]);
@@ -890,35 +1014,49 @@ describe('unevalStream', () => {
 	});
 
 	test('serializes primitive holes in custom source', async () => {
-		class Wrapper { constructor(value) { this.value = value; } }
-		const { root } = await drain(await unevalStream(new Wrapper(undefined), (value, js) => {
-			if (!(value instanceof Wrapper)) return;
-			return js`[${value.value}]`;
-		}));
+		class Wrapper {
+			constructor(value) {
+				this.value = value;
+			}
+		}
+		const { root } = await drain(
+			await unevalStream(new Wrapper(undefined), (value, js) => {
+				if (!(value instanceof Wrapper)) return;
+				return js`[${value.value}]`;
+			})
+		);
 		expect(root[0]).toBe(undefined);
 	});
 
 	test('preserves instruction-shaped objects as synchronous replacer data', async () => {
-		class Wrapper { constructor(value) { this.value = value; } }
+		class Wrapper {
+			constructor(value) {
+				this.value = value;
+			}
+		}
 		for (const value of [
 			{ type: 'reference', value: 1 },
 			{ type: 'capture', value: 2 },
 			{ type: 'outcome', value: 3 }
 		]) {
-			const { root } = await drain(await unevalStream(
-				new Wrapper(value),
-				(item, js) => item instanceof Wrapper && js`({value:${item.value}})`
-			));
+			const { root } = await drain(
+				await unevalStream(
+					new Wrapper(value),
+					(item, js) => item instanceof Wrapper && js`({value:${item.value}})`
+				)
+			);
 			expect(root.value.type).toBe(value.type);
 			expect(root.value.value).toBe(value.value);
 		}
 		const inherited = { value: 4 };
 		Object.defineProperty(Object.prototype, 'type', { value: 'outcome', configurable: true });
 		try {
-			const { root } = await drain(await unevalStream(
-				new Wrapper(inherited),
-				(item, js) => item instanceof Wrapper && js`({value:${item.value}})`
-			));
+			const { root } = await drain(
+				await unevalStream(
+					new Wrapper(inherited),
+					(item, js) => item instanceof Wrapper && js`({value:${item.value}})`
+				)
+			);
 			expect(root.value.value).toBe(4);
 			expect(Object.hasOwn(root.value, 'type')).toBe(false);
 		} finally {
@@ -933,13 +1071,17 @@ describe('unevalStream', () => {
 			{ type: 'outcome', value: 3 }
 		]) {
 			const root = {};
-			const result = await unevalStream(root, (candidate, js) => candidate === root && ({
-				type: 'async-value',
-				source: Promise.resolve(),
-				construct: () => js`${value}`,
-				resolve: () => js``,
-				reject: () => js``
-			}));
+			const result = await unevalStream(
+				root,
+				(candidate, js) =>
+					candidate === root && {
+						type: 'async-value',
+						source: Promise.resolve(),
+						construct: () => js`${value}`,
+						resolve: () => js``,
+						reject: () => js``
+					}
+			);
 			const { root: revived } = await drain(result);
 			expect(revived.type).toBe(value.type);
 			expect(revived.value).toBe(value.value);
@@ -951,22 +1093,33 @@ describe('unevalStream', () => {
 			['construct', (_capture, js) => js`${Symbol('construct')}`],
 			['capture', (capture, js) => capture(js`${Symbol('capture')}`)]
 		]) {
-			const error = await rejects(unevalStream({}, (_value, js) => ({
-				type: 'async-value', source: new Promise(() => {}),
-				construct: (capture) => construct(capture, js),
-				resolve: () => js``, reject: () => js``
-			})), /received a Symbol.*Symbol values cannot be serialized as data/);
+			const error = await rejects(
+				unevalStream({}, (_value, js) => ({
+					type: 'async-value',
+					source: new Promise(() => {}),
+					construct: (capture) => construct(capture, js),
+					resolve: () => js``,
+					reject: () => js``
+				})),
+				/received a Symbol.*Symbol values cannot be serialized as data/
+			);
 			expect(error).toBeInstanceOf(TypeError);
 			expect(error.message.includes(`${phase}(), template hole 1`)).toBeTruthy();
 		}
 
 		const pending = Promise.withResolvers();
 		const reports = [];
-		const result = await unevalStream({}, (_value, js) => ({
-			type: 'async-value', source: pending.promise, construct: () => js`({})`,
-			resolve: () => js`${Symbol('operation')}`,
-			reject: () => js`${Symbol('fallback')}`
-		}), { id: 'symbol-operation', onerror: (error) => reports.push(error) });
+		const result = await unevalStream(
+			{},
+			(_value, js) => ({
+				type: 'async-value',
+				source: pending.promise,
+				construct: () => js`({})`,
+				resolve: () => js`${Symbol('operation')}`,
+				reject: () => js`${Symbol('fallback')}`
+			}),
+			{ id: 'symbol-operation', onerror: (error) => reports.push(error) }
+		);
 		client().head(result.head);
 		pending.resolve(1);
 		await rejects(result.tail.next(), /fallback reject\(\), template hole 1: received a Symbol/);
@@ -982,10 +1135,14 @@ describe('unevalStream', () => {
 			const symbol = Symbol(mode);
 			const reports = [];
 			let message_reads = 0;
-			const result = await unevalStream({ first: first.promise, scalar: scalar.promise, reused: reused.promise }, undefined, {
-				id: `expired-native-symbol-${mode}`,
-				onerror: (error) => reports.push(error)
-			});
+			const result = await unevalStream(
+				{ first: first.promise, scalar: scalar.promise, reused: reused.promise },
+				undefined,
+				{
+					id: `expired-native-symbol-${mode}`,
+					onerror: (error) => reports.push(error)
+				}
+			);
 			const target = client();
 			target.head(result.head);
 
@@ -1000,7 +1157,10 @@ describe('unevalStream', () => {
 			if (mode === 'hostile message') {
 				Object.defineProperty(original, 'message', {
 					configurable: true,
-					get() { message_reads++; throw new Error('stale message inspected'); }
+					get() {
+						message_reads++;
+						throw new Error('stale message inspected');
+					}
 				});
 			}
 
@@ -1008,7 +1168,12 @@ describe('unevalStream', () => {
 			scalar.resolve(1);
 			target.block((await result.tail.next()).value);
 			const throwing = {};
-			Object.defineProperty(throwing, 'prop', { enumerable: true, get() { throw original; } });
+			Object.defineProperty(throwing, 'prop', {
+				enumerable: true,
+				get() {
+					throw original;
+				}
+			});
 			reused.resolve(throwing);
 			target.block((await result.tail.next()).value);
 
@@ -1027,9 +1192,14 @@ describe('unevalStream', () => {
 			expect(root.value).toBe(1);
 		}
 		for (const invalid of ['', 'x', 0, 1, true, Promise.resolve(), () => {}, {}, []]) {
-			const error = await rejects(unevalStream({}, () => invalid), /Invalid unevalStream replacer result: received/);
+			const error = await rejects(
+				unevalStream({}, () => invalid),
+				/Invalid unevalStream replacer result: received/
+			);
 			expect(error).toBeInstanceOf(TypeError);
-			expect(error.message).toMatch(/js tagged template.*async-value.*async-sequence.*undefined, null, or false/);
+			expect(error.message).toMatch(
+				/js tagged template.*async-value.*async-sequence.*undefined, null, or false/
+			);
 			expect(error.message).toMatch(/must be synchronous; Promise results are not supported/);
 			if (invalid === 0) expect(error.message).toMatch(/received a number \(0\)/);
 		}
@@ -1038,13 +1208,20 @@ describe('unevalStream', () => {
 	test('explains raw values returned from construction and passed to capture', async () => {
 		for (const invalid of [undefined, null, false, 0, 'source', {}, () => {}, Promise.resolve()]) {
 			for (const phase of ['capture', 'construct']) {
-				const error = await rejects(unevalStream({}, (_value, js) => ({
-					type: 'async-value', source: new Promise(() => {}),
-					construct: (capture) => phase === 'capture' ? capture(invalid) : invalid,
-					resolve: () => js``, reject: () => js``
-				})), /js tagged template/);
+				const error = await rejects(
+					unevalStream({}, (_value, js) => ({
+						type: 'async-value',
+						source: new Promise(() => {}),
+						construct: (capture) => (phase === 'capture' ? capture(invalid) : invalid),
+						resolve: () => js``,
+						reject: () => js``
+					})),
+					/js tagged template/
+				);
 				expect(error).toBeInstanceOf(TypeError);
-				expect(error.message.includes(`${phase}() ${phase === 'capture' ? 'received' : 'returned'}`)).toBeTruthy();
+				expect(
+					error.message.includes(`${phase}() ${phase === 'capture' ? 'received' : 'returned'}`)
+				).toBeTruthy();
 			}
 		}
 	});
@@ -1053,11 +1230,18 @@ describe('unevalStream', () => {
 		const pending = Promise.withResolvers();
 		const reports = [];
 		const job = {};
-		const result = await unevalStream(job, (value, js) => value === job && ({
-			type: 'async-value', source: pending.promise, construct: () => js`({})`,
-			resolve: ({ target }) => js`${target}.value=${js`${{ type: 'reference' }}`}`,
-			reject: ({ target }, reason) => js`${target}.error=${reason}`
-		}), { onerror: (error, value) => reports.push([error, value]) });
+		const result = await unevalStream(
+			job,
+			(value, js) =>
+				value === job && {
+					type: 'async-value',
+					source: pending.promise,
+					construct: () => js`({})`,
+					resolve: ({ target }) => js`${target}.value=${js`${{ type: 'reference' }}`}`,
+					reject: ({ target }, reason) => js`${target}.error=${reason}`
+				},
+			{ onerror: (error, value) => reports.push([error, value]) }
+		);
 		const target = client();
 		const root = target.head(result.head);
 		pending.resolve(7);
@@ -1073,28 +1257,49 @@ describe('unevalStream', () => {
 			const reports = [];
 			const sequence = ['next', 'complete', 'error'].includes(phase);
 			const job = {};
-			const result = await unevalStream(job, (value, js) => value === job && ({
-				type: sequence ? 'async-sequence' : 'async-value',
-				source: sequence ? {
-					[Symbol.asyncIterator]() { return this; },
-					next() { return pending.promise; },
-					return() { return { done: true }; }
-				} : pending.promise,
-				construct: () => js`({})`,
-				resolve: () => 0, reject: () => null,
-				next: () => 0, complete: () => 0, error: () => null
-			}), { onerror: (error) => reports.push(error) });
+			const result = await unevalStream(
+				job,
+				(value, js) =>
+					value === job && {
+						type: sequence ? 'async-sequence' : 'async-value',
+						source: sequence
+							? {
+									[Symbol.asyncIterator]() {
+										return this;
+									},
+									next() {
+										return pending.promise;
+									},
+									return() {
+										return { done: true };
+									}
+								}
+							: pending.promise,
+						construct: () => js`({})`,
+						resolve: () => 0,
+						reject: () => null,
+						next: () => 0,
+						complete: () => 0,
+						error: () => null
+					},
+				{ onerror: (error) => reports.push(error) }
+			);
 			client().head(result.head);
 			const terminal_error = phase === 'reject' || phase === 'error';
 			if (terminal_error) pending.reject('reason');
 			else pending.resolve(sequence ? { done: phase === 'complete', value: 1 } : 1);
-			const error = await rejects(result.tail.next(), /must synchronously return a js tagged template.*empty operation/);
+			const error = await rejects(
+				result.tail.next(),
+				/must synchronously return a js tagged template.*empty operation/
+			);
 			expect(error).toBeInstanceOf(TypeError);
 			if (terminal_error) {
 				expect(error.message.includes(`${phase}() returned null`)).toBeTruthy();
 				expect(reports.length).toBe(0);
 			} else {
-				expect(error.message.includes(`fallback ${sequence ? 'error' : 'reject'}() returned null`)).toBeTruthy();
+				expect(
+					error.message.includes(`fallback ${sequence ? 'error' : 'reject'}() returned null`)
+				).toBeTruthy();
 				expect(reports.length).toBe(1);
 				expect(reports[0].message.includes(`${phase}() returned a number (0)`)).toBeTruthy();
 			}
@@ -1102,7 +1307,11 @@ describe('unevalStream', () => {
 	});
 
 	test('preserves synchronous custom replacement expression boundaries', async () => {
-		class Wrapper { constructor(kind) { this.kind = kind; } }
+		class Wrapper {
+			constructor(kind) {
+				this.kind = kind;
+			}
+		}
 		const cases = [
 			['comma', (js) => js`1,2`, 2],
 			['conditional', (js) => js`true?3:4`, 3],
@@ -1112,29 +1321,37 @@ describe('unevalStream', () => {
 			['escaped data', (js) => js`${'</script>'}`, '</script>']
 		];
 		for (const [kind, source, expected] of cases) {
-			const { root } = await drain(await unevalStream(new Wrapper(kind), (value, js) =>
-				value instanceof Wrapper && source(js)
-			));
+			const { root } = await drain(
+				await unevalStream(new Wrapper(kind), (value, js) => value instanceof Wrapper && source(js))
+			);
 			if (typeof expected === 'object') expect(JSON.parse(JSON.stringify(root))).toEqual(expected);
 			else expect(root).toBe(expected);
 		}
-		const { root } = await drain(await unevalStream(
-			{
-				array: [new Wrapper('array boundary')],
-				object: { value: new Wrapper('object boundary') },
-				argument: new Wrapper('argument boundary')
-			},
-			(value, js) => value instanceof Wrapper && js`1,2`
-		));
+		const { root } = await drain(
+			await unevalStream(
+				{
+					array: [new Wrapper('array boundary')],
+					object: { value: new Wrapper('object boundary') },
+					argument: new Wrapper('argument boundary')
+				},
+				(value, js) => value instanceof Wrapper && js`1,2`
+			)
+		);
 		expect(Array.from(root.array)).toEqual([2]);
 		expect(root.object.value).toBe(2);
 		expect(root.argument).toBe(2);
 
-		class Container { constructor(child) { this.child = child; } }
-		const embedded = await drain(await unevalStream(new Container(new Wrapper('object child')), (value, js) => {
-			if (value instanceof Container) return js`(x=>x)(${value.child})`;
-			if (value instanceof Wrapper) return js`{value:8}`;
-		}));
+		class Container {
+			constructor(child) {
+				this.child = child;
+			}
+		}
+		const embedded = await drain(
+			await unevalStream(new Container(new Wrapper('object child')), (value, js) => {
+				if (value instanceof Container) return js`(x=>x)(${value.child})`;
+				if (value instanceof Wrapper) return js`{value:8}`;
+			})
+		);
 		expect({ ...embedded.root }).toEqual({ value: 8 });
 	});
 
@@ -1153,29 +1370,52 @@ describe('unevalStream', () => {
 	});
 
 	test('rejects Symbol children passed to a custom replacer', async () => {
-		class Wrapper { constructor(value) { this.value = value; } }
+		class Wrapper {
+			constructor(value) {
+				this.value = value;
+			}
+		}
 		await rejects(
-			unevalStream(new Wrapper(Symbol('child')), (value, js) => value instanceof Wrapper && js`[${value.value}]`),
+			unevalStream(
+				new Wrapper(Symbol('child')),
+				(value, js) => value instanceof Wrapper && js`[${value.value}]`
+			),
 			/Cannot stringify a Symbol primitive/
 		);
 	});
 
 	test('ignores unused custom object children without retaining stream state', async () => {
-		class Wrapper { constructor(value) { this.value = value; } }
+		class Wrapper {
+			constructor(value) {
+				this.value = value;
+			}
+		}
 		class Job {}
 		const job = new Job();
 		let then_reads = 0;
 		let cancels = 0;
-		const source = { get then() { then_reads++; return () => {}; } };
+		const source = {
+			get then() {
+				then_reads++;
+				return () => {};
+			}
+		};
 		const replacer = (value, js) => {
 			if (value instanceof Wrapper) {
 				for (let i = 0; i < 100; i++) js`${i % 2 ? job : Promise.resolve(i)}`;
 				return js`({value:1})`;
 			}
-			if (value === job) return {
-				type: 'async-value', source, construct: () => js`({})`,
-				resolve: () => js``, reject: () => js``, cancel() { cancels++; }
-			};
+			if (value === job)
+				return {
+					type: 'async-value',
+					source,
+					construct: () => js`({})`,
+					resolve: () => js``,
+					reject: () => js``,
+					cancel() {
+						cancels++;
+					}
+				};
 		};
 		const result = await unevalStream(new Wrapper(job), replacer, { id: 'unused-child' });
 		expect(result.head).not.toMatch(/globalThis\.__d/);
@@ -1187,26 +1427,38 @@ describe('unevalStream', () => {
 	});
 
 	test('reconstructs mixed custom and plain object cycles', async () => {
-		class Wrapper { constructor() { this.value = undefined; } }
+		class Wrapper {
+			constructor() {
+				this.value = undefined;
+			}
+		}
 		const wrapper = new Wrapper();
 		const object = { wrapper };
 		wrapper.value = object;
-		const { root } = await drain(await unevalStream(
-			wrapper,
-			(value, js) => value instanceof Wrapper && js`({value:${value.value}})`
-		));
+		const { root } = await drain(
+			await unevalStream(
+				wrapper,
+				(value, js) => value instanceof Wrapper && js`({value:${value.value}})`
+			)
+		);
 		expect(root.value.wrapper).toBe(root);
 	});
 
 	test('constructs custom child views after their buffers and before their target', async () => {
-		class Wrapper { constructor(value) { this.value = value; } }
+		class Wrapper {
+			constructor(value) {
+				this.value = value;
+			}
+		}
 		const buffer = new ArrayBuffer(8);
 		const view = new Uint8Array(buffer, 2, 3);
-		const { root } = await drain(await unevalStream(new Wrapper(view), (value, js) => {
-			if (!(value instanceof Wrapper)) return;
-			const child = js`${value.value}`;
-			return js`({view:${child},buffer:${child}.buffer})`;
-		}));
+		const { root } = await drain(
+			await unevalStream(new Wrapper(view), (value, js) => {
+				if (!(value instanceof Wrapper)) return;
+				const child = js`${value.value}`;
+				return js`({view:${child},buffer:${child}.buffer})`;
+			})
+		);
 		expect(Object.prototype.toString.call(root.view)).toBe('[object Uint8Array]');
 		expect(root.view.buffer).toBe(root.buffer);
 		expect(root.view.byteOffset).toBe(2);
@@ -1214,55 +1466,88 @@ describe('unevalStream', () => {
 	});
 
 	test('does not replace protocol alias text that resembles a custom token', async () => {
-		class Wrapper { constructor(value) { this.value = value; } }
+		class Wrapper {
+			constructor(value) {
+				this.value = value;
+			}
+		}
 		const text = '"0"';
-		const { root } = await drain(await unevalStream(new Wrapper({}), (value, js) => {
-			if (!(value instanceof Wrapper)) return;
-			return js`({text:${text},value:${value.value}})`;
-		}, { id: 'collision' }));
+		const { root } = await drain(
+			await unevalStream(
+				new Wrapper({}),
+				(value, js) => {
+					if (!(value instanceof Wrapper)) return;
+					return js`({text:${text},value:${value.value}})`;
+				},
+				{ id: 'collision' }
+			)
+		);
 		expect(root.text).toBe(text);
 	});
 
 	test('round-trips numeric strings keys ids and former token literals in every phase', async () => {
 		class Literal {}
 		const synchronous = await unevalStream(
-			{ '0': '0', '1': '1', '12': '12', '001': '001', literal: new Literal() },
+			{ 0: '0', 1: '1', 12: '12', '001': '001', literal: new Literal() },
 			(value, js) => value instanceof Literal && js`"0"`
 		);
 		const sync_root = client().head(synchronous.head);
-		expect(JSON.parse(JSON.stringify(sync_root))).toEqual({ '0': '0', '1': '1', '12': '12', '001': '001', literal: '0' });
+		expect(JSON.parse(JSON.stringify(sync_root))).toEqual({
+			0: '0',
+			1: '1',
+			12: '12',
+			'001': '001',
+			literal: '0'
+		});
 
 		const folded = await unevalStream(Promise.resolve('0'), undefined, { id: '12' });
 		expect(await client().head(folded.head)).toBe('0');
 
 		const pending = Promise.withResolvers();
 		const object = Promise.withResolvers();
-		const tail = await unevalStream({ '00': pending.promise, object: object.promise }, undefined, { id: '0' });
+		const tail = await unevalStream({ '00': pending.promise, object: object.promise }, undefined, {
+			id: '0'
+		});
 		const target = client();
 		const root = target.head(tail.head);
 		pending.resolve('0');
-		object.resolve({ '1': '12', value: '001' });
+		object.resolve({ 1: '12', value: '001' });
 		target.block((await tail.tail.next()).value);
 		expect(await root['00']).toBe('0');
-		expect(JSON.parse(JSON.stringify(await root.object))).toEqual({ '1': '12', value: '001' });
+		expect(JSON.parse(JSON.stringify(await root.object))).toEqual({ 1: '12', value: '001' });
 	});
 
 	test('discards nested async sources when custom-cycle validation fails', async () => {
-		class Wrapper { constructor() { this.value = this; } }
-		class Job { constructor() { this.started = false; } }
+		class Wrapper {
+			constructor() {
+				this.value = this;
+			}
+		}
+		class Job {
+			constructor() {
+				this.started = false;
+			}
+		}
 		const pending = Promise.withResolvers();
 		const job = new Job();
-		const result = await unevalStream(pending.promise, (value, js) => {
-			if (value instanceof Wrapper) return js`({value:${value.value}})`;
-			if (value instanceof Job) return {
-				type: 'async-value',
-				source: value,
-				construct: () => js`({})`,
-				then: () => { value.started = true; },
-				resolve: () => js``,
-				reject: () => js``
-			};
-		}, { id: 'failed-cycle-source' });
+		const result = await unevalStream(
+			pending.promise,
+			(value, js) => {
+				if (value instanceof Wrapper) return js`({value:${value.value}})`;
+				if (value instanceof Job)
+					return {
+						type: 'async-value',
+						source: value,
+						construct: () => js`({})`,
+						then: () => {
+							value.started = true;
+						},
+						resolve: () => js``,
+						reject: () => js``
+					};
+			},
+			{ id: 'failed-cycle-source' }
+		);
 		const target = client();
 		const root = target.head(result.head);
 		const rejected = rejects(root, /failed to serialize asynchronous value/);
@@ -1274,14 +1559,21 @@ describe('unevalStream', () => {
 	});
 
 	test('adapts a nonthenable custom async value', async () => {
-		class Job { constructor(completion) { this.completion = completion; } }
+		class Job {
+			constructor(completion) {
+				this.completion = completion;
+			}
+		}
 		const pending = Promise.withResolvers();
-		const replacer = (value, js) => value instanceof Job && ({
-			type: 'async-value', source: value.completion,
-			construct: () => js`({value:void 0,error:void 0,resolve(v){this.value=v},reject(e){this.error=e}})`,
-			resolve: ({ target }, payload) => js`${target}.resolve(${payload})`,
-			reject: ({ target }, reason) => js`${target}.reject(${reason})`
-		});
+		const replacer = (value, js) =>
+			value instanceof Job && {
+				type: 'async-value',
+				source: value.completion,
+				construct: () =>
+					js`({value:void 0,error:void 0,resolve(v){this.value=v},reject(e){this.error=e}})`,
+				resolve: ({ target }, payload) => js`${target}.resolve(${payload})`,
+				reject: ({ target }, reason) => js`${target}.reject(${reason})`
+			};
 		const result = await unevalStream(new Job(pending.promise), replacer, { id: 'job' });
 		const target = client();
 		const root = target.head(result.head);
@@ -1291,10 +1583,19 @@ describe('unevalStream', () => {
 	});
 
 	test('normalizes a misbehaving custom thenable', async () => {
-		const source = { then(resolve, reject) { resolve(1); reject(2); throw new Error('late'); } };
+		const source = {
+			then(resolve, reject) {
+				resolve(1);
+				reject(2);
+				throw new Error('late');
+			}
+		};
 		const replacer = (_value, js) => ({
-			type: 'async-value', source, construct: () => js`({values:[],set(v){this.values.push(v)}})`,
-			resolve: ({ target }, value) => js`${target}.set(${value})`, reject: ({ target }, value) => js`${target}.set(${value})`
+			type: 'async-value',
+			source,
+			construct: () => js`({values:[],set(v){this.values.push(v)}})`,
+			resolve: ({ target }, value) => js`${target}.set(${value})`,
+			reject: ({ target }, value) => js`${target}.set(${value})`
 		});
 		const { root } = await drain(await unevalStream({}, replacer, { id: 'thenable' }));
 		expect(Array.from(root.values)).toEqual([1]);
@@ -1303,11 +1604,14 @@ describe('unevalStream', () => {
 	test('keeps distinct custom values distinct when they share a source', async () => {
 		const pending = Promise.withResolvers();
 		class Job {}
-		const replacer = (value, js) => value instanceof Job && ({
-			type: 'async-value', source: pending.promise, construct: () => js`({value:void 0})`,
-			resolve: ({ target }, source) => js`${target}.value=${source}`,
-			reject: ({ target }, source) => js`${target}.value=${source}`
-		});
+		const replacer = (value, js) =>
+			value instanceof Job && {
+				type: 'async-value',
+				source: pending.promise,
+				construct: () => js`({value:void 0})`,
+				resolve: ({ target }, source) => js`${target}.value=${source}`,
+				reject: ({ target }, source) => js`${target}.value=${source}`
+			};
 		const result = await unevalStream([new Job(), new Job()], replacer, { id: 'distinct' });
 		const target = client();
 		const root = target.head(result.head);
@@ -1319,19 +1623,34 @@ describe('unevalStream', () => {
 	});
 
 	function sequence_replacer(source) {
-		return (value, js) => value === source && ({
-			type: 'async-sequence', source,
-			construct: () => js`({events:[],next(v){this.events.push(["next",v])},complete(v){this.events.push(["complete",v])},error(v){this.events.push(["error",v])}})`,
-			next: ({ target }, value) => js`${target}.next(${value})`,
-			complete: ({ target }, value) => js`${target}.complete(${value})`,
-			error: ({ target }, value) => js`${target}.error(${value})`
-		});
+		return (value, js) =>
+			value === source && {
+				type: 'async-sequence',
+				source,
+				construct: () =>
+					js`({events:[],next(v){this.events.push(["next",v])},complete(v){this.events.push(["complete",v])},error(v){this.events.push(["error",v])}})`,
+				next: ({ target }, value) => js`${target}.next(${value})`,
+				complete: ({ target }, value) => js`${target}.complete(${value})`,
+				error: ({ target }, value) => js`${target}.error(${value})`
+			};
 	}
 
 	test('feeds async iterable yields and return value into the client target', async () => {
-		const source = { async *[Symbol.asyncIterator]() { yield 1; yield 2; return 3; } };
-		const { root } = await drain(await unevalStream(source, sequence_replacer(source), { id: 'sequence' }));
-		expect(JSON.parse(JSON.stringify(root.events))).toEqual([['next', 1], ['next', 2], ['complete', 3]]);
+		const source = {
+			async *[Symbol.asyncIterator]() {
+				yield 1;
+				yield 2;
+				return 3;
+			}
+		};
+		const { root } = await drain(
+			await unevalStream(source, sequence_replacer(source), { id: 'sequence' })
+		);
+		expect(JSON.parse(JSON.stringify(root.events))).toEqual([
+			['next', 1],
+			['next', 2],
+			['complete', 3]
+		]);
 	});
 
 	test('uses null-prototype next callables for initial and resumed sequence pulls', async () => {
@@ -1346,15 +1665,25 @@ describe('unevalStream', () => {
 				argument_counts.push(arguments.length);
 				return pulls < 3 ? { done: false, value: pulls } : { done: true, value: 3 };
 			});
-			const source = { [Symbol.asyncIterator]() { return iterator; } };
-			const result = await unevalStream(source, native ? undefined : sequence_replacer(source), { id: `null-next-${native}` });
+			const source = {
+				[Symbol.asyncIterator]() {
+					return iterator;
+				}
+			};
+			const result = await unevalStream(source, native ? undefined : sequence_replacer(source), {
+				id: `null-next-${native}`
+			});
 			const { root } = await drain(result);
 			if (native) {
-				expect({ ...await root.next() }).toEqual({ done: false, value: 1 });
-				expect({ ...await root.next() }).toEqual({ done: false, value: 2 });
-				expect({ ...await root.next() }).toEqual({ done: true, value: 3 });
+				expect({ ...(await root.next()) }).toEqual({ done: false, value: 1 });
+				expect({ ...(await root.next()) }).toEqual({ done: false, value: 2 });
+				expect({ ...(await root.next()) }).toEqual({ done: true, value: 3 });
 			} else {
-				expect(JSON.parse(JSON.stringify(root.events))).toEqual([['next', 1], ['next', 2], ['complete', 3]]);
+				expect(JSON.parse(JSON.stringify(root.events))).toEqual([
+					['next', 1],
+					['next', 2],
+					['complete', 3]
+				]);
 			}
 			expect(pulls).toBe(3);
 			expect(receivers).toEqual([iterator, iterator, iterator]);
@@ -1364,12 +1693,22 @@ describe('unevalStream', () => {
 
 	test('natively reconstructs async iterables as buffered iterators', async () => {
 		const shared = { value: 1 };
-		const source = { async *[Symbol.asyncIterator]() { yield shared; yield 2; return shared; } };
+		const source = {
+			async *[Symbol.asyncIterator]() {
+				yield shared;
+				yield 2;
+				return shared;
+			}
+		};
 		const result = await unevalStream({ shared, source }, undefined, { id: 'native-sequence' });
 		const target = client();
 		const root = target.head(result.head);
 		expect(root.source[Symbol.asyncIterator]()).toBe(root.source);
-		expect(Reflect.ownKeys(root.source).filter((key) => typeof key === 'string').sort()).toEqual(['next', 'return', 'throw']);
+		expect(
+			Reflect.ownKeys(root.source)
+				.filter((key) => typeof key === 'string')
+				.sort()
+		).toEqual(['next', 'return', 'throw']);
 		expect(root.source._n).toBe(undefined);
 		expect(root.source._c).toBe(undefined);
 		expect(root.source._e).toBe(undefined);
@@ -1395,31 +1734,47 @@ describe('unevalStream', () => {
 			get [Symbol.asyncIterator]() {
 				reads++;
 				expect(replaced).toBeTruthy();
-				return async function* () { yield 1; };
+				return async function* () {
+					yield 1;
+				};
 			}
 		};
-		const { root } = await drain(await unevalStream(source, (value) => {
-			if (value === source) replaced = true;
-		}));
+		const { root } = await drain(
+			await unevalStream(source, (value) => {
+				if (value === source) replaced = true;
+			})
+		);
 		expect(reads).toBe(1);
-		expect({ ...await root.next() }).toEqual({ done: false, value: 1 });
+		expect({ ...(await root.next()) }).toEqual({ done: false, value: 1 });
 	});
 
 	test('buffers native async iterable events before client next', async () => {
-		const source = { async *[Symbol.asyncIterator]() { yield 1; return 2; } };
+		const source = {
+			async *[Symbol.asyncIterator]() {
+				yield 1;
+				return 2;
+			}
+		};
 		const { root } = await drain(await unevalStream(source, undefined, { id: 'native-buffer' }));
-		expect({ ...await root.next() }).toEqual({ done: false, value: 1 });
-		expect({ ...await root.next() }).toEqual({ done: true, value: 2 });
-		expect({ ...await root.next() }).toEqual({ done: true, value: undefined });
+		expect({ ...(await root.next()) }).toEqual({ done: false, value: 1 });
+		expect({ ...(await root.next()) }).toEqual({ done: true, value: 2 });
+		expect({ ...(await root.next()) }).toEqual({ done: true, value: undefined });
 	});
 
 	test('delivers buffered native yields before source errors', async () => {
 		const reason = 'source failure';
-		const source = { async *[Symbol.asyncIterator]() { yield 1; throw reason; } };
-		const { root } = await drain(await unevalStream(source, undefined, { id: 'native-buffer-error' }));
-		expect({ ...await root.next() }).toEqual({ done: false, value: 1 });
+		const source = {
+			async *[Symbol.asyncIterator]() {
+				yield 1;
+				throw reason;
+			}
+		};
+		const { root } = await drain(
+			await unevalStream(source, undefined, { id: 'native-buffer-error' })
+		);
+		expect({ ...(await root.next()) }).toEqual({ done: false, value: 1 });
 		await rejects(root.next(), reason);
-		expect({ ...await root.next() }).toEqual({ done: true, value: undefined });
+		expect({ ...(await root.next()) }).toEqual({ done: true, value: undefined });
 	});
 
 	test('settles multiple pending native next calls on terminal events', async () => {
@@ -1448,16 +1803,24 @@ describe('unevalStream', () => {
 				expect(settled[0] !== settled[1] && settled[1] !== settled[2]).toBeTruthy();
 			} else {
 				await rejected;
-				expect({ ...await pending[1] }).toEqual({ done: true, value: undefined });
-				expect({ ...await pending[2] }).toEqual({ done: true, value: undefined });
+				expect({ ...(await pending[1]) }).toEqual({ done: true, value: undefined });
+				expect({ ...(await pending[2]) }).toEqual({ done: true, value: undefined });
 			}
 		}
 	});
 
 	test('reports native async iterable failures and unserializable yields', async () => {
 		for (const source of [
-			{ async *[Symbol.asyncIterator]() { throw new Error('source failure'); } },
-			{ async *[Symbol.asyncIterator]() { yield () => {}; } }
+			{
+				async *[Symbol.asyncIterator]() {
+					throw new Error('source failure');
+				}
+			},
+			{
+				async *[Symbol.asyncIterator]() {
+					yield () => {};
+				}
+			}
 		]) {
 			const result = await unevalStream(source);
 			const target = client();
@@ -1470,7 +1833,16 @@ describe('unevalStream', () => {
 
 	test('server cancellation closes a native async generator', async () => {
 		let finalized = false;
-		const source = { async *[Symbol.asyncIterator]() { try { yield 1; yield 2; } finally { finalized = true; } } };
+		const source = {
+			async *[Symbol.asyncIterator]() {
+				try {
+					yield 1;
+					yield 2;
+				} finally {
+					finalized = true;
+				}
+			}
+		};
 		const result = await unevalStream(source, undefined, { id: 'native-cancel' });
 		await result.tail.return();
 		expect(finalized).toBeTruthy();
@@ -1481,9 +1853,17 @@ describe('unevalStream', () => {
 			const ready = Promise.withResolvers();
 			let returned = 0;
 			const source = {
-				[Symbol.asyncIterator]() { return this; },
-				async next() { await ready.promise; return { done: false, value: 1 }; },
-				return() { returned++; return { done: true }; }
+				[Symbol.asyncIterator]() {
+					return this;
+				},
+				async next() {
+					await ready.promise;
+					return { done: false, value: 1 };
+				},
+				return() {
+					returned++;
+					return { done: true };
+				}
 			};
 			const result = await unevalStream(source, undefined, { id: `native-local-${method}` });
 			const target = client();
@@ -1491,8 +1871,8 @@ describe('unevalStream', () => {
 			const pending = root.next();
 			const reason = new Error('local');
 			if (method === 'return') {
-				expect({ ...await root.return(7) }).toEqual({ done: true, value: 7 });
-				expect({ ...await pending }).toEqual({ done: true, value: undefined });
+				expect({ ...(await root.return(7)) }).toEqual({ done: true, value: 7 });
+				expect({ ...(await pending) }).toEqual({ done: true, value: undefined });
 			} else {
 				await rejects(root.throw(reason), reason);
 				await rejects(pending, reason);
@@ -1508,28 +1888,62 @@ describe('unevalStream', () => {
 
 	test('native client close discards updates buffered before server termination', async () => {
 		for (const method of ['return', 'throw']) {
-			const source = { async *[Symbol.asyncIterator]() { yield 1; return 2; } };
-			const { root } = await drain(await unevalStream(source, undefined, { id: `native-buffered-close-${method}` }));
+			const source = {
+				async *[Symbol.asyncIterator]() {
+					yield 1;
+					return 2;
+				}
+			};
+			const { root } = await drain(
+				await unevalStream(source, undefined, { id: `native-buffered-close-${method}` })
+			);
 			const reason = new Error(method);
-			if (method === 'return') expect({ ...await root.return(7) }).toEqual({ done: true, value: 7 });
+			if (method === 'return')
+				expect({ ...(await root.return(7)) }).toEqual({ done: true, value: 7 });
 			else await rejects(root.throw(reason), reason);
-			expect({ ...await root.next() }).toEqual({ done: true, value: undefined });
+			expect({ ...(await root.next()) }).toEqual({ done: true, value: undefined });
 		}
 	});
 
 	test('replacer overrides native async iterable handling', async () => {
-		const source = { async *[Symbol.asyncIterator]() { yield 1; } };
-		const { root, blocks } = await drain(await unevalStream(source, (value, js) => value === source && js`({overridden:true})`));
+		const source = {
+			async *[Symbol.asyncIterator]() {
+				yield 1;
+			}
+		};
+		const { root, blocks } = await drain(
+			await unevalStream(source, (value, js) => value === source && js`({overridden:true})`)
+		);
 		expect(root.overridden).toBe(true);
 		expect(blocks).toEqual([]);
 	});
 
 	test('turns malformed async iterable protocols into adapter-appropriate client errors', async () => {
 		const shared_sources = [
-			{ get [Symbol.asyncIterator]() { throw new Error('getter'); } },
-			{ [Symbol.asyncIterator]() { return null; } },
-			{ [Symbol.asyncIterator]() { return {}; } },
-			{ [Symbol.asyncIterator]() { return { next() { return null; } }; } }
+			{
+				get [Symbol.asyncIterator]() {
+					throw new Error('getter');
+				}
+			},
+			{
+				[Symbol.asyncIterator]() {
+					return null;
+				}
+			},
+			{
+				[Symbol.asyncIterator]() {
+					return {};
+				}
+			},
+			{
+				[Symbol.asyncIterator]() {
+					return {
+						next() {
+							return null;
+						}
+					};
+				}
+			}
 		];
 		for (const source of shared_sources) {
 			// native adapter: the reconstructed client iterator reports the failure
@@ -1555,10 +1969,47 @@ describe('unevalStream', () => {
 		}
 		// custom adapter only: acquisition, result, and accessor failures
 		const custom_sources = [
-			{ [Symbol.asyncIterator]() { throw new Error('call'); } },
-			{ [Symbol.asyncIterator]() { return { next() { throw new Error('next'); } }; } },
-			{ [Symbol.asyncIterator]() { return { next() { return { get done() { throw new Error('done'); } }; } }; } },
-			{ [Symbol.asyncIterator]() { return { next() { return { done: false, get value() { throw new Error('value'); } }; } }; } }
+			{
+				[Symbol.asyncIterator]() {
+					throw new Error('call');
+				}
+			},
+			{
+				[Symbol.asyncIterator]() {
+					return {
+						next() {
+							throw new Error('next');
+						}
+					};
+				}
+			},
+			{
+				[Symbol.asyncIterator]() {
+					return {
+						next() {
+							return {
+								get done() {
+									throw new Error('done');
+								}
+							};
+						}
+					};
+				}
+			},
+			{
+				[Symbol.asyncIterator]() {
+					return {
+						next() {
+							return {
+								done: false,
+								get value() {
+									throw new Error('value');
+								}
+							};
+						}
+					};
+				}
+			}
 		];
 		for (const source of custom_sources) {
 			const { root } = await drain(await unevalStream(source, sequence_replacer(source)));
@@ -1591,8 +2042,17 @@ describe('unevalStream', () => {
 
 	test('preserves sequence return-value identity', async () => {
 		const shared = { value: 1 };
-		const source = { async *[Symbol.asyncIterator]() { yield shared; return shared; } };
-		const { root } = await drain(await unevalStream({ shared, source }, sequence_replacer(source), { id: 'sequence-return-identity' }));
+		const source = {
+			async *[Symbol.asyncIterator]() {
+				yield shared;
+				return shared;
+			}
+		};
+		const { root } = await drain(
+			await unevalStream({ shared, source }, sequence_replacer(source), {
+				id: 'sequence-return-identity'
+			})
+		);
 		expect(root.source.events[0][1]).toBe(root.shared);
 		expect(root.source.events[1][1]).toBe(root.shared);
 	});
@@ -1601,17 +2061,29 @@ describe('unevalStream', () => {
 		class Sequence {}
 		const iterator = {
 			count: 0,
-			next() { return Promise.resolve(++this.count <= 2 ? { done: false, value: this.count } : { done: true, value: 'done' }); }
+			next() {
+				return Promise.resolve(
+					++this.count <= 2 ? { done: false, value: this.count } : { done: true, value: 'done' }
+				);
+			}
 		};
-		const source = { [Symbol.asyncIterator]() { return iterator; } };
-		const replacer = (value, js) => value instanceof Sequence && ({
-			type: 'async-sequence', source,
-			construct: () => js`({events:[]})`,
-			next: ({ target }, value) => js`${target}.events.push(${value})`,
-			complete: ({ target }, value) => js`${target}.events.push(${value})`,
-			error: ({ target }, value) => js`${target}.events.push(${value})`
-		});
-		const { root } = await drain(await unevalStream([new Sequence(), new Sequence()], replacer, { id: 'shared-iterator' }));
+		const source = {
+			[Symbol.asyncIterator]() {
+				return iterator;
+			}
+		};
+		const replacer = (value, js) =>
+			value instanceof Sequence && {
+				type: 'async-sequence',
+				source,
+				construct: () => js`({events:[]})`,
+				next: ({ target }, value) => js`${target}.events.push(${value})`,
+				complete: ({ target }, value) => js`${target}.events.push(${value})`,
+				error: ({ target }, value) => js`${target}.events.push(${value})`
+			};
+		const { root } = await drain(
+			await unevalStream([new Sequence(), new Sequence()], replacer, { id: 'shared-iterator' })
+		);
 		expect(root[0] !== root[1]).toBeTruthy();
 		expect(Array.from(root[0].events)).toEqual([1, 'done']);
 		expect(Array.from(root[1].events)).toEqual([2, 'done']);
@@ -1619,14 +2091,26 @@ describe('unevalStream', () => {
 
 	test('includes at most one sequence item in each batch', async () => {
 		let pulls = 0;
-		const source = { [Symbol.asyncIterator]() { return this; }, async next() { pulls++; return pulls < 3 ? { done: false, value: pulls } : { done: true }; } };
+		const source = {
+			[Symbol.asyncIterator]() {
+				return this;
+			},
+			async next() {
+				pulls++;
+				return pulls < 3 ? { done: false, value: pulls } : { done: true };
+			}
+		};
 		const result = await unevalStream(source, sequence_replacer(source), { id: 'coalesce' });
 		const target = client();
 		const root = target.head(result.head);
 		expect(pulls).toBe(2);
 		expect(JSON.parse(JSON.stringify(root.events))).toEqual([['next', 1]]);
 		for await (const block of result.tail) target.block(block);
-		expect(JSON.parse(JSON.stringify(root.events))).toEqual([['next', 1], ['next', 2], ['complete', null]]);
+		expect(JSON.parse(JSON.stringify(root.events))).toEqual([
+			['next', 1],
+			['next', 2],
+			['complete', null]
+		]);
 	});
 
 	test('backpressures an async sequence until flushed blocks are consumed', async () => {
@@ -1634,7 +2118,9 @@ describe('unevalStream', () => {
 		const gates = [];
 		const pull_arrived = [];
 		const source = {
-			[Symbol.asyncIterator]() { return this; },
+			[Symbol.asyncIterator]() {
+				return this;
+			},
 			next() {
 				pulls++;
 				const gate = Promise.withResolvers();
@@ -1668,7 +2154,13 @@ describe('unevalStream', () => {
 	});
 
 	test('resumes sequence pulling after batches accumulate while the consumer is idle', async () => {
-		const source = { async *[Symbol.asyncIterator]() { yield 1; yield 2; yield 3; } };
+		const source = {
+			async *[Symbol.asyncIterator]() {
+				yield 1;
+				yield 2;
+				yield 3;
+			}
+		};
 		// settles a few flush windows after the sequence's first item, while nobody is reading
 		const late = new Promise((resolve) => setTimeout(() => resolve('late'), 5));
 		const result = await unevalStream({ source, late }, undefined, { id: 'idle-consumer' });
@@ -1689,7 +2181,18 @@ describe('unevalStream', () => {
 	test('cancels an async sequence before tail iteration starts', async () => {
 		let returned = 0;
 		const pending = Promise.withResolvers();
-		const source = { [Symbol.asyncIterator]() { return this; }, next() { return pending.promise; }, return() { returned++; return { done: true }; } };
+		const source = {
+			[Symbol.asyncIterator]() {
+				return this;
+			},
+			next() {
+				return pending.promise;
+			},
+			return() {
+				returned++;
+				return { done: true };
+			}
+		};
 		const result = await unevalStream(source, sequence_replacer(source), { id: 'cancel' });
 		const returned_result = result.tail.return();
 		pending.resolve({ done: true });
@@ -1702,11 +2205,15 @@ describe('unevalStream', () => {
 		let pulling = false;
 		let returned = 0;
 		const source = {
-			[Symbol.asyncIterator]() { return this; },
+			[Symbol.asyncIterator]() {
+				return this;
+			},
 			next() {
 				expect(!pulling).toBeTruthy();
 				pulling = true;
-				return pending.promise.finally(() => { pulling = false; });
+				return pending.promise.finally(() => {
+					pulling = false;
+				});
 			},
 			return() {
 				expect(pulling).toBeTruthy();
@@ -1715,7 +2222,9 @@ describe('unevalStream', () => {
 				return { done: true };
 			}
 		};
-		const result = await unevalStream(source, sequence_replacer(source), { id: 'pending-next-return' });
+		const result = await unevalStream(source, sequence_replacer(source), {
+			id: 'pending-next-return'
+		});
 		const next = result.tail.next();
 		const returned_result = result.tail.return();
 		expect(await next).toEqual({ done: true, value: undefined });
@@ -1732,7 +2241,8 @@ describe('unevalStream', () => {
 		const target = client();
 		const ar = target.head(first.head);
 		const br = target.head(second.head);
-		a.resolve(1); b.resolve(2);
+		a.resolve(1);
+		b.resolve(2);
 		target.block((await first.tail.next()).value);
 		target.block((await second.tail.next()).value);
 		expect(await ar).toBe(1);
@@ -1767,7 +2277,9 @@ describe('unevalStream', () => {
 	test('serves concurrent tail next calls in order', async () => {
 		const first = Promise.withResolvers();
 		const second = Promise.withResolvers();
-		const result = await unevalStream([first.promise, second.promise], undefined, { id: 'concurrent' });
+		const result = await unevalStream([first.promise, second.promise], undefined, {
+			id: 'concurrent'
+		});
 		const target = client();
 		const root = target.head(result.head);
 		const reads = [result.tail.next(), result.tail.next(), result.tail.next()];
@@ -1789,7 +2301,16 @@ describe('unevalStream', () => {
 		const reason = new Error('aborted');
 		controller.abort(reason);
 		let calls = 0;
-		await rejects(unevalStream({}, () => { calls++; }, { signal: controller.signal }), reason);
+		await rejects(
+			unevalStream(
+				{},
+				() => {
+					calls++;
+				},
+				{ signal: controller.signal }
+			),
+			reason
+		);
 		expect(calls).toBe(0);
 	});
 
@@ -1797,25 +2318,40 @@ describe('unevalStream', () => {
 		const controller = new AbortController();
 		const reason = new Error('aborted during construct');
 		let cancels = 0;
-		await rejects(unevalStream({}, (_value, js) => ({
-			type: 'async-value',
-			source: new Promise(() => {}),
-			construct() {
-				controller.abort(reason);
-				return js`0`;
-			},
-			resolve: () => js``,
-			reject: () => js``,
-			cancel() { cancels++; }
-		}), { signal: controller.signal }), reason);
+		await rejects(
+			unevalStream(
+				{},
+				(_value, js) => ({
+					type: 'async-value',
+					source: new Promise(() => {}),
+					construct() {
+						controller.abort(reason);
+						return js`0`;
+					},
+					resolve: () => js``,
+					reject: () => js``,
+					cancel() {
+						cancels++;
+					}
+				}),
+				{ signal: controller.signal }
+			),
+			reason
+		);
 		expect(cancels).toBe(0);
 	});
 
 	test('tail return cancels an outstanding next', async () => {
 		let cancels = 0;
 		const result = await unevalStream({}, (_value, js) => ({
-			type: 'async-value', source: new Promise(() => {}), construct: () => js`0`,
-			resolve: () => js``, reject: () => js``, cancel() { cancels++; }
+			type: 'async-value',
+			source: new Promise(() => {}),
+			construct: () => js`0`,
+			resolve: () => js``,
+			reject: () => js``,
+			cancel() {
+				cancels++;
+			}
 		}));
 		const next = result.tail.next();
 		expect(await result.tail.return()).toEqual({ done: true, value: undefined });
@@ -1828,10 +2364,14 @@ describe('unevalStream', () => {
 		let pulling = false;
 		let returned = 0;
 		const source = {
-			[Symbol.asyncIterator]() { return this; },
+			[Symbol.asyncIterator]() {
+				return this;
+			},
 			next() {
 				pulling = true;
-				return pending.promise.finally(() => { pulling = false; });
+				return pending.promise.finally(() => {
+					pulling = false;
+				});
 			},
 			return() {
 				expect(pulling).toBeTruthy();
@@ -1851,7 +2391,9 @@ describe('unevalStream', () => {
 	test('preserves deep identity across a pending Promise batch', async () => {
 		const pending = Promise.withResolvers();
 		const deep = { a: { b: { c: {} } } };
-		const result = await unevalStream({ deep, pending: pending.promise }, undefined, { id: 'sizes' });
+		const result = await unevalStream({ deep, pending: pending.promise }, undefined, {
+			id: 'sizes'
+		});
 		const target = client();
 		const root = target.head(result.head);
 		pending.resolve([deep.a.b.c, deep.a.b.c, deep.a.b.c]);
@@ -1877,7 +2419,13 @@ describe('unevalStream', () => {
 
 	test('delivers native sequence outcomes as one executable batch per pull', async () => {
 		const ready = Promise.withResolvers();
-		const source = { async *[Symbol.asyncIterator]() { await ready.promise; yield 1; return 2; } };
+		const source = {
+			async *[Symbol.asyncIterator]() {
+				await ready.promise;
+				yield 1;
+				return 2;
+			}
+		};
 		const result = await unevalStream(source, undefined, { id: 'native-size' });
 		const target = client();
 		const iterator = target.head(result.head);
@@ -1892,7 +2440,16 @@ describe('unevalStream', () => {
 		expect(await iterator.next()).toEqual({ done: true, value: undefined });
 
 		const fail = Promise.withResolvers();
-		const failed = await unevalStream({ async *[Symbol.asyncIterator]() { await fail.promise; throw { code: 'boom' }; } }, undefined, { id: 'native-size-error' });
+		const failed = await unevalStream(
+			{
+				async *[Symbol.asyncIterator]() {
+					await fail.promise;
+					throw { code: 'boom' };
+				}
+			},
+			undefined,
+			{ id: 'native-size-error' }
+		);
 		const failing = target.head(failed.head);
 		fail.resolve();
 		const errored = (await failed.tail.next()).value;
@@ -1900,26 +2457,47 @@ describe('unevalStream', () => {
 		await expect(failing.next()).rejects.toEqual({ code: 'boom' });
 
 		const opaque = Promise.withResolvers();
-		const unserializable = await unevalStream({ async *[Symbol.asyncIterator]() { await opaque.promise; throw new Error('secret'); } }, undefined, { id: 'native-size-opaque' });
+		const unserializable = await unevalStream(
+			{
+				async *[Symbol.asyncIterator]() {
+					await opaque.promise;
+					throw new Error('secret');
+				}
+			},
+			undefined,
+			{ id: 'native-size-opaque' }
+		);
 		const leaking = target.head(unserializable.head);
 		opaque.resolve();
 		const guarded = (await unserializable.tail.next()).value;
 		target.block(guarded);
 		// an Error reason cannot be serialized as data, so the tail block delivers
 		// the generic failure instead of leaking error internals
-		await expect(leaking.next()).rejects.toMatchObject({ message: 'devalue: failed to serialize asynchronous value' });
+		await expect(leaking.next()).rejects.toMatchObject({
+			message: 'devalue: failed to serialize asynchronous value'
+		});
 	});
 
 	test('validates replacer results and descriptor shapes synchronously', async () => {
 		for (const value of [true, 1, {}, { nope: true }]) {
-			await rejects(unevalStream({}, () => value), /Invalid unevalStream replacer result/);
+			await rejects(
+				unevalStream({}, () => value),
+				/Invalid unevalStream replacer result/
+			);
 		}
-		for (const [type, missing] of [['async-value', 'resolve'], ['async-sequence', 'next']]) {
-			const descriptor = type === 'async-value'
-				? { type, source: {}, construct: () => ({}), resolve() {}, reject() {} }
-				: { type, source: {}, construct: () => ({}), next() {}, complete() {}, error() {} };
+		for (const [type, missing] of [
+			['async-value', 'resolve'],
+			['async-sequence', 'next']
+		]) {
+			const descriptor =
+				type === 'async-value'
+					? { type, source: {}, construct: () => ({}), resolve() {}, reject() {} }
+					: { type, source: {}, construct: () => ({}), next() {}, complete() {}, error() {} };
 			delete descriptor[missing];
-			const error = await rejects(unevalStream({}, () => descriptor), new RegExp(`Invalid ${type} ${missing}: received undefined`));
+			const error = await rejects(
+				unevalStream({}, () => descriptor),
+				new RegExp(`Invalid ${type} ${missing}: received undefined`)
+			);
 			expect(error.message.includes(`must provide a ${missing}() function`)).toBeTruthy();
 		}
 	});
@@ -1927,15 +2505,28 @@ describe('unevalStream', () => {
 	test('explains descriptor source and cleanup field requirements', async () => {
 		for (const type of ['async-value', 'async-sequence']) {
 			for (const field of ['source', 'cancel']) {
-				const error = await rejects(unevalStream({}, (_value, js) => ({
-					type, source: {}, construct: () => js`({})`,
-					resolve() {}, reject() {}, next() {}, complete() {}, error() {},
-					[field]: null
-				})), new RegExp(`Invalid ${type} ${field}: received null`));
+				const error = await rejects(
+					unevalStream({}, (_value, js) => ({
+						type,
+						source: {},
+						construct: () => js`({})`,
+						resolve() {},
+						reject() {},
+						next() {},
+						complete() {},
+						error() {},
+						[field]: null
+					})),
+					new RegExp(`Invalid ${type} ${field}: received null`)
+				);
 				expect(error).toBeInstanceOf(TypeError);
-				expect(error.message).toMatch(field === 'cancel'
-					? /Omit cancel or provide a cleanup function/
-					: type === 'async-value' ? /Promise-like.*callable then method/ : /async iterable.*Symbol.asyncIterator/);
+				expect(error.message).toMatch(
+					field === 'cancel'
+						? /Omit cancel or provide a cleanup function/
+						: type === 'async-value'
+							? /Promise-like.*callable then method/
+							: /async iterable.*Symbol.asyncIterator/
+				);
 			}
 		}
 	});
@@ -1943,9 +2534,16 @@ describe('unevalStream', () => {
 	test('rejects multiple descriptor capture calls and invokes construct once', async () => {
 		let constructs = 0;
 		const replacer = (_value, js) => ({
-			type: 'async-value', source: new Promise(() => {}),
-			construct(capture) { constructs++; capture(js`1`); capture(js`2`); return js`0`; },
-			resolve: () => js``, reject: () => js``
+			type: 'async-value',
+			source: new Promise(() => {}),
+			construct(capture) {
+				constructs++;
+				capture(js`1`);
+				capture(js`2`);
+				return js`0`;
+			},
+			resolve: () => js``,
+			reject: () => js``
 		});
 		await rejects(unevalStream({}, replacer), /capture may only be called once/);
 		expect(constructs).toBe(1);
@@ -1956,11 +2554,16 @@ describe('unevalStream', () => {
 		const source = {
 			get then() {
 				reads++;
-				return function (resolve) { expect(this).toBe(source); resolve(7); };
+				return function (resolve) {
+					expect(this).toBe(source);
+					resolve(7);
+				};
 			}
 		};
 		const replacer = (_value, js) => ({
-			type: 'async-value', source, construct: () => js`({value:0})`,
+			type: 'async-value',
+			source,
+			construct: () => js`({value:0})`,
 			resolve: ({ target }, value) => js`${target}.value=${value}`,
 			reject: ({ target }, value) => js`${target}.value=${value}`
 		});
@@ -1971,25 +2574,46 @@ describe('unevalStream', () => {
 
 	test('turns custom then lookup and call failures into client rejection events', async () => {
 		for (const source of [
-			{ get then() { throw new Error('lookup'); } },
+			{
+				get then() {
+					throw new Error('lookup');
+				}
+			},
 			{ then: 1 },
-			{ then() { throw new Error('call'); } }
+			{
+				then() {
+					throw new Error('call');
+				}
+			}
 		]) {
 			const job = {};
-			const replacer = (value, js) => value === job && ({
-				type: 'async-value', source, construct: () => js`({error:void 0})`,
-				resolve: ({ target }, value) => js`${target}.value=${value}`,
-				reject: ({ target }, value) => js`${target}.error=${value}`
-			});
+			const replacer = (value, js) =>
+				value === job && {
+					type: 'async-value',
+					source,
+					construct: () => js`({error:void 0})`,
+					resolve: ({ target }, value) => js`${target}.value=${value}`,
+					reject: ({ target }, value) => js`${target}.error=${value}`
+				};
 			const { root } = await drain(await unevalStream(job, replacer));
 			expect(root.error && typeof root.error.message === 'string').toBeTruthy();
 		}
 	});
 
 	test('adopts nested thenables for custom async values', async () => {
-		const source = { then(resolve) { resolve({ then(resolve) { resolve(42); } }); } };
+		const source = {
+			then(resolve) {
+				resolve({
+					then(resolve) {
+						resolve(42);
+					}
+				});
+			}
+		};
 		const replacer = (_value, js) => ({
-			type: 'async-value', source, construct: () => js`({value:0})`,
+			type: 'async-value',
+			source,
+			construct: () => js`({value:0})`,
 			resolve: ({ target }, value) => js`${target}.value=${value}`,
 			reject: ({ target }, value) => js`${target}.value=${value}`
 		});
@@ -2053,7 +2677,9 @@ describe('unevalStream', () => {
 	});
 
 	test('observes generated native Promise rejections without changing them', () => {
-		const fixture = fileURLToPath(new URL('../fixtures/stream/native-promise-rejection.mjs', import.meta.url));
+		const fixture = fileURLToPath(
+			new URL('../fixtures/stream/native-promise-rejection.mjs', import.meta.url)
+		);
 		const result = spawnSync(process.execPath, [fixture], {
 			encoding: 'utf8',
 			timeout: 10_000
@@ -2065,8 +2691,12 @@ describe('unevalStream', () => {
 	test('reports operation fallback and fatal error boundaries', async () => {
 		const pending = Promise.withResolvers();
 		const replacer = (_value, js) => ({
-			type: 'async-value', source: pending.promise, construct: () => js`({error:void 0})`,
-			resolve() { throw new Error('resolve generation'); },
+			type: 'async-value',
+			source: pending.promise,
+			construct: () => js`({error:void 0})`,
+			resolve() {
+				throw new Error('resolve generation');
+			},
 			reject: ({ target }, reason) => js`${target}.error=${reason}`
 		});
 		const result = await unevalStream({}, replacer, { id: 'operation-fallback' });
@@ -2078,8 +2708,11 @@ describe('unevalStream', () => {
 
 		const fatal = Promise.withResolvers();
 		const broken = (_value, js) => ({
-			type: 'async-value', source: fatal.promise, construct: () => js`0`,
-			resolve: () => 1, reject: () => 1
+			type: 'async-value',
+			source: fatal.promise,
+			construct: () => js`0`,
+			resolve: () => 1,
+			reject: () => 1
 		});
 		const failed = await unevalStream({}, broken, { id: 'operation-fatal' });
 		client().head(failed.head);
@@ -2093,7 +2726,9 @@ describe('unevalStream', () => {
 		const fn = () => {};
 		const result = await unevalStream(pending.promise, undefined, {
 			id: 'onerror',
-			onerror(error, value) { reports.push([error, value]); }
+			onerror(error, value) {
+				reports.push([error, value]);
+			}
 		});
 		const target = client();
 		const root = target.head(result.head);
@@ -2109,13 +2744,20 @@ describe('unevalStream', () => {
 		const fallback = Promise.withResolvers();
 		const failures = [];
 		const replacer = (_value, js) => ({
-			type: 'async-value', source: fallback.promise, construct: () => js`({})`,
-			resolve() { throw new Error('resolve generation'); },
+			type: 'async-value',
+			source: fallback.promise,
+			construct: () => js`({})`,
+			resolve() {
+				throw new Error('resolve generation');
+			},
 			reject: () => js``
 		});
 		const second = await unevalStream({}, replacer, {
 			id: 'onerror-fallback',
-			onerror(error) { failures.push(error); throw new Error('listener'); }
+			onerror(error) {
+				failures.push(error);
+				throw new Error('listener');
+			}
 		});
 		client().head(second.head);
 		fallback.resolve(1);
@@ -2127,7 +2769,10 @@ describe('unevalStream', () => {
 
 	test('emits values settled in one flush window as one ordered batch', async () => {
 		let resolvers = [];
-		const promises = Array.from({ length: 10 }, () => new Promise((resolve) => resolvers.push(resolve)));
+		const promises = Array.from(
+			{ length: 10 },
+			() => new Promise((resolve) => resolvers.push(resolve))
+		);
 		const result = await unevalStream(promises, undefined, { id: 'macrotask-batch' });
 		const target = client();
 		const root = target.head(result.head);
@@ -2146,8 +2791,16 @@ describe('unevalStream', () => {
 		const ready = Promise.withResolvers();
 		const replacer = (_value, js) => ({
 			type: 'async-sequence',
-			source: { async *[Symbol.asyncIterator]() { await ready.promise; throw new Error('source'); } },
-			construct: () => js`({})`, next: () => js``, complete: () => js``, error: () => null
+			source: {
+				async *[Symbol.asyncIterator]() {
+					await ready.promise;
+					throw new Error('source');
+				}
+			},
+			construct: () => js`({})`,
+			next: () => js``,
+			complete: () => js``,
+			error: () => null
 		});
 		const result = await unevalStream({}, replacer, { id: 'non-string-error' });
 		client().head(result.head);
@@ -2159,15 +2812,28 @@ describe('unevalStream', () => {
 		const first = Promise.withResolvers();
 		const second = Promise.withResolvers();
 		let cancels = 0;
-		class Job { constructor(source, broken) { this.source = source; this.broken = broken; } }
-		const replacer = (value, js) => value instanceof Job && ({
-			type: 'async-value', source: value.source.promise,
-			construct: () => js`({values:[]})`,
-			resolve: ({ target }, payload) => js`${target}.values.push(${payload})`,
-			reject: value.broken ? () => 1 : ({ target }, payload) => js`${target}.values.push(${payload})`,
-			cancel() { cancels++; }
+		class Job {
+			constructor(source, broken) {
+				this.source = source;
+				this.broken = broken;
+			}
+		}
+		const replacer = (value, js) =>
+			value instanceof Job && {
+				type: 'async-value',
+				source: value.source.promise,
+				construct: () => js`({values:[]})`,
+				resolve: ({ target }, payload) => js`${target}.values.push(${payload})`,
+				reject: value.broken
+					? () => 1
+					: ({ target }, payload) => js`${target}.values.push(${payload})`,
+				cancel() {
+					cancels++;
+				}
+			};
+		const result = await unevalStream([new Job(first, false), new Job(second, true)], replacer, {
+			id: 'batch-transaction'
 		});
-		const result = await unevalStream([new Job(first, false), new Job(second, true)], replacer, { id: 'batch-transaction' });
 		const target = client();
 		const root = target.head(result.head);
 		first.resolve({ ok: true });
@@ -2184,8 +2850,12 @@ describe('unevalStream', () => {
 		const gates = [Promise.withResolvers(), Promise.withResolvers(), Promise.withResolvers()];
 		let pull = 0;
 		const source = {
-			[Symbol.asyncIterator]() { return this; },
-			next() { return gates[pull++].promise; }
+			[Symbol.asyncIterator]() {
+				return this;
+			},
+			next() {
+				return gates[pull++].promise;
+			}
 		};
 		gates[0].resolve({ done: false, value: 1 });
 		const result = await unevalStream(source, sequence_replacer(source), { id: 'frozen-sequence' });
@@ -2196,7 +2866,10 @@ describe('unevalStream', () => {
 		const next = await result.tail.next();
 		expect(!next.done).toBeTruthy();
 		target.block(next.value);
-		expect(JSON.parse(JSON.stringify(root.events))).toEqual([['next', 1], ['next', 2]]);
+		expect(JSON.parse(JSON.stringify(root.events))).toEqual([
+			['next', 1],
+			['next', 2]
+		]);
 		gates[2].resolve({ done: true });
 		await result.tail.return();
 	});
@@ -2204,9 +2877,16 @@ describe('unevalStream', () => {
 	test('closes a sequence once after an unserializable yield', async () => {
 		let returns = 0;
 		const source = {
-			[Symbol.asyncIterator]() { return this; },
-			next() { return { done: false, value: () => {} }; },
-			return() { returns++; return { done: true }; }
+			[Symbol.asyncIterator]() {
+				return this;
+			},
+			next() {
+				return { done: false, value: () => {} };
+			},
+			return() {
+				returns++;
+				return { done: true };
+			}
 		};
 		const { root } = await drain(await unevalStream(source, sequence_replacer(source)));
 		expect(root.events[0][0]).toBe('error');
@@ -2226,25 +2906,43 @@ describe('unevalStream', () => {
 			}
 		}
 		const iterable = {
-			[Symbol.asyncIterator]() { return this; },
-			next() { return { done: false, value: () => {} }; },
-			return() { calls.push('return'); throw close_failure; }
+			[Symbol.asyncIterator]() {
+				return this;
+			},
+			next() {
+				return { done: false, value: () => {} };
+			},
+			return() {
+				calls.push('return');
+				throw close_failure;
+			}
 		};
 		const sequence = new Source('sequence', true);
 		const value = new Source('value');
-		const replacer = (source, js) => source instanceof Source && (source.sequence ? {
-			type: 'async-sequence',
-			source: iterable,
-			construct: () => js`({events:[]})`,
-			next: ({ target }, v) => js`${target}.events.push(["next",${v}])`,
-			complete: ({ target }, v) => js`${target}.events.push(["complete",${v}])`,
-			error: ({ target }, v) => js`${target}.events.push(["error",${v}])`,
-			cancel() { calls.push('sequence'); }
-		} : {
-			type: 'async-value', source: pending.promise, construct: () => js`({values:[]})`,
-			resolve: ({ target }, v) => js`${target}.values.push(${v})`, reject: () => js``,
-			cancel() { calls.push('value'); }
-		});
+		const replacer = (source, js) =>
+			source instanceof Source &&
+			(source.sequence
+				? {
+						type: 'async-sequence',
+						source: iterable,
+						construct: () => js`({events:[]})`,
+						next: ({ target }, v) => js`${target}.events.push(["next",${v}])`,
+						complete: ({ target }, v) => js`${target}.events.push(["complete",${v}])`,
+						error: ({ target }, v) => js`${target}.events.push(["error",${v}])`,
+						cancel() {
+							calls.push('sequence');
+						}
+					}
+				: {
+						type: 'async-value',
+						source: pending.promise,
+						construct: () => js`({values:[]})`,
+						resolve: ({ target }, v) => js`${target}.values.push(${v})`,
+						reject: () => js``,
+						cancel() {
+							calls.push('value');
+						}
+					});
 		const result = await unevalStream([sequence, value], replacer, {
 			id: 'close-failure',
 			onerror: (error, source) => reported.push([error, source])
@@ -2268,12 +2966,23 @@ describe('unevalStream', () => {
 
 	test('cancels all sources and reports the first cleanup failure', async () => {
 		const calls = [];
-		class Job { constructor(name) { this.name = name; } }
-		const replacer = (value, js) => value instanceof Job && ({
-			type: 'async-value', source: new Promise(() => {}), construct: () => js`0`,
-			resolve: () => js``, reject: () => js``,
-			async cancel() { calls.push(value.name); throw new Error(value.name); }
-		});
+		class Job {
+			constructor(name) {
+				this.name = name;
+			}
+		}
+		const replacer = (value, js) =>
+			value instanceof Job && {
+				type: 'async-value',
+				source: new Promise(() => {}),
+				construct: () => js`0`,
+				resolve: () => js``,
+				reject: () => js``,
+				async cancel() {
+					calls.push(value.name);
+					throw new Error(value.name);
+				}
+			};
 		const result = await unevalStream([new Job('first'), new Job('second')], replacer);
 		await rejects(result.tail.return(), /first/);
 		expect(calls).toEqual(['first', 'second']);
@@ -2287,8 +2996,14 @@ describe('unevalStream', () => {
 		let cancelled = 0;
 		class Job {}
 		const replacer = (_value, js) => ({
-			type: 'async-value', source: pending.promise, construct: () => js`0`,
-			resolve: () => js``, reject: () => js``, cancel() { cancelled++; }
+			type: 'async-value',
+			source: pending.promise,
+			construct: () => js`0`,
+			resolve: () => js``,
+			reject: () => js``,
+			cancel() {
+				cancelled++;
+			}
 		});
 		const reason = new Error('stop');
 		const result = await unevalStream(new Job(), replacer, { signal: controller.signal });
@@ -2338,7 +3053,10 @@ describe('unevalStream', () => {
 
 	test('supports assignable custom table member scopes and retains them after cleanup', async () => {
 		const pending = Promise.withResolvers();
-		const result = await unevalStream(pending.promise, undefined, { id: 'custom', scope: 'globalThis.state.streams' });
+		const result = await unevalStream(pending.promise, undefined, {
+			id: 'custom',
+			scope: 'globalThis.state.streams'
+		});
 		const target = client({ state: {} });
 		const root = target.head(result.head);
 		expect(Object.getPrototypeOf(target.context.state.streams)).toBe(null);
@@ -2381,9 +3099,13 @@ describe('unevalStream', () => {
 		const null_object = Object.assign(Object.create(null), { value: 1 });
 		const values = {
 			boxed: [Object(1), Object('x'), Object(true), Object(2n)],
-			date: new Date(123), regexp: /a+/gi,
-			url: new URL('https://example.com/a?b=1'), params: new URLSearchParams('a=1&a=2'),
-			null_object, empty_set: new Set(), empty_map: new Map()
+			date: new Date(123),
+			regexp: /a+/gi,
+			url: new URL('https://example.com/a?b=1'),
+			params: new URLSearchParams('a=1&a=2'),
+			null_object,
+			empty_set: new Set(),
+			empty_map: new Map()
 		};
 		const { root } = await drain(await unevalStream(values), client({ URL, URLSearchParams }));
 		expect(Object.getPrototypeOf(root.null_object)).toBe(null);
@@ -2426,7 +3148,9 @@ describe('unevalStream', () => {
 	test('delivers a large single-use payload through one executable block', async () => {
 		const pending = Promise.withResolvers();
 		const payload = { rows: Array.from({ length: 100 }, (_, i) => ({ i, value: `value-${i}` })) };
-		const result = await unevalStream({ pending: pending.promise }, undefined, { id: 'large-guardrail' });
+		const result = await unevalStream({ pending: pending.promise }, undefined, {
+			id: 'large-guardrail'
+		});
 		const target = client();
 		const root = target.head(result.head);
 		pending.resolve(payload);
@@ -2477,7 +3201,9 @@ describe('unevalStream', () => {
 				for (let i = 0; i < 12; i += 1) yield repeated;
 			}
 		};
-		const result = await unevalStream({ source, hold: hold.promise }, undefined, { id: 'repeated-root' });
+		const result = await unevalStream({ source, hold: hold.promise }, undefined, {
+			id: 'repeated-root'
+		});
 		const target = client();
 		const root = target.head(result.head);
 		const values = [];
@@ -2506,7 +3232,16 @@ describe('unevalStream', () => {
 	test('keeps dense anchors for unique roots interleaved with repeated roots', async () => {
 		const repeated = { repeated: true };
 		const unique = Array.from({ length: 9 }, (_, index) => ({ index }));
-		const outcomes = [repeated, unique[0], repeated, unique[1], unique[2], repeated, ...unique.slice(3), repeated];
+		const outcomes = [
+			repeated,
+			unique[0],
+			repeated,
+			unique[1],
+			unique[2],
+			repeated,
+			...unique.slice(3),
+			repeated
+		];
 		const source = {
 			async *[Symbol.asyncIterator]() {
 				for (const value of outcomes) {
@@ -2535,7 +3270,8 @@ describe('unevalStream', () => {
 		for (let i = 0; i < unique.length; i += 1) {
 			const revived = values.find((value) => value.index === i);
 			expect(revived).toBeTruthy();
-			for (let j = 0; j < i; j += 1) expect(revived !== values.find((value) => value.index === j)).toBeTruthy();
+			for (let j = 0; j < i; j += 1)
+				expect(revived !== values.find((value) => value.index === j)).toBeTruthy();
 		}
 	});
 
@@ -2567,7 +3303,9 @@ describe('unevalStream', () => {
 			const inner = Object.values(shape)[0];
 			const inner_key = Object.keys(inner)[0];
 			const shared = inner[inner_key];
-			const result = await unevalStream({ ...shape, pending: pending.promise }, undefined, { id: 'profitable-slot' });
+			const result = await unevalStream({ ...shape, pending: pending.promise }, undefined, {
+				id: 'profitable-slot'
+			});
 			const target = client();
 			const root = target.head(result.head);
 			pending.resolve(Array.from({ length: payload_count }, () => shared));
@@ -2589,12 +3327,16 @@ describe('unevalStream', () => {
 		const first = {};
 		const other = {};
 		const opaque = Array.from({ length: 9 }, (_, index) => new Wrapper({ index }));
-		const result = await unevalStream({
-			opaque,
-			first: { veryLongPropertyName: first },
-			other: { veryLongPropertyName: other },
-			pending: pending.promise
-		}, (value, js) => value instanceof Wrapper && js`({value:${value.value}})`, { id: 'alias-digit-boundary' });
+		const result = await unevalStream(
+			{
+				opaque,
+				first: { veryLongPropertyName: first },
+				other: { veryLongPropertyName: other },
+				pending: pending.promise
+			},
+			(value, js) => value instanceof Wrapper && js`({value:${value.value}})`,
+			{ id: 'alias-digit-boundary' }
+		);
 		const target = client();
 		const root = target.head(result.head);
 		pending.resolve([other, other, other, first, first, first]);
@@ -2608,15 +3350,20 @@ describe('unevalStream', () => {
 	test('composes descriptor references without replacing similar source text', async () => {
 		const pending = Promise.withResolvers();
 		const marker = '"0"';
-		const result = await unevalStream(pending.promise, (value, js) => value === pending.promise && ({
-			type: 'async-value',
-			source: pending.promise,
-			construct: (capture) => {
-				return js`new Promise((resolve,reject)=>{${capture(js`[resolve,reject]`)}})`;
-			},
-			resolve: ({ control }, payload) => js`globalThis.marker=${marker};${control}[0](${payload})`,
-			reject: ({ control }, reason) => js`${control}[1](${reason})`
-		}));
+		const result = await unevalStream(
+			pending.promise,
+			(value, js) =>
+				value === pending.promise && {
+					type: 'async-value',
+					source: pending.promise,
+					construct: (capture) => {
+						return js`new Promise((resolve,reject)=>{${capture(js`[resolve,reject]`)}})`;
+					},
+					resolve: ({ control }, payload) =>
+						js`globalThis.marker=${marker};${control}[0](${payload})`,
+					reject: ({ control }, reason) => js`${control}[1](${reason})`
+				}
+		);
 		const target = client();
 		const promise = target.head(result.head);
 		pending.resolve(1);
@@ -2632,7 +3379,9 @@ describe('unevalStream', () => {
 		const b = Promise.withResolvers();
 		const c = Promise.withResolvers();
 		const inner = { x: 1 };
-		const result = await unevalStream({ a: a.promise, b: b.promise, c: c.promise }, undefined, { id: 'async-collections' });
+		const result = await unevalStream({ a: a.promise, b: b.promise, c: c.promise }, undefined, {
+			id: 'async-collections'
+		});
 		const target = client();
 		const root = target.head(result.head);
 		a.resolve(new Map([['k', inner]]));
@@ -2671,7 +3420,10 @@ describe('unevalStream', () => {
 
 	test('folds values settled inside the initial flush window into the head', async () => {
 		let resolvers = [];
-		const promises = Array.from({ length: 3 }, () => new Promise((resolve) => resolvers.push(resolve)));
+		const promises = Array.from(
+			{ length: 3 },
+			() => new Promise((resolve) => resolvers.push(resolve))
+		);
 		const result = await unevalStream(promises, undefined, { id: 'head-batch' });
 		const target = client();
 		const root = target.head(result.head);
@@ -2698,7 +3450,9 @@ describe('unevalStream', () => {
 		const seq2 = second();
 		// seq1 is discovered first but emitted inline deep in the tree; seq2 is repeated,
 		// so it hoists into a declaration that runs before the root literal
-		const result = await unevalStream({ a: { x: seq1 }, b: seq2, b2: seq2 }, undefined, { id: 'runtime-order' });
+		const result = await unevalStream({ a: { x: seq1 }, b: seq2, b2: seq2 }, undefined, {
+			id: 'runtime-order'
+		});
 		const { root, client: target } = await drain(result);
 		expect(root.b).toBe(root.b2);
 		expect((await root.a.x.next()).value).toBe(1);
@@ -2715,13 +3469,19 @@ describe('unevalStream', () => {
 		);
 		// three pending promises must reuse shared runtime: the head stays close
 		// to the single-promise size instead of shipping three copies
-		expect(multiple.head.length, `single=${single.head.length} multiple=${multiple.head.length}`).toBeLessThan(300);
+		expect(
+			multiple.head.length,
+			`single=${single.head.length} multiple=${multiple.head.length}`
+		).toBeLessThan(300);
 		await multiple.tail.return();
 	});
 
 	test('delivers each settlement as its own block while reusing shared runtime', async () => {
 		const settlers = [];
-		const promises = Array.from({ length: 3 }, () => new Promise((resolve) => settlers.push(resolve)));
+		const promises = Array.from(
+			{ length: 3 },
+			() => new Promise((resolve) => settlers.push(resolve))
+		);
 		const result = await unevalStream(promises, undefined, { id: 'settle-helper' });
 		const target = client();
 		const root = target.head(result.head);
@@ -2733,7 +3493,11 @@ describe('unevalStream', () => {
 		}
 		for (const block of blocks) target.block(block);
 		expect(blocks.length).toBe(3);
-		expect(JSON.parse(JSON.stringify(await Promise.all(Array.from(root))))).toEqual([{ i: 0 }, { i: 1 }, { i: 2 }]);
+		expect(JSON.parse(JSON.stringify(await Promise.all(Array.from(root))))).toEqual([
+			{ i: 0 },
+			{ i: 1 },
+			{ i: 2 }
+		]);
 		expect(target.context.__d && Object.keys(target.context.__d).length).toBe(0);
 	});
 
@@ -2767,7 +3531,8 @@ describe('unevalStream', () => {
 			return {
 				type: 'async-value',
 				source: value.ready.promise,
-				construct: (capture) => js`(()=>{const local=${partial}};new Promise((resolve,reject)=>{${capture(js`[resolve,reject] // capture`)}});return local})() // construct`,
+				construct: (capture) =>
+					js`(()=>{const local=${partial}};new Promise((resolve,reject)=>{${capture(js`[resolve,reject] // capture`)}});return local})() // construct`,
 				resolve: ({ target }, payload) => {
 					if (value === failed) throw new Error('use fallback');
 					return js`${target}.events.push(${payload}) // resolve`;
@@ -2796,5 +3561,4 @@ describe('unevalStream', () => {
 		expect(result.head + batch + fallback).toMatch(/\/\/ (?:capture|construct|resolve|reject)\n/);
 		expect(target.context.__d && Object.keys(target.context.__d).length).toBe(0);
 	});
-
 });
