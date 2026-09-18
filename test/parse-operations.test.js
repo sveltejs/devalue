@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import * as vm from 'vm';
 import { describe, test, expect } from 'vitest';
 import {
@@ -92,7 +93,7 @@ describe('parse operations option', () => {
 			() => unflatten(JSON.parse(json), undefined, options),
 			(error) => error.message === message
 		);
-		assert.equal(calls, []);
+		expect(calls).toStrictEqual([]);
 	});
 
 	test('revivers compose with custom operations', () => {
@@ -166,7 +167,7 @@ describe('sparse arrays', () => {
 // ---------------------------------------------------------------------------
 
 for (const fn of [parse, unflatten]) {
-	suite(`${fn.name} view backing buffers`, (test) => {
+	describe(`${fn.name} view backing buffers`, () => {
 		function revive(values, revivers, options) {
 			return fn(fn === parse ? JSON.stringify(values) : values, revivers, options);
 		}
@@ -218,11 +219,10 @@ for (const fn of [parse, unflatten]) {
 							{ ArrayBuffer: () => buffer }
 						);
 
-						assert.ok(result instanceof Constructor);
-						assert.is(result.buffer, buffer);
-						assert.is(result.byteOffset, bounds[0] ?? 0);
-						assert.is(
-							result.byteLength,
+						expect(result instanceof Constructor).toBeTruthy();
+						expect(result.buffer).toBe(buffer);
+						expect(result.byteOffset).toBe(bounds[0] ?? 0);
+						expect(result.byteLength).toBe(
 							bounds.length ? (Constructor.BYTES_PER_ELEMENT ?? 1) : 16
 						);
 					}
@@ -262,7 +262,7 @@ for (const fn of [parse, unflatten]) {
 				);
 			}
 
-			assert.is(reads, 0);
+			expect(reads).toBe(0);
 		});
 
 		test('accepts empty buffers and ignores shadowed buffer properties', () => {
@@ -282,8 +282,8 @@ for (const fn of [parse, unflatten]) {
 						ArrayBuffer: () => buffer
 					});
 
-					assert.is(result.buffer, buffer);
-					assert.is(result.byteLength, length);
+					expect(result.buffer).toBe(buffer);
+					expect(result.byteLength).toBe(length);
 				}
 			}
 		});
@@ -316,14 +316,14 @@ for (const fn of [parse, unflatten]) {
 				{
 					operations: {
 						fromViewInfo: (tag, buffer, byteOffset, length) => {
-							assert.is(buffer, handle);
+							expect(buffer).toBe(handle);
 							return { tag, byteOffset, length };
 						}
 					}
 				}
 			);
 
-			assert.equal(result, { tag: 'Uint8Array', byteOffset: 2, length: 4 });
+			expect(result).toStrictEqual({ tag: 'Uint8Array', byteOffset: 2, length: 4 });
 		});
 	});
 }

@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import * as vm from 'vm';
 import { describe, test, expect } from 'vitest';
 import * as consts from '../src/constants.js';
@@ -1904,7 +1905,7 @@ for (const { name, json, message, error: ErrorType, revivers } of invalid) {
 }
 
 for (const key of ['["__proto__"]', '[["__proto__"]]', '[]', '{}', '0', 'true', 'null']) {
-	uvu.test(`rejects null-prototype object key ${key}`, () => {
+	test(`rejects null-prototype object key ${key}`, () => {
 		const json = `[["null",${key},1],{"isAdmin":2},true]`;
 		const message = 'Cannot parse an object with a non-string key';
 
@@ -1919,7 +1920,7 @@ for (const key of ['["__proto__"]', '[["__proto__"]]', '[]', '{}', '0', 'true', 
 	});
 }
 
-uvu.test('rejects coerced __proto__ keys in nested null-prototype objects', () => {
+test('rejects coerced __proto__ keys in nested null-prototype objects', () => {
 	const json = '[{"data":1},["null",["__proto__"],2],{"isAdmin":3},true]';
 	const message = 'Cannot parse an object with a non-string key';
 
@@ -1933,7 +1934,7 @@ uvu.test('rejects coerced __proto__ keys in nested null-prototype objects', () =
 	);
 });
 
-uvu.test('null-prototype objects retain valid string keys', () => {
+test('null-prototype objects retain valid string keys', () => {
 	const input = Object.assign(Object.create(null), {
 		'': 'empty',
 		0: 'numeric',
@@ -1943,8 +1944,8 @@ uvu.test('null-prototype objects retain valid string keys', () => {
 	const json = stringify(input);
 
 	for (const result of [parse(json), unflatten(JSON.parse(json))]) {
-		assert.is(Object.getPrototypeOf(result), null);
-		assert.equal(result, input);
+		expect(Object.getPrototypeOf(result)).toBe(null);
+		expect(result).toStrictEqual(input);
 	}
 });
 
@@ -2056,7 +2057,7 @@ test('handles very sparse arrays efficiently', () => {
 });
 
 for (const kind of ['empty', 'single', 'shared', 'cyclic']) {
-	uvu.test(`uneval does not scan sparse array holes (${kind})`, () => {
+	test(`uneval does not scan sparse array holes (${kind})`, () => {
 		const length = 2 ** 32 - 1;
 		const index = length - 1;
 		const array = parse(
@@ -2067,7 +2068,7 @@ for (const kind of ['empty', 'single', 'shared', 'cyclic']) {
 		// also bounds the work if either traversal regresses to scanning holes.
 		let probes = 0;
 		function probe() {
-			assert.ok(++probes <= 100, 'uneval should only inspect populated indices');
+			expect(++probes <= 100, 'uneval should only inspect populated indices').toBeTruthy();
 		}
 
 		const proxy = new Proxy(array, {
@@ -2088,20 +2089,20 @@ for (const kind of ['empty', 'single', 'shared', 'cyclic']) {
 		if (kind === 'cyclic') array[index] = proxy;
 
 		const js = uneval(kind === 'shared' ? [proxy, proxy] : proxy);
-		assert.ok(js.length < 150, 'sparse output should stay compact');
+		expect(js.length < 150, 'sparse output should stay compact').toBeTruthy();
 		const result = (0, eval)(js);
 		const restored = kind === 'shared' ? result[0] : result;
 
-		assert.is(restored.length, length);
-		assert.equal(Object.keys(restored), kind === 'empty' ? [] : [String(index)]);
-		if (kind !== 'empty') assert.is(restored[index], kind === 'cyclic' ? restored : 42);
-		if (kind === 'shared') assert.is(result[0], result[1]);
+		expect(restored.length).toBe(length);
+		expect(Object.keys(restored)).toStrictEqual(kind === 'empty' ? [] : [String(index)]);
+		if (kind !== 'empty') expect(restored[index]).toBe(kind === 'cyclic' ? restored : 42);
+		if (kind === 'shared') expect(result[0]).toBe(result[1]);
 	});
 }
 
 for (const length of [3, 1000]) {
 	for (const shared of [false, true]) {
-		uvu.test(`uneval ignores inherited array elements (length=${length}, shared=${shared})`, () => {
+		test(`uneval ignores inherited array elements (length=${length}, shared=${shared})`, () => {
 			const proto = Object.create(Array.prototype);
 			for (const index of [1, length - 1]) {
 				Object.defineProperty(proto, index, {
@@ -2117,15 +2118,15 @@ for (const length of [3, 1000]) {
 
 			const result = (0, eval)(uneval(shared ? [array, array] : array));
 			const restored = shared ? result[0] : result;
-			assert.is(restored.length, length);
-			assert.equal(Object.keys(restored), ['0']);
-			assert.is(restored[0], 42);
-			if (shared) assert.is(result[0], result[1]);
+			expect(restored.length).toBe(length);
+			expect(Object.keys(restored)).toStrictEqual(['0']);
+			expect(restored[0]).toBe(42);
+			if (shared) expect(result[0]).toBe(result[1]);
 		});
 	}
 }
 
-uvu.test('uneval ignores non-index properties on shared arrays', () => {
+test('uneval ignores non-index properties on shared arrays', () => {
 	const array = [42];
 	for (const key of ['foo', '-1', '01', '1e0', '1.5', '4294967295', Symbol('key')]) {
 		Object.defineProperty(array, key, {
@@ -2137,11 +2138,11 @@ uvu.test('uneval ignores non-index properties on shared arrays', () => {
 	}
 
 	const result = (0, eval)(uneval([array, array]));
-	assert.equal(result, [[42], [42]]);
-	assert.is(result[0], result[1]);
+	expect(result).toStrictEqual([[42], [42]]);
+	expect(result[0]).toBe(result[1]);
 });
 
-uvu.test('uneval reports the path of invalid sparse array elements', () => {
+test('uneval reports the path of invalid sparse array elements', () => {
 	const array = [];
 	const value = () => {};
 	array[99_999_999] = value;
@@ -2387,7 +2388,7 @@ for (const { perArrayLen, count } of sparseDoSCases) {
 }
 
 for (const kind of ['inline', 'shared', 'cyclic', 'holes']) {
-	uvu.test(`uneval evaluates ${kind} sparse arrays without eager allocation`, () => {
+	test(`uneval evaluates ${kind} sparse arrays without eager allocation`, () => {
 		// As in the parse regressions above, eager allocation would require ~20GB.
 		const length = 1_000_000;
 		const arrays = Object.values(parse(buildSparseDoSPayload(2500, length)));
@@ -2402,22 +2403,21 @@ for (const kind of ['inline', 'shared', 'cyclic', 'holes']) {
 		const js = uneval(kind === 'shared' ? [arrays, arrays.slice()] : arrays);
 		const result = (0, eval)(js);
 		const restored = kind === 'shared' ? result[0] : result;
-		assert.is(restored.length, arrays.length);
+		expect(restored.length).toBe(arrays.length);
 
 		for (const i of [0, arrays.length - 1]) {
 			const array = restored[i];
-			assert.instance(array, Array);
-			assert.is(array.length, length);
-			assert.equal(
-				Object.getOwnPropertyNames(array),
+			expect(array).toBeInstanceOf(Array);
+			expect(array.length).toBe(length);
+			expect(Object.getOwnPropertyNames(array)).toStrictEqual(
 				kind === 'holes' ? ['length'] : ['0', '1', 'length']
 			);
-			assert.ok(!(length - 1 in array));
+			expect(!(length - 1 in array)).toBeTruthy();
 			if (kind !== 'holes') {
-				assert.is(array[0], 42);
-				assert.is(array[1], kind === 'cyclic' ? array : undefined);
+				expect(array[0]).toBe(42);
+				expect(array[1]).toBe(kind === 'cyclic' ? array : undefined);
 			}
-			if (kind === 'shared') assert.is(result[0][i], result[1][i]);
+			if (kind === 'shared') expect(result[0][i]).toBe(result[1][i]);
 		}
 	});
 }

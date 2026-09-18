@@ -395,8 +395,7 @@ describe('handle-based operations', () => {
 
 	test('only serializes visible Buffer bytes through handles', () => {
 		const buffer = Buffer.from([255, 1, 2, 3, 255]).subarray(1, 4);
-		assert.is(
-			stringify(h(buffer), undefined, { operations: handle_operations }),
+		expect(stringify(h(buffer), undefined, { operations: handle_operations })).toBe(
 			'[["Uint8Array",1],["ArrayBuffer","AQID"]]'
 		);
 	});

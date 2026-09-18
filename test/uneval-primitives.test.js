@@ -1,8 +1,8 @@
-import * as assert from 'uvu/assert';
-import { suite } from 'uvu';
+import assert from 'node:assert/strict';
+import { describe, test } from 'vitest';
 import { parse, stringify, uneval } from '../index.js';
 
-const test = suite('uneval: repeated primitives');
+describe('uneval: repeated primitives', () => {
 
 for (const [name, make_primitive] of [
 	['string', (n) => 'x'.repeat(n)],
@@ -25,8 +25,8 @@ for (const [name, make_primitive] of [
 			if (previous_length) assert.ok(serialized.length < previous_length * 2.1);
 			previous_length = serialized.length;
 
-			assert.equal((0, eval)(serialized), value);
-			assert.not.ok(serialized.includes('<'));
+			assert.deepStrictEqual((0, eval)(serialized), value);
+			assert.ok(!serialized.includes('<'));
 		}
 	});
 
@@ -37,11 +37,11 @@ for (const [name, make_primitive] of [
 
 		assert.ok(serialized.length < encoded.length * 4);
 		const result = (0, eval)(serialized);
-		assert.is(result.length, 2000);
-		assert.is(new Set(result).size, 2000);
+		assert.strictEqual(result.length, 2000);
+		assert.strictEqual(new Set(result).size, 2000);
 		for (const box of result) {
-			assert.type(box, 'object');
-			assert.is(box.valueOf(), primitive);
+			assert.strictEqual(typeof box, 'object');
+			assert.strictEqual(box.valueOf(), primitive);
 		}
 	});
 
@@ -51,12 +51,12 @@ for (const [name, make_primitive] of [
 		const value = [box, box, primitive, primitive, Object(primitive)];
 		const result = (0, eval)(uneval(value));
 
-		assert.is(result[0], result[1]);
-		assert.is(result[0].valueOf(), primitive);
-		assert.is(result[2], primitive);
-		assert.is(result[3], primitive);
-		assert.is(result[4].valueOf(), primitive);
-		assert.is(new Set([result[0], result[4]]).size, 2);
+		assert.strictEqual(result[0], result[1]);
+		assert.strictEqual(result[0].valueOf(), primitive);
+		assert.strictEqual(result[2], primitive);
+		assert.strictEqual(result[3], primitive);
+		assert.strictEqual(result[4].valueOf(), primitive);
+		assert.strictEqual(new Set([result[0], result[4]]).size, 2);
 	});
 
 	test(`${name} round-trips in shared and cyclic containers`, () => {
@@ -82,26 +82,26 @@ for (const [name, make_primitive] of [
 		value.self = value;
 
 		const result = (0, eval)(uneval(value));
-		assert.is(Object.getPrototypeOf(result), null);
-		assert.is(result.self, result);
-		assert.is(result.primitive, primitive);
-		assert.is(result.array, result.array_again);
-		assert.is(result.array[0], primitive);
-		assert.is(result.map, result.map_again);
-		assert.is(result.map.get(primitive), primitive);
-		assert.is(result.set, result.set_again);
+		assert.strictEqual(Object.getPrototypeOf(result), null);
+		assert.strictEqual(result.self, result);
+		assert.strictEqual(result.primitive, primitive);
+		assert.strictEqual(result.array, result.array_again);
+		assert.strictEqual(result.array[0], primitive);
+		assert.strictEqual(result.map, result.map_again);
+		assert.strictEqual(result.map.get(primitive), primitive);
+		assert.strictEqual(result.set, result.set_again);
 		assert.ok(result.set.has(primitive));
-		assert.is(result.box, result.box_again);
-		assert.is(result.box.valueOf(), primitive);
-		assert.equal(result.sparse, sparse);
+		assert.strictEqual(result.box, result.box_again);
+		assert.strictEqual(result.box.valueOf(), primitive);
+		assert.deepStrictEqual(result.sparse, sparse);
 	});
 }
 
 test('keeps inexpensive repetitions inline', () => {
-	assert.is(uneval(['a string', 'a string']), '["a string","a string"]');
-	assert.is(uneval(['', '', 1n, 1n]), '["","",1n,1n]');
+	assert.strictEqual(uneval(['a string', 'a string']), '["a string","a string"]');
+	assert.strictEqual(uneval(['', '', 1n, 1n]), '["","",1n,1n]');
 	const value = Array(1000).fill('pending');
-	assert.is(uneval(value), JSON.stringify(value));
+	assert.strictEqual(uneval(value), JSON.stringify(value));
 });
 
 test('bounds expansion on both sides of the short-string cutoff', () => {
@@ -110,8 +110,8 @@ test('bounds expansion on both sides of the short-string cutoff', () => {
 			const value = Array(2000).fill(character.repeat(length));
 			const serialized = uneval(value);
 
-			assert.equal((0, eval)(serialized), value);
-			assert.not.ok(serialized.includes('<'));
+			assert.deepStrictEqual((0, eval)(serialized), value);
+			assert.ok(!serialized.includes('<'));
 			if (length < 128) {
 				assert.ok(serialized.startsWith('['));
 				assert.ok(serialized.length <= value.length * (6 * length + 3) + 1);
@@ -164,11 +164,11 @@ test('preserves replacer behavior and recursive uneval scopes', () => {
 	});
 	const result = new Function('Box', `return ${serialized}`)(Box);
 
-	assert.equal(visited, [value, box, box.value]);
-	assert.is(result[0], result[1]);
+	assert.deepStrictEqual(visited, [value, box, box.value]);
+	assert.strictEqual(result[0], result[1]);
 	assert.ok(result[0] instanceof Box);
-	assert.equal(result[0].value, [text, text]);
-	assert.equal(result.slice(2), [text, text]);
+	assert.deepStrictEqual(result[0].value, [text, text]);
+	assert.deepStrictEqual(result.slice(2), [text, text]);
 });
 
 test('supports more hoisted primitives than the function parameter limit', () => {
@@ -177,7 +177,7 @@ test('supports more hoisted primitives than the function parameter limit', () =>
 	const serialized = uneval(value);
 
 	assert.ok(serialized.length < JSON.stringify(value).length);
-	assert.equal((0, eval)(serialized), value);
+	assert.deepStrictEqual((0, eval)(serialized), value);
 });
 
-test.run();
+});
