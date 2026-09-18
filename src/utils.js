@@ -64,6 +64,16 @@ export function is_buffer(thing) {
 	return typeof Buffer !== 'undefined' && Buffer.isBuffer(thing);
 }
 
+/**
+ * Emit an array whose storage is not proportional to its declared length.
+ * Touching and deleting the largest valid index forces dictionary elements
+ * before setting the length; assigning .length on [] can still eagerly allocate.
+ * @param {number} length
+ */
+export function stringify_sparse_array(length) {
+	return `(function(a){a[${MAX_ARRAY_INDEX}]=0;delete a[${MAX_ARRAY_INDEX}];a.length=${length};return a}([]))`;
+}
+
 /** Returns the compact JavaScript identifier at `index`. @param {number} index */
 export function get_name(index) {
 	let name = '';

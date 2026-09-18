@@ -8,14 +8,18 @@ import {
 	escaped,
 	get_name,
 	get_type,
+	is_buffer,
 	is_plain_object,
 	is_primitive,
 	stringify_key,
+	stringify_sparse_array,
 	stringify_string,
 	valid_array_indices
 } from './utils.js';
 
 const unsafe_chars = /[<\b\f\n\r\t\0\u2028\u2029]/g;
+// Short strings have bounded escaping/output costs per reference.
+const MIN_STRING_LENGTH = 128;
 
 /**
  * Turn a value into the JavaScript that creates an equivalent value
@@ -34,6 +38,24 @@ export function uneval(value, replacer) {
 
 	/** @type {Map<any, JavaScriptSource>} */
 	const custom = new Map();
+	/** @type {Map<string | bigint, number> | undefined} */
+	let primitive_counts;
+	/** @type {Map<string | bigint, string> | undefined} */
+	let primitives;
+
+	/** @param {any} thing */
+	function stringify_cached_primitive(thing) {
+		if ((typeof thing === 'string' && thing.length >= MIN_STRING_LENGTH) || typeof thing === 'bigint') {
+			primitives ??= new Map();
+			let literal = primitives.get(thing);
+			if (literal === undefined) {
+				literal = stringify_primitive(thing);
+				primitives.set(thing, literal);
+			}
+			return literal;
+		}
+		return stringify_primitive(thing);
+	}
 
 	/** @param {any} thing */
 	function walk(thing) {
@@ -66,9 +88,12 @@ export function uneval(value, replacer) {
 			const type = get_type(thing);
 
 			switch (type) {
-				case 'Number':
 				case 'BigInt':
 				case 'String':
+					walk(thing.valueOf());
+					return;
+
+				case 'Number':
 				case 'Boolean':
 				case 'Date':
 				case 'RegExp':
@@ -77,11 +102,12 @@ export function uneval(value, replacer) {
 					return;
 
 				case 'Array':
-					/** @type {any[]} */ (thing).forEach((value, i) => {
+					// Never scan the logical length of a dictionary-backed sparse array.
+					for (const i of valid_array_indices(thing)) {
 						keys.push(`[${i}]`);
-						walk(value);
+						walk(thing[i]);
 						keys.pop();
-					});
+					}
 					break;
 
 				case 'Set':
@@ -90,7 +116,7 @@ export function uneval(value, replacer) {
 
 				case 'Map':
 					for (const [key, value] of thing) {
-						keys.push(`.get(${is_primitive(key) ? stringify_primitive(key) : '...'})`);
+						keys.push(`.get(${is_primitive(key) ? stringify_cached_primitive(key) : '...'})`);
 						walk(key);
 						walk(value);
 						keys.pop();
@@ -110,7 +136,8 @@ export function uneval(value, replacer) {
 				case 'BigInt64Array':
 				case 'BigUint64Array':
 				case 'DataView':
-					walk(thing.buffer);
+					// Buffer pools can contain unrelated, sensitive bytes.
+					if (!is_buffer(thing)) walk(thing.buffer);
 					return;
 
 				case 'ArrayBuffer':
@@ -152,6 +179,9 @@ export function uneval(value, replacer) {
 			}
 		} else if (typeof thing === 'symbol') {
 			throw new DevalueError(`Cannot stringify a Symbol primitive`, keys, thing, value);
+		} else if ((typeof thing === 'string' && thing.length >= MIN_STRING_LENGTH) || typeof thing === 'bigint') {
+			primitive_counts ??= new Map();
+			primitive_counts.set(thing, (primitive_counts.get(thing) || 0) + 1);
 		}
 	}
 
@@ -168,6 +198,15 @@ export function uneval(value, replacer) {
 
 	// Wait until every custom source has been visited before assigning names.
 	for (const thing of names.keys()) names.set(thing, next_name());
+	if (primitive_counts) {
+		for (const [thing, count] of primitive_counts) {
+			if (count < 2) continue;
+			const name = next_name();
+			const length = stringify_cached_primitive(thing).length;
+			// Include the declaration and IIFE overhead even if one already exists.
+			if (length * count > length + (count + 1) * name.length + 40) names.set(thing, name);
+		}
+	}
 
 	// Reuse the traversal set to track declarations during serialization.
 	seen.clear();
@@ -188,6 +227,11 @@ export function uneval(value, replacer) {
 
 		if (name) {
 			if (!seen.has(thing)) {
+				if (is_primitive(thing)) {
+					seen.add(thing);
+					statements.push(`let ${name}=${stringify_cached_primitive(thing)}`);
+					return name;
+				}
 				const type = custom.has(thing) ? null : get_type(thing);
 
 				switch (type) {
@@ -201,13 +245,18 @@ export function uneval(value, replacer) {
 						});
 						break;
 
-					case 'Array':
+					case 'Array': {
 						seen.add(thing);
-						statements.push(`let ${name}=Array(${thing.length})`);
-						/** @type {any[]} */ (thing).forEach((v, i) => {
-							statements.push(`${name}[${i}]=${stringify(v)}`);
-						});
+						const indices = valid_array_indices(thing);
+						const array = thing.length > 32 + 2 * indices.length
+							? stringify_sparse_array(thing.length)
+							: `Array(${thing.length})`;
+						statements.push(`let ${name}=${array}`);
+						for (const i of indices) {
+							statements.push(`${name}[${i}]=${stringify(thing[i])}`);
+						}
 						break;
+					}
 
 					case 'Set':
 					case 'Map': {
@@ -263,7 +312,7 @@ export function uneval(value, replacer) {
 		}
 
 		if (is_primitive(thing)) {
-			return stringify_primitive(thing);
+			return stringify_cached_primitive(thing);
 		}
 
 		if (inlining === null) return actually_stringify(thing);
@@ -318,10 +367,10 @@ export function uneval(value, replacer) {
 
 			case 'Array': {
 				// For dense arrays (no holes), we iterate normally.
-				// When we encounter the first hole, we call Object.keys
+				// When we encounter the first hole, we collect own indices
 				// to determine the sparseness, then decide between:
 				//   - Array literal with holes: [,"a",,] (default)
-				//   - Object.assign: Object.assign(Array(n),{...}) (for very sparse arrays)
+				//   - Object.assign with a sparse-safe allocator (for very sparse arrays)
 				// Only the Object.assign path avoids iterating every slot, which
 				// is what protects against the DoS of e.g. `arr[1000000] = 1`.
 				let has_holes = false;
@@ -342,10 +391,10 @@ export function uneval(value, replacer) {
 						//
 						// Object.assign: populated indices are listed explicitly.
 						// For example, [, "a", ,] would be written as
-						// Object.assign(Array(3),{1:"a"}). This avoids paying
-						// per-hole, but has a large fixed overhead for the
-						// "Object.assign(Array(n),{...})" wrapper, and each
-						// element costs extra chars for its index and colon.
+						// Object.assign(sparse(3),{1:"a"}), where sparse(n) stands
+						// for the expression emitted by stringify_sparse_array(n).
+						// This avoids paying per-hole, but has fixed overhead for
+						// the allocator and wrapper, plus each index and colon.
 						//
 						// The serialized values are the same size either way, so
 						// the choice comes down to the structural overhead:
@@ -356,30 +405,31 @@ export function uneval(value, replacer) {
 						//     = L + 2
 						//
 						//   Object.assign overhead:
-						//     "Object.assign(Array(" — 20 chars
-						//     + length              — d chars
-						//     + "),{"               — 3 chars
+						//     "Object.assign("      — 14 chars
+						//     + allocator expression — A chars
+						//     + ",{"                 — 2 chars
 						//     + for each populated element:
 						//       index + ":" + ","   — (d + 2) chars
 						//     + "})"                — 2 chars
-						//     = (25 + d) + P * (d + 2)
+						//     = (18 + A) + P * (d + 2)
 						//
 						// where L is the array length, P is the number of
-						// populated elements, and d is the number of digits
-						// in L (an upper bound on the digits in any index).
+						// populated elements, A is the allocator length, and d
+						// is the number of digits in L (an upper bound per index).
 						//
 						// Object.assign is cheaper when:
-						//   (25 + d) + P * (d + 2) < L + 2
+						//   (18 + A) + P * (d + 2) < L + 2
 						const populated_keys = valid_array_indices(/** @type {any[]} */ (thing));
 						const population = populated_keys.length;
 						const d = String(thing.length).length;
+						const array = stringify_sparse_array(thing.length);
 
 						const hole_cost = thing.length + 2;
-						const sparse_cost = 25 + d + population * (d + 2);
+						const sparse_cost = array.length + 18 + population * (d + 2);
 
 						if (hole_cost > sparse_cost) {
 							const entries = populated_keys.map((k) => `${k}:${stringify(thing[k])}`).join(',');
-							return `Object.assign(Array(${thing.length}),{${entries}})`;
+							return `Object.assign(${array},{${entries}})`;
 						}
 
 						has_holes = true;
@@ -388,7 +438,7 @@ export function uneval(value, replacer) {
 					// (the comma separator is all we need — no content for this position)
 				}
 
-				const tail = thing.length === 0 || thing.length - 1 in thing ? '' : ',';
+				const tail = thing.length === 0 || Object.hasOwn(thing, thing.length - 1) ? '' : ',';
 				return result + tail + ']';
 			}
 
@@ -412,6 +462,8 @@ export function uneval(value, replacer) {
 			case 'Float64Array':
 			case 'BigInt64Array':
 			case 'BigUint64Array': {
+				if (is_buffer(thing)) thing = new Uint8Array(thing);
+
 				let str = `new ${type}`;
 
 				if (!names.has(thing.buffer)) {

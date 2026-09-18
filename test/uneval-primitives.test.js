@@ -158,9 +158,9 @@ test('preserves replacer behavior and recursive uneval scopes', () => {
 	const box = new Box([text, text]);
 	const value = [box, box, text, text];
 	const visited = [];
-	const serialized = uneval(value, (value, uneval) => {
+	const serialized = uneval(value, (value, js) => {
 		visited.push(value);
-		if (value instanceof Box) return `new Box(${uneval(value.value)})`;
+		if (value instanceof Box) return js`new Box(${value.value})`;
 	});
 	const result = new Function('Box', `return ${serialized}`)(Box);
 
