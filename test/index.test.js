@@ -1407,6 +1407,30 @@ custom_source_test('preserves a child used by multiple source holes', () => {
 	assert.is(result.left, result.right);
 	assert.is(result.left.answer, 42);
 });
+custom_source_test('constructs a dependency-free repeated custom value once', () => {
+	class Wrapper {
+		static calls = 0;
+
+		constructor() {
+			Wrapper.calls += 1;
+		}
+	}
+
+	const wrapper = new Wrapper();
+	Wrapper.calls = 0;
+	let replacer_calls = 0;
+	const source = uneval([wrapper, wrapper], (value, js) => {
+		if (value instanceof Wrapper) {
+			replacer_calls += 1;
+			return js`new Wrapper()`;
+		}
+	});
+
+	const result = vm.runInNewContext(source, { Wrapper });
+	assert.is(replacer_calls, 1);
+	assert.is(Wrapper.calls, 1);
+	assert.is(result[0], result[1]);
+});
 custom_source_test('orders a shared typed view after its backing buffer', () => {
 	class Wrapper {
 		static calls = 0;
@@ -1671,7 +1695,7 @@ custom_source_test('requires js to be used as a tagged template', () => {
 	]) {
 		assert.throws(
 			() => uneval(new Date(), (value, js) => value instanceof Date ? invoke(js) : undefined),
-			'`js` must be used as a tagged template, but was called as a regular function'
+			/^`js` must be used as a tagged template, but was called as a regular function$/
 		);
 	}
 });
@@ -2670,9 +2694,8 @@ circularCustomTypes.run();
 	const test = uvu.suite('uneval: large graphs');
 
 	test('serializes more than 65534 repeated references to valid JS', () => {
-		// A function may have at most 65535 parameters, so one hoisted parameter
-		// per repeated value produced code the engine rejects with "Too many
-		// parameters in function definition". See issue #93.
+		// This graph exceeds engine function-parameter limits that previously
+		// made the generated program invalid. See issue #93.
 		const shared = Array.from({ length: 70000 }, (_, i) => ({ i }));
 		const value = { a: shared, b: shared.slice() };
 
@@ -2686,7 +2709,7 @@ circularCustomTypes.run();
 		assert.ok(roundtripped.a[123] === roundtripped.b[123]);
 	});
 
-	test('packs oversized custom-graph IIFE arguments into one array', () => {
+	test('serializes an oversized custom graph to valid JS', () => {
 		class Marker {}
 		const shared = Array.from({ length: 65536 }, (_, i) => ({ i }));
 		const marker = new Marker();
