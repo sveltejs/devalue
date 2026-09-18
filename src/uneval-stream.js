@@ -9,7 +9,7 @@
  *   UnevalStreamTail
  * } from './types.js'
  * @import { AsyncNode, CapturedGraph, CapturedNode, Child, ClientPath, ViewKind } from './graph.js'
- * @import { JavaScriptSource } from './javascript-source.js'
+ * @import { JavaScriptFragment } from './javascript-source.js'
  * @import { Emission } from './stream-source.js'
  */
 
@@ -22,7 +22,7 @@ import {
 	is_node,
 	roll_back
 } from './graph.js';
-import { is_source, js, raw_source } from './javascript-source.js';
+import { JavaScriptSource, js, raw_source } from './javascript-source.js';
 import {
 	RUNTIMES,
 	append_reference,
@@ -400,7 +400,7 @@ class Session {
 		if (this.#replacer) {
 			const result = this.#replacer(value, js);
 			if (!this.#is_active()) throw this.#terminal_reason();
-			if (is_source(result)) {
+			if (JavaScriptSource.is_fragment(result)) {
 				const values = source_values(result);
 				const children = new Array(values.length);
 				for (let i = 0; i < values.length; i++) {
@@ -515,13 +515,13 @@ class Session {
 	#add_source(node, descriptor, type, immediate = false, context) {
 		let capture_called = false;
 		const pending = this.#pending;
-		/** @param {JavaScriptSource} expression */
+		/** @param {JavaScriptFragment} expression */
 		const control = (expression) => {
 			if (capture_called)
 				throw new TypeError(
 					'devalue: capture may only be called once per async descriptor construct(); capture one js expression containing all private controls, such as js`[resolve,reject]`'
 				);
-			if (!is_source(expression))
+			if (!JavaScriptSource.is_fragment(expression))
 				throw new TypeError(
 					`Invalid async descriptor capture: capture() received ${describe_received(expression)}. Pass an expression built with the js tagged template, not a raw value or source string.`
 				);
@@ -532,7 +532,7 @@ class Session {
 		if (!this.#is_active()) throw this.#terminal_reason();
 		const source = Reflect.apply(construct, descriptor, [control]);
 		if (!this.#is_active()) throw this.#terminal_reason();
-		if (!is_source(source))
+		if (!JavaScriptSource.is_fragment(source))
 			throw new TypeError(
 				`Invalid async descriptor construct result: construct() returned ${describe_received(source)}. It must synchronously return a js tagged template representing the client construction expression.`
 			);
@@ -593,7 +593,7 @@ class Session {
 	 * descriptor fragment. The caller commits only after adding the prerequisites
 	 * and lowered operation to ordered output.
 	 *
-	 * @param {JavaScriptSource} source
+	 * @param {JavaScriptFragment} source
 	 * @param {string} context
 	 * @param {number} retained_at
 	 */
@@ -633,7 +633,7 @@ class Session {
 			if (!this.#is_active()) throw this.#terminal_reason();
 			this.#active += this.#sources.length - checkpoint.sources;
 
-			/** One eager binding per ordinary object identity in this operation. @type {Map<CapturedNode, JavaScriptSource>} */
+			/** One eager binding per ordinary object identity in this operation. @type {Map<CapturedNode, JavaScriptFragment>} */
 			const bindings = new Map();
 			/** @type {Emission[]} */
 			const prerequisites = [];
@@ -700,7 +700,7 @@ class Session {
 		/**
 		 * @param {ClientReference} reference
 		 * @param {0 | 1} which `0` resolves, `1` rejects.
-		 * @param {JavaScriptSource} value
+		 * @param {JavaScriptFragment} value
 		 */
 		const settle = (reference, which, value) => {
 			const remaining = this.#native_pending--;
@@ -1711,7 +1711,7 @@ class Session {
 					target,
 					control
 				};
-				/** @type {JavaScriptSource | undefined} */
+				/** @type {JavaScriptFragment | undefined} */
 				let value_source;
 				/** @type {Emission | undefined} */
 				let anchor;
@@ -1779,7 +1779,7 @@ class Session {
 					if (!this.#is_active()) throw this.#terminal_reason();
 					const operation = Reflect.apply(method, source.descriptor, [reference, value_source]);
 					if (!this.#is_active()) throw this.#terminal_reason();
-					if (!is_source(operation))
+					if (!JavaScriptSource.is_fragment(operation))
 						throw new TypeError(
 							`Invalid async descriptor operation: ${event.type}() returned ${describe_received(operation)}. It must synchronously return a js tagged template containing client statements; use js\`\` for an empty operation.`
 						);
@@ -1820,7 +1820,7 @@ class Session {
 						if (!this.#is_active()) throw this.#terminal_reason();
 						const fallback = Reflect.apply(method, source.descriptor, [reference, fallback_value]);
 						if (!this.#is_active()) throw this.#terminal_reason();
-						if (!is_source(fallback))
+						if (!JavaScriptSource.is_fragment(fallback))
 							throw new TypeError(
 								`Invalid async descriptor operation: fallback ${source.type === 'sequence' ? 'error' : 'reject'}() returned ${describe_received(fallback)}. It must synchronously return a js tagged template containing client statements; use js\`\` for an empty operation.`
 							);

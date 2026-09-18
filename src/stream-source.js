@@ -1,4 +1,4 @@
-import { create_source, is_source, raw_source } from './javascript-source.js';
+import { create_source, JavaScriptSource, raw_source } from './javascript-source.js';
 import { is_primitive, stringify_primitive } from './utils.js';
 
 /** Internal stream instructions are branded with a non-enumerable module-private key. */
@@ -24,7 +24,7 @@ export function is_stream_instruction(value) {
 
 /**
  * @param {StreamInstruction} instruction
- * @returns {JavaScriptSource}
+ * @returns {JavaScriptFragment}
  */
 function instruction_source(instruction) {
 	return create_source(['', ''], [instruction]);
@@ -33,7 +33,7 @@ function instruction_source(instruction) {
 /**
  * @param {CapturedNode} node
  * @param {ClientPath | undefined} path
- * @returns {JavaScriptSource}
+ * @returns {JavaScriptFragment}
  */
 export function reference_source(node, path) {
 	return instruction_source(brand({ type: 'reference', node, path }));
@@ -43,7 +43,7 @@ export function reference_source(node, path) {
  * @param {number} pending
  * @param {Emission} source
  * @param {boolean} [compact]
- * @returns {JavaScriptSource}
+ * @returns {JavaScriptFragment}
  */
 export function capture_source(pending, source, compact = false) {
 	return instruction_source(brand({ type: 'capture', pending, source, compact }));
@@ -79,7 +79,7 @@ export function complete_statement_source(source) {
 
 /**
  * @param {keyof typeof RUNTIMES} key
- * @returns {JavaScriptSource}
+ * @returns {JavaScriptFragment}
  */
 export function runtime_source(key) {
 	return instruction_source(brand({ type: 'runtime', key }));
@@ -87,7 +87,7 @@ export function runtime_source(key) {
 
 /**
  * @param {number} pending
- * @returns {JavaScriptSource}
+ * @returns {JavaScriptFragment}
  */
 export function promise_source(pending) {
 	return instruction_source(brand({ type: 'promise', pending }));
@@ -108,7 +108,7 @@ export function primitive_source(value) {
 
 /**
  * Marks the position where definitions for this final source are emitted.
- * @returns {JavaScriptSource}
+ * @returns {JavaScriptFragment}
  */
 export function definitions_source() {
 	return instruction_source(brand({ type: 'definitions' }));
@@ -125,7 +125,7 @@ export function join_sources(sources, separator = '') {
 	let text = '';
 	/** @type {string[] | undefined} */
 	let strings;
-	/** @type {JavaScriptSource[] | undefined} */
+	/** @type {JavaScriptFragment[] | undefined} */
 	let values;
 	for (let i = 0; i < sources.length; i++) {
 		if (i) text += separator;
@@ -139,13 +139,13 @@ export function join_sources(sources, separator = '') {
 	}
 	if (!strings) return text;
 	strings.push(text);
-	return create_source(strings, /** @type {JavaScriptSource[]} */ (values));
+	return create_source(strings, /** @type {JavaScriptFragment[]} */ (values));
 }
 
 /**
  * Compiles a user template's holes, preserving nested partial syntax and unresolved
  * instructions. Fully textual subtrees collapse without creating a source wrapper.
- * @param {JavaScriptSource} source
+ * @param {JavaScriptFragment} source
  * @param {(value: unknown) => Emission} map
  * @returns {Emission}
  */
@@ -158,7 +158,7 @@ export function map_source(source, map) {
  * replacement, a descriptor may place data inside the expression passed to its
  * private capture instruction, so that selected instruction child is mapped too.
  * Other branded instructions remain indivisible internal semantics.
- * @param {JavaScriptSource} source
+ * @param {JavaScriptFragment} source
  * @param {(value: unknown, index: number) => Emission} map
  * @returns {Emission}
  */
@@ -169,21 +169,21 @@ export function map_descriptor_source(source, map) {
 /**
  * Reconstructs nested template fragments while delegating the only policy difference:
  * whether a branded instruction is opaque or has a reachable source child.
- * @param {JavaScriptSource} source
+ * @param {JavaScriptFragment} source
  * @param {(value: unknown, index: number) => Emission} map
- * @param {(instruction: StreamInstruction, map: (value: unknown, index: number) => Emission) => JavaScriptSource} map_instruction
+ * @param {(instruction: StreamInstruction, map: (value: unknown, index: number) => Emission) => JavaScriptFragment} map_instruction
  * @returns {Emission}
  */
 function map_fragment(source, map, map_instruction) {
-	const { strings, values } = source;
+	const { strings, values } = JavaScriptSource.from(source);
 	let text = strings[0];
 	/** @type {string[] | undefined} */
 	let output_strings;
-	/** @type {JavaScriptSource[] | undefined} */
+	/** @type {JavaScriptFragment[] | undefined} */
 	let output_values;
 	for (let i = 0; i < values.length; i++) {
 		const value = values[i];
-		const mapped = is_source(value)
+		const mapped = JavaScriptSource.is_fragment(value)
 			? map_fragment(value, map, map_instruction)
 			: is_stream_instruction(value)
 				? map_instruction(value, map)
@@ -198,7 +198,7 @@ function map_fragment(source, map, map_instruction) {
 	}
 	if (!output_strings) return text;
 	output_strings.push(text);
-	return create_source(output_strings, /** @type {JavaScriptSource[]} */ (output_values));
+	return create_source(output_strings, /** @type {JavaScriptFragment[]} */ (output_values));
 }
 
 /** @param {StreamInstruction} instruction */
@@ -209,7 +209,7 @@ function preserve_instruction(instruction) {
 /**
  * @param {StreamInstruction} instruction
  * @param {(value: unknown, index: number) => Emission} map
- * @returns {JavaScriptSource}
+ * @returns {JavaScriptFragment}
  */
 function map_descriptor_instruction(instruction, map) {
 	if (instruction.type !== 'capture') return instruction_source(instruction);
@@ -220,7 +220,7 @@ function map_descriptor_instruction(instruction, map) {
 	return instruction_source(brand({ ...instruction, source }));
 }
 
-/** Wrap generated text only at a descriptor's public JavaScriptSource boundary. @param {Emission} source */
+/** Wrap generated text only at a descriptor's public JavaScriptFragment boundary. @param {Emission} source */
 export function template_source(source) {
 	return typeof source === 'string' ? raw_source(source) : source;
 }
@@ -228,16 +228,16 @@ export function template_source(source) {
 /**
  * Returns ordinary data holes reachable through nested trusted fragments. Instructions are
  * deliberately skipped only after their private symbol brand has been checked.
- * @param {JavaScriptSource} source
+ * @param {JavaScriptFragment} source
  * @returns {unknown[]}
  */
 export function source_values(source) {
 	/** @type {unknown[]} */
 	const values = [];
-	/** @param {JavaScriptSource} fragment */
+	/** @param {JavaScriptFragment} fragment */
 	const walk = (fragment) => {
-		for (const value of fragment.values) {
-			if (is_source(value)) walk(value);
+		for (const value of JavaScriptSource.from(fragment).values) {
+			if (JavaScriptSource.is_fragment(value)) walk(value);
 			else if (!is_stream_instruction(value)) values.push(value);
 		}
 	};
@@ -248,18 +248,18 @@ export function source_values(source) {
 /**
  * Returns ordinary descriptor data holes, including those in reachable private
  * capture expressions. Hole indices are local to the fragment that owns them.
- * @param {JavaScriptSource} source
+ * @param {JavaScriptFragment} source
  * @returns {{ value: unknown, index: number, capture: boolean }[]}
  */
 export function descriptor_source_values(source) {
 	/** @type {{ value: unknown, index: number, capture: boolean }[]} */
 	const values = [];
-	/** @param {JavaScriptSource} fragment @param {boolean} capture */
+	/** @param {JavaScriptFragment} fragment @param {boolean} capture */
 	const walk = (fragment, capture) => {
-		const source_values = fragment.values;
+		const source_values = JavaScriptSource.from(fragment).values;
 		for (let i = 0; i < source_values.length; i++) {
 			const value = source_values[i];
-			if (is_source(value)) walk(value, capture);
+			if (JavaScriptSource.is_fragment(value)) walk(value, capture);
 			else if (is_stream_instruction(value)) {
 				if (value.type === 'capture' && typeof value.source !== 'string') walk(value.source, true);
 			} else values.push({ value, index: i, capture });
@@ -318,14 +318,14 @@ export function render_stream_source(source, definitions = [], statement = false
 	const reserved = new Set();
 	const templates = new Set();
 	if (primitives.size) {
-		source.visit(() => {}, reserved, templates);
+		JavaScriptSource.from(source).visit(() => {}, reserved, templates);
 		visit_source_instructions(source, (instruction) => {
 			if (instruction.type === 'capture' || instruction.type === 'expression') {
 				const fragment =
 					typeof instruction.source === 'string'
 						? raw_source(instruction.source)
 						: instruction.source;
-				fragment.visit(() => {}, reserved, templates);
+				JavaScriptSource.from(fragment).visit(() => {}, reserved, templates);
 			}
 		});
 	}
@@ -346,11 +346,11 @@ export function render_stream_source(source, definitions = [], statement = false
 	/** @param {Emission} fragment */
 	const render = (fragment) => {
 		if (typeof fragment === 'string') return fragment;
-		const { strings, values } = fragment;
+		const { strings, values } = JavaScriptSource.from(fragment);
 		let result = strings[0];
 		for (let i = 0; i < values.length; i++) {
 			const value = values[i];
-			result += is_source(value)
+			result += JavaScriptSource.is_fragment(value)
 				? render(value)
 				: is_stream_instruction(value)
 					? render_instruction(value)
@@ -446,8 +446,8 @@ function interpolation_error(value, context) {
  */
 export function visit_source_instructions(source, callback) {
 	if (typeof source === 'string') return;
-	for (const value of source.values) {
-		if (is_source(value)) visit_source_instructions(value, callback);
+	for (const value of JavaScriptSource.from(source).values) {
+		if (JavaScriptSource.is_fragment(value)) visit_source_instructions(value, callback);
 		else if (is_stream_instruction(value)) {
 			callback(value);
 			if (value.type === 'capture' || value.type === 'expression')
@@ -550,8 +550,8 @@ export const RUNTIMES = {
 	v: (session) => `v=>(${session}.a.push(v),v)`
 };
 
-/** @typedef {import('./javascript-source.js').JavaScriptSource} JavaScriptSource */
-/** Generated text or a fragment carrying unresolved semantics. Not a user interpolation type. @typedef {string | JavaScriptSource} Emission */
+/** @typedef {import('./javascript-source.js').JavaScriptFragment} JavaScriptFragment */
+/** Generated text or a fragment carrying unresolved semantics. Not a user interpolation type. @typedef {string | JavaScriptFragment} Emission */
 /** @typedef {import('./graph.js').CapturedNode} CapturedNode */
 /** @typedef {import('./graph.js').ClientPath} ClientPath */
 /** @typedef {{ type: 'reference', node: CapturedNode, path: ClientPath | undefined }} ReferenceInstruction */

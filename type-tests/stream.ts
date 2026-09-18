@@ -3,7 +3,7 @@ import {
 	type AsyncSequenceDescriptor,
 	type AsyncValueDescriptor,
 	type ClientReference,
-	type JavaScriptSource,
+	type JavaScriptFragment,
 	type JavaScriptTag,
 	type UnevalStreamOptions,
 	type UnevalStreamReplacer,
@@ -18,7 +18,16 @@ const sequence = (async function* (): AsyncGenerator<number, string, unknown> {
 })();
 const config = { retries: 2 };
 
-function useSource(_source: JavaScriptSource) {}
+function useSource(source: JavaScriptFragment) {
+	// @ts-expect-error fragment contents are private
+	source.strings;
+	// @ts-expect-error fragment contents are private
+	source.values;
+	// @ts-expect-error rendering is private
+	source.render(String);
+	// @ts-expect-error traversal is private
+	source.visit(() => {}, new Set(), new Set());
+}
 function useReference(reference: ClientReference) {
 	useSource(reference.target);
 	if (reference.control) useSource(reference.control);
@@ -64,9 +73,9 @@ function invalidValueDescriptor(js: JavaScriptTag): AsyncValueDescriptor<number>
 	return {
 		type: 'async-value',
 		source: promise,
-		// @ts-expect-error construct must return branded JavaScriptSource
+		// @ts-expect-error construct must return branded JavaScriptFragment
 		construct: () => 'new RemoteValue()',
-		// @ts-expect-error operations must return branded JavaScriptSource
+		// @ts-expect-error operations must return branded JavaScriptFragment
 		resolve: () => 'resolve()',
 		reject: () => js`reject()`
 	};
@@ -77,7 +86,7 @@ function invalidCaptureDescriptor(js: JavaScriptTag): AsyncValueDescriptor<numbe
 		type: 'async-value',
 		source: promise,
 		construct: (capture) => {
-			// @ts-expect-error capture requires branded JavaScriptSource
+			// @ts-expect-error capture requires branded JavaScriptFragment
 			capture('[resolve,reject]');
 			return js`new RemoteValue()`;
 		},
