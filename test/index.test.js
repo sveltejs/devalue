@@ -1268,6 +1268,51 @@ for (const { name, json, message, revivers } of invalid) {
 	});
 }
 
+for (const key of ['["__proto__"]', '[["__proto__"]]', '[]', '{}', '0', 'true', 'null']) {
+	uvu.test(`rejects null-prototype object key ${key}`, () => {
+		const json = `[["null",${key},1],{"isAdmin":2},true]`;
+		const message = 'Cannot parse an object with a non-string key';
+
+		assert.throws(
+			() => parse(json),
+			(error) => error.message === message
+		);
+		assert.throws(
+			() => unflatten(JSON.parse(json)),
+			(error) => error.message === message
+		);
+	});
+}
+
+uvu.test('rejects coerced __proto__ keys in nested null-prototype objects', () => {
+	const json = '[{"data":1},["null",["__proto__"],2],{"isAdmin":3},true]';
+	const message = 'Cannot parse an object with a non-string key';
+
+	assert.throws(
+		() => parse(json),
+		(error) => error.message === message
+	);
+	assert.throws(
+		() => unflatten(JSON.parse(json)),
+		(error) => error.message === message
+	);
+});
+
+uvu.test('null-prototype objects retain valid string keys', () => {
+	const input = Object.assign(Object.create(null), {
+		'': 'empty',
+		0: 'numeric',
+		constructor: 'constructor',
+		toString: 'toString'
+	});
+	const json = stringify(input);
+
+	for (const result of [parse(json), unflatten(JSON.parse(json))]) {
+		assert.is(Object.getPrototypeOf(result), null);
+		assert.equal(result, input);
+	}
+});
+
 for (const fn of [uneval, stringify]) {
 	uvu.test(`${fn.name} throws for non-POJOs`, () => {
 		class Foo {}

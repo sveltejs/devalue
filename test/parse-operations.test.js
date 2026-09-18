@@ -78,6 +78,34 @@ suite('parse operations option', (test) => {
 		assert.equal(result, 'date:2023-11-14T22:13:20.000Z');
 	});
 
+	test('invalid null-prototype keys are rejected before hydration or assignment', () => {
+		const calls = [];
+		const options = {
+			operations: {
+				fromPrimitive(value) {
+					calls.push('fromPrimitive');
+					return value;
+				},
+				set(target, key, value) {
+					calls.push('set');
+					target[key] = value;
+				}
+			}
+		};
+		const json = '[["null",["__proto__"],1],{"isAdmin":2},true]';
+		const message = 'Cannot parse an object with a non-string key';
+
+		assert.throws(
+			() => parse(json, undefined, options),
+			(error) => error.message === message
+		);
+		assert.throws(
+			() => unflatten(JSON.parse(json), undefined, options),
+			(error) => error.message === message
+		);
+		assert.equal(calls, []);
+	});
+
 	test('revivers compose with custom operations', () => {
 		class Vector {
 			constructor(x, y) {
