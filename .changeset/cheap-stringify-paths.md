@@ -2,4 +2,4 @@
 'devalue': patch
 ---
 
-perf: `stringify` skips per-character escaping for strings with nothing to escape, classifies arrays and plain objects without `Object.prototype.toString`, and formats the error path only when a `DevalueError` is raised
+perf: `stringify` and `uneval` skip per-character escaping for strings with nothing to escape, and record the error path without formatting it (or allocating per Map entry) until a `DevalueError` is raised
