@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import * as uvu from 'uvu';
+import { describe, test } from 'vitest';
 
-const test = uvu.suite('stringifyAsync: rejection handling');
+describe('stringifyAsync: rejection handling', () => {
 
 // Run each regression in isolation so an unhandled internal rejection fails the
 // test without terminating the test runner or relying on its rejection handlers.
@@ -13,7 +13,7 @@ function in_subprocess(fn) {
 			'--input-type=module',
 			'--eval',
 			`
-				import * as assert from 'uvu/assert';
+				import assert from 'node:assert/strict';
 				import { setTimeout as delay } from 'node:timers/promises';
 				import { stringifyAsync } from ${JSON.stringify(new URL('../index.js', import.meta.url).href)};
 				await (${fn})({ assert, delay, stringifyAsync });
@@ -28,9 +28,9 @@ test('handles a later promise rejecting before an earlier one resolves', () => {
 		const error = new Error('fetch failed');
 		try {
 			await stringifyAsync({ slow: delay(50, 42), failing: Promise.reject(error) });
-			assert.unreachable('should have thrown');
+			assert.fail('should have thrown');
 		} catch (e) {
-			assert.is(e, error);
+			assert.strictEqual(e, error);
 		}
 	});
 });
@@ -43,9 +43,9 @@ test('handles promises discovered while resolving another promise', () => {
 				slow: delay(50, 42),
 				nested: Promise.resolve().then(() => ({ failing: Promise.reject(error) }))
 			});
-			assert.unreachable('should have thrown');
+			assert.fail('should have thrown');
 		} catch (e) {
-			assert.is(e, error);
+			assert.strictEqual(e, error);
 		}
 	});
 });
@@ -61,9 +61,9 @@ test('handles remaining rejections after the returned promise rejects', () => {
 				}),
 				nested: delay(20).then(() => ({ failing: Promise.reject(new Error('nested failure')) }))
 			});
-			assert.unreachable('should have thrown');
+			assert.fail('should have thrown');
 		} catch (e) {
-			assert.is(e, error);
+			assert.strictEqual(e, error);
 		}
 		await delay(50);
 	});
@@ -76,10 +76,10 @@ test('handles pending rejections when synchronous traversal throws', () => {
 				failing: Promise.reject(new Error('fetch failed')),
 				invalid: () => {}
 			});
-			assert.unreachable('should have thrown');
+			assert.fail('should have thrown');
 		} catch (e) {
-			assert.is(e.name, 'DevalueError');
-			assert.is(e.message, 'Cannot stringify a function');
+			assert.strictEqual(e.name, 'DevalueError');
+			assert.strictEqual(e.message, 'Cannot stringify a function');
 		}
 		await delay(50);
 	});
@@ -89,10 +89,10 @@ test('handles serialization errors in a later resolved promise', () => {
 	in_subprocess(async ({ assert, delay, stringifyAsync }) => {
 		try {
 			await stringifyAsync({ slow: delay(50, 42), invalid: Promise.resolve(() => {}) });
-			assert.unreachable('should have thrown');
+			assert.fail('should have thrown');
 		} catch (e) {
-			assert.is(e.name, 'DevalueError');
-			assert.is(e.message, 'Cannot stringify a function');
+			assert.strictEqual(e.name, 'DevalueError');
+			assert.strictEqual(e.message, 'Cannot stringify a function');
 		}
 	});
 });
@@ -105,11 +105,11 @@ test('handles rejected thenables', () => {
 				slow: delay(50, 42),
 				failing: { then: (resolve, reject) => reject(error) }
 			});
-			assert.unreachable('should have thrown');
+			assert.fail('should have thrown');
 		} catch (e) {
-			assert.is(e, error);
+			assert.strictEqual(e, error);
 		}
 	});
 });
 
-test.run();
+});
