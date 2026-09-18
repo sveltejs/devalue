@@ -152,6 +152,11 @@ function run(async, value, reducers, options) {
 				const i = flatten(value, index);
 				if (i < 0) stringified[index] = i;
 			});
+
+			// Promises are awaited sequentially, and traversal may throw before
+			// reaching them. Handle rejections immediately, but keep the original
+			// promise so awaiting it still propagates the error to the caller.
+			str.catch(() => {});
 		} else {
 			const tag = ops.tagOf(thing);
 
