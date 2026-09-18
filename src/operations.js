@@ -31,10 +31,10 @@ export function merge_operations(defaults, overrides) {
 }
 
 /** @type {{ kind: 'not-plain' }} */
-const NOT_PLAIN = Object.freeze({ kind: 'not-plain' });
+const NOT_PLAIN = /* @__PURE__ */ Object.freeze({ kind: 'not-plain' });
 
 /** @type {{ kind: 'symbol-keys' }} */
-const SYMBOL_KEYS = Object.freeze({ kind: 'symbol-keys' });
+const SYMBOL_KEYS = /* @__PURE__ */ Object.freeze({ kind: 'symbol-keys' });
 
 /**
  * The default implementations of every introspection/extraction operation
@@ -112,7 +112,7 @@ const stringify_operations = {
 	get: (value, key) => value[key]
 };
 
-export const default_stringify_operations = Object.freeze(stringify_operations);
+export const default_stringify_operations = /* @__PURE__ */ Object.freeze(stringify_operations);
 
 const array_buffer_byte_length = Object.getOwnPropertyDescriptor(
 	ArrayBuffer.prototype,
@@ -218,4 +218,4 @@ const parse_operations = {
 	}
 };
 
-export const default_parse_operations = Object.freeze(parse_operations);
+export const default_parse_operations = /* @__PURE__ */ Object.freeze(parse_operations);
