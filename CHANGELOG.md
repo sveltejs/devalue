@@ -1,5 +1,10 @@
 # devalue changelog
 
+## 5.9.4
+### Patch Changes
+
+- 067b125: perf: annotate module-level `Object.freeze` calls as pure so unused operation tables tree-shake
+
 ## 5.9.3
 ### Patch Changes
 
