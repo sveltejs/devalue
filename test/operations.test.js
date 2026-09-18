@@ -409,6 +409,14 @@ suite('handle-based operations', (test) => {
 		assert_parity(new DataView(buffer, 1, 4));
 	});
 
+	test('only serializes visible Buffer bytes through handles', () => {
+		const buffer = Buffer.from([255, 1, 2, 3, 255]).subarray(1, 4);
+		assert.is(
+			stringify(h(buffer), undefined, { operations: handle_operations }),
+			'[["Uint8Array",1],["ArrayBuffer","AQID"]]'
+		);
+	});
+
 	test('repeated references deduplicate via identify despite distinct handles', () => {
 		const shared = { x: 1 };
 		const value = { first: shared, second: shared };

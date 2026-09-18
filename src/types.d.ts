@@ -184,7 +184,10 @@ export interface StringifyOperations {
 	/**
 	 * Returns the view metadata of a typed array or `DataView` value.
 	 * `length` is only meaningful for typed arrays. `buffer` is serialized
-	 * recursively, so it may be a foreign value/handle.
+	 * recursively in full, so it may be a foreign value/handle.
+	 * The default copies Node Buffers into an exact-sized backing buffer with
+	 * byteOffset 0 to avoid exposing unrelated bytes from Node's shared pool.
+	 * Overrides must take equivalent care with pooled views.
 	 */
 	viewInfo(view: any): {
 		buffer: any;
@@ -364,6 +367,11 @@ export interface ParseOperations {
 	 * `undefined` when the view spans the whole buffer; otherwise `length`
 	 * is the element count for typed arrays and the byte length for
 	 * `DataView`, matching the constructor signatures.
+	 *
+	 * Implementations must validate that `buffer` represents a genuine backing
+	 * buffer, since custom revivers can return other values. In particular,
+	 * passing a number or array-like value to a native typed array constructor
+	 * can allocate storage unrelated to the size of the serialized input.
 	 */
 	fromViewInfo(
 		tag: ViewTag,

@@ -2,6 +2,7 @@ import { MAX_ARRAY_INDEX } from './constants.js';
 import {
 	enumerable_symbols,
 	get_type,
+	is_buffer,
 	is_plain_object,
 	valid_array_indices
 } from './utils.js';
@@ -30,10 +31,10 @@ export function merge_operations(defaults, overrides) {
 }
 
 /** @type {{ kind: 'not-plain' }} */
-const NOT_PLAIN = Object.freeze({ kind: 'not-plain' });
+const NOT_PLAIN = /* @__PURE__ */ Object.freeze({ kind: 'not-plain' });
 
 /** @type {{ kind: 'symbol-keys' }} */
-const SYMBOL_KEYS = Object.freeze({ kind: 'symbol-keys' });
+const SYMBOL_KEYS = /* @__PURE__ */ Object.freeze({ kind: 'symbol-keys' });
 
 /**
  * The default implementations of every introspection/extraction operation
@@ -85,13 +86,19 @@ const stringify_operations = {
 
 	entriesOf: (map) => map,
 
-	viewInfo: (view) => ({
-		buffer: view.buffer,
-		byteOffset: view.byteOffset,
-		byteLength: view.byteLength,
-		length: view.length,
-		bufferByteLength: view.buffer.byteLength
-	}),
+	viewInfo: (view) => {
+		// Node Buffers may share a pool containing unrelated, sensitive data.
+		// Copy only the visible bytes, without using Buffer's pooling or slice.
+		if (is_buffer(view)) view = new Uint8Array(view);
+
+		return {
+			buffer: view.buffer,
+			byteOffset: view.byteOffset,
+			byteLength: view.byteLength,
+			length: view.length,
+			bufferByteLength: view.buffer.byteLength
+		};
+	},
 
 	toArrayBuffer: (buffer) => buffer,
 
@@ -114,7 +121,17 @@ const stringify_operations = {
 	get: (value, key) => value[key]
 };
 
-export const default_stringify_operations = Object.freeze(stringify_operations);
+export const default_stringify_operations = /* @__PURE__ */ Object.freeze(stringify_operations);
+
+const array_buffer_byte_length = Object.getOwnPropertyDescriptor(
+	ArrayBuffer.prototype,
+	'byteLength'
+).get;
+
+const shared_array_buffer_byte_length =
+	typeof SharedArrayBuffer === 'undefined'
+		? undefined
+		: Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, 'byteLength').get;
 
 /**
  * The default implementations of every construction operation `parse` and
@@ -150,6 +167,17 @@ const parse_operations = {
 	fromRegExpInfo: (source, flags) => new RegExp(source, flags),
 
 	fromViewInfo: (tag, buffer, byteOffset, length) => {
+		// A reviver can replace an ArrayBuffer with a length or array-like value,
+		// which a typed array constructor would use to allocate a new buffer.
+		// The native getters check internal slots, so they work across realms
+		// and cannot be fooled by a forged prototype or Symbol.toStringTag.
+		try {
+			array_buffer_byte_length.call(buffer);
+		} catch (error) {
+			if (!shared_array_buffer_byte_length) throw error;
+			shared_array_buffer_byte_length.call(buffer);
+		}
+
 		const Constructor = /** @type {any} */ (globalThis)[tag];
 		return byteOffset !== undefined
 			? new Constructor(buffer, byteOffset, length)
@@ -199,4 +227,4 @@ const parse_operations = {
 	}
 };
 
-export const default_parse_operations = Object.freeze(parse_operations);
+export const default_parse_operations = /* @__PURE__ */ Object.freeze(parse_operations);

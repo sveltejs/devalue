@@ -102,6 +102,19 @@ const json = `{
 const data = devalue.unflatten(JSON.parse(json).data);
 ```
 
+### Binary data
+
+Node.js `Buffer` values are serialized as `Uint8Array`s containing only the Buffer's visible bytes. Their backing stores are copied, since small Buffers can share an allocation pool containing unrelated, sensitive data. Repeated references to the same Buffer are preserved, but distinct Buffers are given separate backing stores.
+
+For ordinary typed arrays and `DataView`s, devalue serializes the **entire backing `ArrayBuffer`**, preserving shared views and byte offsets. This includes bytes outside a `subarray` or subview. Only serialize these views if their entire backing store is safe to disclose, or copy the intended bytes first:
+
+```js
+const copy = new Uint8Array(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
+const serialized = devalue.stringify(copy);
+```
+
+This also applies if you explicitly pass `buf.buffer`, or create an ordinary typed array or `DataView` over a Node Buffer's backing store — these values cannot be identified as Node Buffers. To copy a Buffer's contents into an independent typed array, use `new Uint8Array(buf)`.
+
 ## Custom types
 
 You can serialize and deserialize custom types by passing a second argument to `stringify` containing an object of types and their _reducers_, and a second argument to `parse` or `unflatten` containing an object of types and their _revivers_:
