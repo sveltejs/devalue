@@ -1,5 +1,16 @@
 # devalue changelog
 
+## 5.9.3
+### Patch Changes
+
+- 6861dbb: fix: avoid scanning sparse array holes in `uneval` traversal and shared-array population
+- 9ec5130: fix: reject non-string null-prototype object keys in `parse` and `unflatten` to prevent bypassing the `__proto__` check
+- dae8153: fix: prevent unhandled internal rejections in `stringifyAsync` when serializing multiple promises
+- 84f6f67: fix: prevent quadratic `uneval` output expansion for repeated strings and bigints
+- 6861dbb: fix: avoid eager allocation when evaluating sparse arrays emitted by `uneval`
+- 8f8d78e: fix: validate revived backing buffers before constructing typed arrays
+- 46dc877: fix: serialize only the visible bytes of Node Buffers in `stringify`, `stringifyAsync` and `uneval`, preventing disclosure of unrelated data from their shared allocation pool
+
 ## 5.9.2
 ### Patch Changes
 
