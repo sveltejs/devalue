@@ -8,7 +8,6 @@ export default defineConfig({
 					name: 'unit',
 					environment: 'node',
 					include: ['src/**/*.test.js', 'test/**/*.test.js'],
-					exclude: ['test/browser/**'],
 					testTimeout: 10_000
 				}
 			}
