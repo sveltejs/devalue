@@ -1,5 +1,9 @@
 import { MAX_ARRAY_INDEX, MAX_ARRAY_LEN } from './constants.js';
 
+const name_chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$';
+const reserved_names =
+	/^(?:do|if|in|for|int|let|new|try|var|byte|case|char|else|enum|goto|long|this|void|with|await|break|catch|class|const|final|float|short|super|throw|while|yield|delete|double|export|import|native|return|switch|throws|typeof|boolean|default|extends|finally|package|private|abstract|continue|debugger|function|volatile|interface|protected|transient|implements|instanceof|synchronized)$/;
+
 /** @type {Record<string, string>} */
 export const escaped = {
 	'<': '\\u003C',
@@ -58,6 +62,28 @@ export function get_type(thing) {
 /** @param {any} thing */
 export function is_buffer(thing) {
 	return typeof Buffer !== 'undefined' && Buffer.isBuffer(thing);
+}
+
+/**
+ * Emit an array whose storage is not proportional to its declared length.
+ * Touching and deleting the largest valid index forces dictionary elements
+ * before setting the length; assigning .length on [] can still eagerly allocate.
+ * @param {number} length
+ */
+export function stringify_sparse_array(length) {
+	return `(function(a){a[${MAX_ARRAY_INDEX}]=0;delete a[${MAX_ARRAY_INDEX}];a.length=${length};return a}([]))`;
+}
+
+/** Returns the compact JavaScript identifier at `index`. @param {number} index */
+export function get_name(index) {
+	let name = '';
+
+	do {
+		name = name_chars[index % name_chars.length] + name;
+		index = ~~(index / name_chars.length) - 1;
+	} while (index >= 0);
+
+	return reserved_names.test(name) ? `${name}0` : name;
 }
 
 /** @param {string} char */

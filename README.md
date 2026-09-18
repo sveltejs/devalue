@@ -149,12 +149,14 @@ If a function passed to `stringify` returns a truthy value, it's treated as a ma
 You can also use custom types with `uneval` by specifying a custom replacer:
 
 ```js
-devalue.uneval(vector, (value, uneval) => {
+devalue.uneval(vector, (value, js) => {
 	if (value instanceof Vector) {
-		return `new Vector(${value.x},${value.y})`;
+		return js`new Vector(${value.x},${value.y})`;
 	}
 }); // `new Vector(30,40)`
 ```
+
+The replacer must return a source created with the supplied `js` tag, or `undefined`, `null` or `false` to serialize the value normally. Each value "hole" is recursively serialized. Identifier-like words in the literal template strings (including nested templates) are reserved, so generated variables cannot shadow your constructors, helpers or local bindings.
 
 Note that any variables referenced in the resulting JavaScript (like `Vector` in the example above) must be in scope when it runs.
 

@@ -1,3 +1,7 @@
+import type { JavaScriptFragment } from './javascript-source.js';
+
+export type { JavaScriptFragment };
+
 export type StringValueTag =
 	| 'URL'
 	| 'URLSearchParams'
@@ -38,6 +42,25 @@ export type TypedArray =
 	| Float64Array
 	| BigInt64Array
 	| BigUint64Array;
+
+/**
+ * A tagged template function for building trusted JavaScript. The string bits are emitted verbatim,
+ * while the "holes" are recursively serialized. Identifier-like words in the string bits are
+ * reserved when generating names.
+ */
+export interface JavaScriptTag {
+	(strings: TemplateStringsArray, ...values: unknown[]): JavaScriptFragment;
+}
+
+/**
+ * A function that replaces a value with a JavaScript expression that can be evaluated to reproduce
+ * that value. The expression is trusted JavaScript. Return `undefined`, `null` or `false` when the
+ * value should be serialized normally.
+ */
+export type UnevalReplacer = (
+	value: unknown,
+	js: JavaScriptTag
+) => JavaScriptFragment | false | null | void;
 
 /**
  * The introspection/extraction operations `stringify` performs on the value

@@ -536,7 +536,7 @@ const fixtures = {
 			return {
 				name: 'Map (cyclical)',
 				value: map,
-				js: '(function(a){a.set("self", a);return a}(new Map))',
+				js: '(function(){let a=new Map;a.set("self",a);return a}())',
 				json: '[["Map",1,0],"self"]',
 				validate: (value) => {
 					assert.is(value.get('self'), value);
@@ -550,7 +550,7 @@ const fixtures = {
 			return {
 				name: 'Set (cyclical)',
 				value: set,
-				js: '(function(a){a.add(a).add(42);return a}(new Set))',
+				js: '(function(){let a=new Set;a.add(a).add(42);return a}())',
 				json: '[["Set",0,1],42]',
 				validate: (value) => {
 					assert.is(value.size, 2);
@@ -565,7 +565,7 @@ const fixtures = {
 			return {
 				name: 'Array (cyclical)',
 				value: arr,
-				js: '(function(a){a[0]=a;return a}(Array(1)))',
+				js: '(function(){let a=Array(1);a[0]=a;return a}())',
 				json: '[[0]]',
 				validate: (value) => {
 					assert.is(value.length, 1);
@@ -579,7 +579,7 @@ const fixtures = {
 			return {
 				name: 'Object (cyclical)',
 				value: obj,
-				js: '(function(a){a.self=a;return a}({}))',
+				js: '(function(){let a={};a.self=a;return a}())',
 				json: '[{"self":0}]',
 				validate: (value) => {
 					assert.is(value.self, value);
@@ -592,7 +592,7 @@ const fixtures = {
 			return {
 				name: 'Object with null prototype (cyclical)',
 				value: obj,
-				js: '(function(a){a.self=a;return a}(Object.create(null)))',
+				js: '(function(){let a=Object.create(null);a.self=a;return a}())',
 				json: '[["null","self",0]]',
 				validate: (value) => {
 					assert.is(Object.getPrototypeOf(value), null);
@@ -606,7 +606,7 @@ const fixtures = {
 			return {
 				name: 'Object with null prototype class',
 				value: obj,
-				js: '(function(a){a.foo="bar";a.self=a;return a}({}))',
+				js: '(function(){let a={};a.foo="bar";a.self=a;return a}())',
 				json: '[{"foo":1,"self":0},"bar"]',
 				validate: (value) => {
 					assert.is(value.foo, 'bar');
@@ -621,7 +621,7 @@ const fixtures = {
 			return {
 				name: 'Object (cyclical)',
 				value: [first, second],
-				js: '(function(a,b){a.second=b;b.first=a;return [a,b]}({},{}))',
+				js: '(function(){let a={},b={};a.first=b;b.second=a;return [b,a]}())',
 				json: '[[1,2],{"second":2},{"first":1}]',
 				validate: (value) => {
 					assert.is(value[0].second, value[1]);
@@ -656,7 +656,7 @@ const fixtures = {
 		{
 			name: 'Number (repetition)',
 			value: ((number) => [number, number])(Object(42)),
-			js: '(function(a){return [a,a]}(Object(42)))',
+			js: '(function(){let a=Object(42);return [a,a]}())',
 			json: '[[1,1],["Object",2],42]',
 			validate: ([a, b]) => assert.is(a, b)
 		},
@@ -664,7 +664,7 @@ const fixtures = {
 		{
 			name: 'BigInt (repetition)',
 			value: ((bigint) => [bigint, bigint])(Object(1n)),
-			js: '(function(a){return [a,a]}(Object(1n)))',
+			js: '(function(){let a=Object(1n);return [a,a]}())',
 			json: '[[1,1],["Object",2],["BigInt","1"]]',
 			validate: ([a, b]) => assert.is(a, b)
 		},
@@ -672,7 +672,7 @@ const fixtures = {
 		{
 			name: 'Number: NaN (repetition)',
 			value: ((nan) => [nan, nan])(Object(NaN)),
-			js: '(function(a){return [a,a]}(Object(NaN)))',
+			js: '(function(){let a=Object(NaN);return [a,a]}())',
 			json: `[[1,1],["Object",${consts.NAN}]]`,
 			validate: ([a, b]) => assert.is(a, b)
 		},
@@ -680,7 +680,7 @@ const fixtures = {
 		{
 			name: 'Object (repetition)',
 			value: ((object) => [object, object])({}),
-			js: '(function(a){return [a,a]}({}))',
+			js: '(function(){let a={};return [a,a]}())',
 			json: '[[1,1],{}]',
 			validate: ([a, b]) => assert.is(a, b)
 		},
@@ -688,7 +688,7 @@ const fixtures = {
 		{
 			name: 'empty Map (repetition)',
 			value: ((map) => [map, map])(new Map()),
-			js: '(function(a){return [a,a]}(new Map))',
+			js: '(function(){let a=new Map;return [a,a]}())',
 			json: '[[1,1],["Map"]]',
 			validate: ([a, b]) => {
 				assert.is(a, b);
@@ -699,7 +699,7 @@ const fixtures = {
 		{
 			name: 'empty Set (repetition)',
 			value: ((set) => [set, set])(new Set()),
-			js: '(function(a){return [a,a]}(new Set))',
+			js: '(function(){let a=new Set;return [a,a]}())',
 			json: '[[1,1],["Set"]]',
 			validate: ([a, b]) => {
 				assert.is(a, b);
@@ -710,7 +710,7 @@ const fixtures = {
 		{
 			name: 'RegExp (repetition)',
 			value: ((regexp) => [regexp, regexp])(/regexp/),
-			js: '(function(a){return [a,a]}(new RegExp("regexp")))',
+			js: '(function(){let a=new RegExp("regexp");return [a,a]}())',
 			json: '[[1,1],["RegExp","regexp"]]',
 			validate: ([a, b]) => assert.is(a, b)
 		},
@@ -718,7 +718,7 @@ const fixtures = {
 		{
 			name: 'Date (repetition)',
 			value: ((date) => [date, date])(new Date(1e12)),
-			js: '(function(a){return [a,a]}(new Date(1000000000000)))',
+			js: '(function(){let a=new Date(1000000000000);return [a,a]}())',
 			json: '[[1,1],["Date","2001-09-09T01:46:40.000Z"]]',
 			validate: ([a, b]) => assert.is(a, b)
 		},
@@ -735,7 +735,7 @@ const fixtures = {
 
 				return [uint8, uint16];
 			})(),
-			js: '(function(a){return [new Uint8Array(a),new Uint16Array(a)]}(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer))',
+			js: '(function(){let a=new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer;return [new Uint8Array(a),new Uint16Array(a)]}())',
 			json: '[[1,3],["Uint8Array",2],["ArrayBuffer","AAECAwQFBgcICQ=="],["Uint16Array",2]]',
 			validate: ([uint8, uint16]) => assert.is(uint8.buffer, uint16.buffer)
 		},
@@ -746,7 +746,7 @@ const fixtures = {
 				const uint8 = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
 				return [uint8, uint8];
 			})(),
-			js: '(function(a){a=new Uint8Array([0,1,2,3,4,5,6,7,8,9]);return [a,a]}({}))',
+			js: '(function(){let a=new Uint8Array([0,1,2,3,4,5,6,7,8,9]);return [a,a]}())',
 			json: '[[1,1],["Uint8Array",2],["ArrayBuffer","AAECAwQFBgcICQ=="]]',
 			validate: ([a, b]) => {
 				assert.is(a, b);
@@ -761,7 +761,7 @@ const fixtures = {
 				const uint16 = new Uint16Array(uint8.buffer);
 				return [uint8, uint8, uint16];
 			})(),
-			js: '(function(a,b){a=new Uint8Array(b);return [a,a,new Uint16Array(b)]}({},new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer))',
+			js: '(function(){let a=new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer,b=new Uint8Array(a);return [b,b,new Uint16Array(a)]}())',
 			json: '[[1,1,3],["Uint8Array",2],["ArrayBuffer","AAECAwQFBgcICQ=="],["Uint16Array",2]]',
 			validate: ([uint8_a, uint8_b, uint16]) => {
 				assert.is(uint8_a, uint8_b);
@@ -777,7 +777,7 @@ const fixtures = {
 				const dv = new DataView(uint8.buffer);
 				return [dv, dv];
 			})(),
-			js: '(function(a){a=new DataView(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer);return [a,a]}({}))',
+			js: '(function(){let a=new DataView(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer);return [a,a]}())',
 			json: '[[1,1],["DataView",2],["ArrayBuffer","AAECAwQFBgcICQ=="]]',
 			validate: ([a, b]) => {
 				assert.is(a, b);
@@ -792,7 +792,7 @@ const fixtures = {
 				const dv = new DataView(uint8.buffer);
 				return [dv, dv, uint8.buffer];
 			})(),
-			js: '(function(a,b){a=new DataView(b);return [a,a,b]}({},new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer))',
+			js: '(function(){let a=new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer,b=new DataView(a);return [b,b,a]}())',
 			json: '[[1,1,2],["DataView",2],["ArrayBuffer","AAECAwQFBgcICQ=="]]',
 			validate: ([view_a, view_b, buffer]) => {
 				assert.is(view_a, view_b);
@@ -808,7 +808,7 @@ const fixtures = {
 				const dv = new DataView(uint8.buffer, 2, 4);
 				return [dv, dv];
 			})(),
-			js: '(function(a){a=new DataView(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer,2,4);return [a,a]}({}))',
+			js: '(function(){let a=new DataView(new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer,2,4);return [a,a]}())',
 			json: '[[1,1],["DataView",2,2,4],["ArrayBuffer","AAECAwQFBgcICQ=="]]',
 			validate: ([a, b]) => {
 				assert.is(a, b);
@@ -821,7 +821,7 @@ const fixtures = {
 		{
 			name: 'BigInt64Array (repetition)',
 			value: ((array) => [array, array])(new BigInt64Array([1n, 2n, 3n])),
-			js: '(function(a){a=new BigInt64Array([1n,2n,3n]);return [a,a]}({}))',
+			js: '(function(){let a=new BigInt64Array([1n,2n,3n]);return [a,a]}())',
 			json: '[[1,1],["BigInt64Array",2],["ArrayBuffer","AQAAAAAAAAACAAAAAAAAAAMAAAAAAAAA"]]',
 			validate: ([a, b]) => assert.is(a, b)
 		},
@@ -831,7 +831,7 @@ const fixtures = {
 			value: ((instant) => [instant, instant])(
 				Temporal.Instant.from('1999-09-29T05:30:00Z')
 			),
-			js: '(function(a){return [a,a]}(Temporal.Instant.from("1999-09-29T05:30:00Z")))',
+			js: '(function(){let a=Temporal.Instant.from("1999-09-29T05:30:00Z");return [a,a]}())',
 			json: '[[1,1],["Temporal.Instant","1999-09-29T05:30:00Z"]]',
 			validate: ([a, b]) => {
 				assert.is(a, b);
@@ -845,7 +845,7 @@ const fixtures = {
 				const shared = { id: 1 };
 				return [shared, new Map([[shared, 'v']])];
 			})(),
-			js: '(function(a){a.id=1;return [a,new Map([[a,"v"]])]}({}))',
+			js: '(function(){let a={};a.id=1;return [a,new Map([[a,"v"]])]}())',
 			json: '[[1,3],{"id":2},1,["Map",1,4],"v"]',
 			validate: ([obj, map]) => assert.is([...map.keys()][0], obj)
 		},
@@ -880,7 +880,7 @@ const fixtures = {
 					]
 				]);
 			})(),
-			js: '(function(a,b,c){a.id=1;b.id=2;c.id=3;return new Map([[a,new Map([[b,1],[c,1]])],[b,new Map([[a,1],[c,1]])],[c,new Map([[a,1],[b,1]])]])}({},{},{}))',
+			js: '(function(){let a={},b={},c={};a.id=3;b.id=2;c.id=1;return new Map([[c,new Map([[b,1],[a,1]])],[b,new Map([[c,1],[a,1]])],[a,new Map([[c,1],[b,1]])]])}())',
 			json: '[["Map",1,3,4,8,6,9],{"id":2},1,["Map",4,2,6,2],{"id":5},2,{"id":7},3,["Map",1,2,6,2],["Map",1,2,4,2]]',
 			validate: (map) => {
 				const [node1, node2, node3] = map.keys();
@@ -925,7 +925,7 @@ const fixtures = {
 				const regex = /[</script><script>alert('xss')//]/;
 				return [regex, regex];
 			})(),
-			js: `(function(a){return [a,a]}(new RegExp("[\\u003C/script>\\u003Cscript>alert('xss')//]")))`,
+			js: `(function(){let a=new RegExp("[\\u003C/script>\\u003Cscript>alert('xss')//]");return [a,a]}())`,
 			json: `[[1,1],["RegExp","[\\u003C/script>\\u003Cscript>alert('xss')//]"]]`,
 			validate: ([a, b]) => {
 				assert.is(a, b);
@@ -974,15 +974,15 @@ const fixtures = {
 		{
 			name: 'Custom type',
 			value: [instance, instance],
-			js: '(function(a){return [a,a]}(new Foo({bar:new Bar({answer:42})})))',
+			js: '(function(){let a=new Foo({bar:new Bar({answer:42})});return [a,a]}())',
 			json: '[[1,1],["Foo",2],{"bar":3},["Bar",4],{"answer":5},42]',
-			replacer: (value, uneval) => {
+			replacer: (value, js) => {
 				if (value instanceof Foo) {
-					return `new Foo(${uneval(value.value)})`;
+					return js`new Foo(${value.value})`;
 				}
 
 				if (value instanceof Bar) {
-					return `new Bar(${uneval(value.value)})`;
+					return js`new Bar(${value.value})`;
 				}
 			},
 			// test for https://github.com/Rich-Harris/devalue/pull/80
@@ -1010,7 +1010,7 @@ const fixtures = {
 			value: date,
 			js: "new Date('')",
 			json: '[["Date",""]]',
-			replacer: (value) => value instanceof Date && `new Date('')`,
+			replacer: (value, js) => value instanceof Date && js`new Date('')`,
 			reducers: {
 				Date: (value) => value instanceof Date && ''
 			},
@@ -1040,10 +1040,9 @@ const fixtures = {
 				value: new FunctionRef(testFn),
 				js: 'new FunctionRef((x) => x * 2)',
 				json: '[["FunctionRef",1],"(x) => x * 2"]',
-				replacer: (value, uneval) => {
+				replacer: (value, js) => {
 					if (value instanceof FunctionRef) {
-						// Serialize the function code directly as a string
-						return `new FunctionRef(${value.fn.toString()})`;
+						return js`new FunctionRef((x) => x * 2)`;
 					}
 				},
 				reducers: {
@@ -1075,10 +1074,9 @@ const fixtures = {
 				value: { fn: testFn, nested: { data: 42 } },
 				js: '{fn:(x) => x * 2,nested:{data:42}}',
 				json: '[{"fn":1,"nested":3},["FunctionRef",2],"(x) => x * 2",{"data":4},42]',
-				replacer: (value, uneval) => {
+				replacer: (value, js) => {
 					if (typeof value === 'function') {
-						// Serialize the function code directly
-						return value.toString();
+						return js`(x) => x * 2`;
 					}
 				},
 				reducers: {
@@ -1175,6 +1173,509 @@ for (const [name, tests] of Object.entries(fixtures)) {
 	}
 	test.run();
 }
+
+const custom_source_test = uvu.suite('uneval: custom source');
+custom_source_test('does not shadow constructors in literal or nested source', () => {
+	class Wrapper {
+		constructor(inner) {
+			this.inner = inner;
+		}
+	}
+
+	for (const nested of [false, true]) {
+		const shared = { answer: 42 };
+		const source = uneval([shared, shared, new Wrapper(shared)], (value, js) => {
+			if (!(value instanceof Wrapper)) return;
+			const source = js`new a(${value.inner})`;
+			return nested ? js`(${source})` : source;
+		});
+		const result = vm.runInNewContext(source, { a: Wrapper });
+		assert.is(result[0], result[1]);
+		assert.ok(result[2] instanceof Wrapper);
+		assert.is(result[2].inner, result[0]);
+	}
+});
+custom_source_test('literal local bindings do not capture serialized references', () => {
+	class Wrapper {
+		constructor(inner, total) {
+			this.inner = inner;
+			this.total = total;
+		}
+	}
+
+	const shared = { answer: 42 };
+	const source = uneval([shared, shared, new Wrapper(shared, 3)], (value, js) => {
+		if (value instanceof Wrapper) {
+			return js`(()=>{const a=1,b=2;return new Wrapper(${value.inner},a+b)})()`;
+		}
+	});
+	const result = vm.runInNewContext(source, { Wrapper });
+	assert.is(result[0], result[1]);
+	assert.is(result[2].inner, result[0]);
+	assert.is(result[2].total, 3);
+});
+custom_source_test('names allocated while breaking custom cycles do not shadow literal names', () => {
+	class Wrapper {
+		constructor(inner) {
+			this.inner = inner;
+		}
+	}
+
+	const container = {};
+	const wrapper = new Wrapper(container);
+	container.wrapper = wrapper;
+	const source = uneval(wrapper, (value, js) => {
+		if (value instanceof Wrapper) return js`new b(${value.inner})`;
+	});
+	const result = vm.runInNewContext(source, { b: Wrapper });
+	assert.ok(result instanceof Wrapper);
+	assert.is(result.inner.wrapper, result);
+});
+custom_source_test('reserves dollar and underscore names in literal source', () => {
+	class Wrapper {
+		constructor(inner) {
+			this.inner = inner;
+		}
+	}
+
+	const shared = Array.from({ length: 54 }, () => ({}));
+	const source = uneval([shared, shared.slice(), new Wrapper(42)], (value, js) => {
+		if (value instanceof Wrapper) return js`new $(_(${value.inner}))`;
+	});
+	const result = vm.runInNewContext(source, { $: Wrapper, _: (value) => value });
+	for (let i = 0; i < shared.length; i += 1) assert.is(result[0][i], result[1][i]);
+	assert.ok(result[2] instanceof Wrapper);
+	assert.is(result[2].inner, 42);
+});
+custom_source_test('reserves escaped identifiers in literal source', () => {
+	class Wrapper {
+		constructor(inner) {
+			this.inner = inner;
+		}
+	}
+
+	for (const code_point of [false, true]) {
+		const shared = { answer: 42 };
+		const source = uneval([shared, shared, new Wrapper(shared)], (value, js) => {
+			if (!(value instanceof Wrapper)) return;
+			return code_point ? js`new \\u{61}(${value.inner})` : js`new \\u0061(${value.inner})`;
+		});
+		const result = vm.runInNewContext(source, { a: Wrapper });
+		assert.is(result[0], result[1]);
+		assert.ok(result[2] instanceof Wrapper);
+		assert.is(result[2].inner, result[0]);
+	}
+});
+custom_source_test('preserves identities referenced by custom source', () => {
+	class Wrapper {
+		constructor(inner) {
+			this.inner = inner;
+		}
+	}
+	const shared = { hello: 'world' };
+	const source = uneval({ wrapped: new Wrapper(shared), shared }, (value, js) =>
+		value instanceof Wrapper ? js`new Wrapper(${value.inner})` : undefined
+	);
+	const result = eval(source);
+	assert.is(result.wrapped.inner, result.shared);
+});
+custom_source_test('constructs a repeated wrapper after its shared child is populated', () => {
+	class Wrapper {
+		static calls = 0;
+
+		constructor(inner) {
+			Wrapper.calls += 1;
+			this.inner = inner;
+			this.answer = inner.answer;
+		}
+	}
+
+	const child = { answer: 42 };
+	const wrapper = new Wrapper(child);
+	Wrapper.calls = 0;
+	let replacer_calls = 0;
+	const source = uneval([wrapper, wrapper, child], (value, js) => {
+		if (value instanceof Wrapper) {
+			replacer_calls += 1;
+			return js`new Wrapper(${value.inner})`;
+		}
+	});
+	const result = vm.runInNewContext(source, { Wrapper });
+
+	assert.is(replacer_calls, 1);
+	assert.is(Wrapper.calls, 1);
+	assert.is(result[0], result[1]);
+	assert.is(result[0].inner, result[2]);
+	assert.is(result[0].answer, 42);
+});
+custom_source_test('orders nested custom dependencies', () => {
+	class Inner {
+		static calls = 0;
+
+		constructor(value) {
+			Inner.calls += 1;
+			this.value = value;
+		}
+	}
+	class Outer {
+		static calls = 0;
+
+		constructor(inner) {
+			Outer.calls += 1;
+			this.inner = inner;
+			this.answer = inner.value.answer;
+		}
+	}
+
+	const child = { answer: 42 };
+	const inner = new Inner(child);
+	const outer = new Outer(inner);
+	Inner.calls = 0;
+	Outer.calls = 0;
+	const replacer_calls = new Map();
+	const source = uneval([outer, outer, inner, inner, child], (value, js) => {
+		if (value instanceof Outer) {
+			replacer_calls.set(value, (replacer_calls.get(value) ?? 0) + 1);
+			return js`new Outer(${value.inner})`;
+		}
+		if (value instanceof Inner) {
+			replacer_calls.set(value, (replacer_calls.get(value) ?? 0) + 1);
+			return js`new Inner(${value.value})`;
+		}
+	});
+	const result = vm.runInNewContext(source, { Inner, Outer });
+
+	assert.is(replacer_calls.get(inner), 1);
+	assert.is(replacer_calls.get(outer), 1);
+	assert.is(Inner.calls, 1);
+	assert.is(Outer.calls, 1);
+	assert.is(result[0], result[1]);
+	assert.is(result[0].inner, result[2]);
+	assert.is(result[2], result[3]);
+	assert.is(result[2].value, result[4]);
+	assert.is(result[0].answer, 42);
+});
+custom_source_test('finds custom dependencies inside inline containers', () => {
+	class Inner {
+		static calls = 0;
+
+		constructor(value) {
+			Inner.calls += 1;
+			this.value = value;
+		}
+	}
+	class Outer {
+		static calls = 0;
+
+		constructor(options) {
+			Outer.calls += 1;
+			this.inner = options.inner;
+			this.answer = options.inner.value.answer;
+		}
+	}
+
+	const inner = new Inner({ answer: 42 });
+	const outer = new Outer({ inner });
+	Inner.calls = 0;
+	Outer.calls = 0;
+	const source = uneval([outer, outer, inner], (value, js) => {
+		if (value instanceof Outer) return js`new Outer(${{ inner: value.inner }})`;
+		if (value instanceof Inner) return js`new Inner(${value.value})`;
+	});
+	const result = vm.runInNewContext(source, { Inner, Outer });
+
+	assert.is(Inner.calls, 1);
+	assert.is(Outer.calls, 1);
+	assert.is(result[0], result[1]);
+	assert.is(result[0].inner, result[2]);
+	assert.is(result[0].answer, 42);
+});
+custom_source_test('preserves a child used by multiple source holes', () => {
+	class Pair {
+		constructor(left, right) {
+			this.left = left;
+			this.right = right;
+		}
+	}
+
+	const child = { answer: 42 };
+	const source = uneval(new Pair(child, child), (value, js) =>
+		value instanceof Pair ? js`new Pair(${value.left},${value.right})` : undefined
+	);
+	const result = vm.runInNewContext(source, { Pair });
+
+	assert.is(result.left, result.right);
+	assert.is(result.left.answer, 42);
+});
+custom_source_test('orders a shared typed view after its backing buffer', () => {
+	class Wrapper {
+		static calls = 0;
+
+		constructor(view, buffer) {
+			Wrapper.calls += 1;
+			this.view = view;
+			this.buffer = buffer;
+			this.first = view[0];
+		}
+	}
+
+	const view = new Uint8Array([1, 2, 3]);
+	const wrapper = new Wrapper(view, view.buffer);
+	Wrapper.calls = 0;
+	let replacer_calls = 0;
+	const source = uneval([wrapper, wrapper, view, view.buffer], (value, js) => {
+		if (value instanceof Wrapper) {
+			replacer_calls += 1;
+			return js`new Wrapper(${value.view},${value.buffer})`;
+		}
+	});
+	const result = vm.runInNewContext(source, { Wrapper });
+
+	assert.is(replacer_calls, 1);
+	assert.is(Wrapper.calls, 1);
+	assert.is(result[0], result[1]);
+	assert.is(result[0].view, result[2]);
+	assert.is(result[2].buffer, result[3]);
+	assert.is(result[0].buffer, result[3]);
+	assert.is(result[0].first, 1);
+});
+custom_source_test('reconstructs custom cycles through mutable containers', () => {
+	class Wrapper {
+		static calls = 0;
+
+		constructor(inner) {
+			Wrapper.calls += 1;
+			this.inner = inner;
+		}
+	}
+
+	const container = {};
+	const wrapper = new Wrapper(container);
+	container.wrapper = wrapper;
+	Wrapper.calls = 0;
+	let replacer_calls = 0;
+	const source = uneval(wrapper, (value, js) => {
+		if (value instanceof Wrapper) {
+			replacer_calls += 1;
+			return js`new Wrapper(${value.inner})`;
+		}
+	});
+	const result = vm.runInNewContext(source, { Wrapper });
+
+	assert.is(replacer_calls, 1);
+	assert.is(Wrapper.calls, 1);
+	assert.is(result.inner.wrapper, result);
+});
+custom_source_test('preserves property order around cyclic references', () => {
+	class Marker {}
+
+	for (const prototype of [Object.prototype, null]) {
+		for (const position of ['first', 'middle', 'last']) {
+			const value = Object.create(prototype);
+			const completed = { done: true };
+			if (position !== 'first') value.before = completed;
+			value.self = value;
+			if (position !== 'last') value.after = 42;
+
+			const source = uneval([value, new Marker()], (item, js) =>
+				item instanceof Marker ? js`new Marker()` : undefined
+			);
+			const [result] = vm.runInNewContext(source, { Marker });
+			const expected = [
+				...(position === 'first' ? [] : ['before']),
+				'self',
+				...(position === 'last' ? [] : ['after'])
+			];
+
+			assert.equal(Object.keys(result), expected);
+			assert.is(result.self, result);
+			if (position !== 'first') assert.is(result.before.done, true);
+		}
+	}
+});
+custom_source_test('preserves Map and Set order around cyclic references', () => {
+	class Marker {}
+
+	for (const position of ['first', 'middle', 'last']) {
+		const completed = { done: true };
+		const map = new Map();
+		if (position !== 'first') map.set('before', completed);
+		map.set('self', map);
+		if (position !== 'last') map.set('after', 42);
+
+		const set = new Set();
+		if (position !== 'first') set.add(completed);
+		set.add(set);
+		if (position !== 'last') set.add(42);
+
+		const source = uneval([map, set, new Marker()], (item, js) =>
+			item instanceof Marker ? js`new Marker()` : undefined
+		);
+		const [result_map, result_set] = vm.runInNewContext(source, { Marker });
+		const map_entries = Array.from(result_map);
+		const set_values = Array.from(result_set);
+
+		assert.equal(
+			map_entries.map(([key]) => key),
+			[...(position === 'first' ? [] : ['before']), 'self', ...(position === 'last' ? [] : ['after'])]
+		);
+		assert.is(map_entries[position === 'first' ? 0 : 1][1], result_map);
+		assert.is(set_values[position === 'first' ? 0 : 1], result_set);
+		if (position !== 'first') {
+			assert.is(map_entries[0][1].done, true);
+			assert.is(set_values[0].done, true);
+		}
+		if (position !== 'last') {
+			assert.is(map_entries.at(-1)[1], 42);
+			assert.is(set_values.at(-1), 42);
+		}
+	}
+});
+custom_source_test('preserves order in mutual and custom cycles', () => {
+	class Wrapper {
+		constructor(inner) {
+			this.inner = inner;
+			this.before = inner.before.done;
+		}
+	}
+
+	const left = {};
+	const right = {};
+	left.peer = right;
+	left.tail = 'left';
+	right.peer = left;
+	right.tail = 'right';
+
+	const container = {};
+	container.before = { done: true };
+	const wrapper = new Wrapper(container);
+	container.wrapper = wrapper;
+	container.tail = 42;
+
+	const source = uneval([left, right, wrapper], (item, js) =>
+		item instanceof Wrapper ? js`new Wrapper(${item.inner})` : undefined
+	);
+	const [result_left, result_right, result_wrapper] = vm.runInNewContext(source, { Wrapper });
+
+	assert.equal(Object.keys(result_left), ['peer', 'tail']);
+	assert.equal(Object.keys(result_right), ['peer', 'tail']);
+	assert.is(result_left.peer, result_right);
+	assert.is(result_right.peer, result_left);
+	assert.equal(Object.keys(result_wrapper.inner), ['before', 'wrapper', 'tail']);
+	assert.is(result_wrapper.inner.wrapper, result_wrapper);
+	assert.is(result_wrapper.before, true);
+	assert.is(result_wrapper.inner.tail, 42);
+});
+custom_source_test('rejects cycles made entirely of custom constructions', () => {
+	class Atomic {
+		constructor() {
+			this.other = undefined;
+		}
+	}
+
+	const a = new Atomic();
+	const b = new Atomic();
+	a.other = b;
+	b.other = a;
+	const self = new Atomic();
+	self.other = self;
+	for (const value of [a, self]) {
+		assert.throws(
+			() =>
+				uneval(value, (item, js) =>
+					item instanceof Atomic
+						? js`Object.assign(new Atomic(),{other:${item.other}})`
+						: undefined
+				),
+			(error) =>
+				error.name === 'RangeError' &&
+				error.message === 'Maximum call stack size exceeded'
+		);
+	}
+});
+custom_source_test('accepts only documented fallback values and rejects invalid fragments', () => {
+	for (const fallback of [undefined, null, false]) {
+		assert.is(uneval({ answer: 42 }, () => fallback), '{answer:42}');
+	}
+
+	for (const invalid of ['', 0, NaN, 0n]) {
+		assert.throws(
+			() => uneval({ answer: 42 }, () => invalid),
+			(error) => error instanceof TypeError && error.message === 'Invalid uneval replacer result'
+		);
+	}
+
+	for (const invalid of [1, true, 'new Date()', Promise.resolve(), {}]) {
+		assert.throws(
+			() => uneval({ answer: 42 }, () => invalid),
+			(error) => error instanceof TypeError && error.message === 'Invalid JavaScript fragment'
+		);
+	}
+});
+custom_source_test('treats replacer results as expressions', () => {
+	class Replacement {
+		constructor(source) {
+			this.source = source;
+		}
+	}
+
+	const comma = new Replacement('comma');
+	const conditional = new Replacement('conditional');
+	const object = new Replacement('object');
+	const nested = new Replacement('nested');
+	const escaped = new Replacement('escaped');
+	const slashes = new Replacement('slashes');
+	const block = new Replacement('block');
+	const partial = new Replacement('partial');
+	const source = uneval(
+		[comma, conditional, object, nested, escaped, slashes, block, partial],
+		(value, js) => {
+			if (!(value instanceof Replacement)) return;
+			switch (value.source) {
+				case 'comma':
+					return js`(1,2)`;
+				case 'conditional':
+					return js`false?1:2`;
+				case 'object':
+					return js`{answer:42}`;
+				case 'nested':
+					return js`${js`Math.max(`}${1},${2}${js`)`}`;
+				case 'escaped':
+					return js`${'</script>'}`;
+				case 'slashes':
+					return js`"https://example.com//path"`;
+				case 'block':
+					return js`/* before */ ({answer:42}) /* after */`;
+				case 'partial':
+					return js`${js`(()=>{ // comment from a partial fragment`}${js`\nreturn `}${42}${js`;})()`}`;
+			}
+		}
+	);
+	const result = vm.runInNewContext(source);
+
+	assert.is(result.length, 8);
+	assert.is(result[0], 2);
+	assert.is(result[1], 2);
+	assert.is(result[2].answer, 42);
+	assert.is(result[3], 2);
+	assert.is(result[4], '</script>');
+	assert.is(result[5], 'https://example.com//path');
+	assert.is(result[6].answer, 42);
+	assert.is(result[7], 42);
+	assert.ok(!source.includes('</script>'));
+});
+custom_source_test('requires js to be used as a tagged template', () => {
+	for (const invoke of [
+		(js) => js('new Date()'),
+		(js) => js(['new Date()'])
+	]) {
+		assert.throws(
+			() => uneval(new Date(), (value, js) => value instanceof Date ? invoke(js) : undefined),
+			'`js` must be used as a tagged template, but was called as a regular function'
+		);
+	}
+});
+custom_source_test.run();
 
 for (const [name, tests] of Object.entries(fixtures)) {
 	const test = uvu.suite(`stringify: ${name}`);
@@ -2183,6 +2684,21 @@ circularCustomTypes.run();
 		assert.equal(roundtripped.a[69999].i, 69999);
 		// the two arrays share object identity
 		assert.ok(roundtripped.a[123] === roundtripped.b[123]);
+	});
+
+	test('packs oversized custom-graph IIFE arguments into one array', () => {
+		class Marker {}
+		const shared = Array.from({ length: 65536 }, (_, i) => ({ i }));
+		const marker = new Marker();
+		const value = { a: shared, b: shared.slice(), marker };
+
+		const serialized = uneval(value, (item, js) =>
+			item instanceof Marker ? js`({custom:true})` : undefined
+		);
+		const roundtripped = new Function('return ' + serialized)();
+
+		assert.is(roundtripped.a[65535], roundtripped.b[65535]);
+		assert.is(roundtripped.marker.custom, true);
 	});
 
 	test.run();
