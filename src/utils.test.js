@@ -60,14 +60,15 @@ describe('valid_array_indices', () => {
 });
 
 describe('stringify_string', () => {
-	test('escapes unpaired surrogates so output survives UTF-8 transport', () => {
-		for (const value of ['\ud800', 'a\ud800b', '\udfff', 'x\udbff', '\udc00y', '\ud800\ud800\udc00']) {
+	test.each(['\ud800', 'a\ud800b', '\udfff', 'x\udbff', '\udc00y', '\ud800\ud800\udc00'])(
+		'escapes unpaired surrogates so output survives UTF-8 transport (%j)',
+		(value) => {
 			const source = stringify_string(value);
 			expect(source.isWellFormed(), source).toBe(true);
 			const encoded = new TextDecoder().decode(new TextEncoder().encode(source));
 			expect((0, eval)(encoded)).toBe(value);
 		}
-	});
+	);
 
 	test('leaves well-formed surrogate pairs untouched', () => {
 		expect(stringify_string('\ud83d\ude00')).toBe('"\ud83d\ude00"');

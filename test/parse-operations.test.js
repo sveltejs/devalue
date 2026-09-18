@@ -166,8 +166,9 @@ describe('sparse arrays', () => {
 // Revived view backing buffers
 // ---------------------------------------------------------------------------
 
-for (const fn of [parse, unflatten]) {
-	describe(`${fn.name} view backing buffers`, () => {
+describe.each([parse, unflatten].map((fn) => ({ fn })))(
+	'$fn.name view backing buffers',
+	({ fn }) => {
 		function revive(values, revivers, options) {
 			return fn(fn === parse ? JSON.stringify(values) : values, revivers, options);
 		}
@@ -188,49 +189,68 @@ for (const fn of [parse, unflatten]) {
 			DataView
 		].filter(Boolean);
 
-		for (const Constructor of constructors) {
-			test(`${Constructor.name} rejects revived lengths and array-like values`, () => {
-				for (const bounds of [[], [0, 1]]) {
+		describe.each(constructors.map((Constructor) => ({ Constructor })))(
+			'$Constructor.name',
+			({ Constructor }) => {
+				describe.each([{ bounds: [] }, { bounds: [0, 1] }])('bounds=$bounds', ({ bounds }) => {
 					// Keep these lengths small so regressions cannot exhaust memory.
-					for (const payload of [[1024], [[-7, 1024]], [{ length: 3 }, 1024]]) {
+					test.each([
+						{ payload: [1024] },
+						{ payload: [[-7, 1024]] },
+						{ payload: [{ length: 3 }, 1024] }
+					])('rejects revived lengths and array-like values ($payload)', ({ payload }) => {
 						assert.throws(
 							() =>
-								revive(
-									[[Constructor.name, 1, ...bounds], ['ArrayBuffer', 2], ...payload],
-									{ ArrayBuffer: (value) => value }
-								),
+								revive([[Constructor.name, 1, ...bounds], ['ArrayBuffer', 2], ...payload], {
+									ArrayBuffer: (value) => value
+								}),
 							(error) => error instanceof TypeError
 						);
+					});
+				});
+
+				describe.each([
+					{ name: 'ArrayBuffer', create: () => new ArrayBuffer(16) },
+					{ name: 'ArrayBuffer subclass', create: () => new (class extends ArrayBuffer {})(16) },
+					{ name: 'SharedArrayBuffer', create: () => new SharedArrayBuffer(16) },
+					{
+						name: 'cross-realm ArrayBuffer',
+						create: () => vm.runInNewContext('new ArrayBuffer(16)')
+					},
+					{
+						name: 'cross-realm SharedArrayBuffer',
+						create: () => vm.runInNewContext('new SharedArrayBuffer(16)')
 					}
-				}
-			});
+				])('$name', ({ create }) => {
+					test.each([{ bounds: [] }, { bounds: [8, 1] }])(
+						'accepts genuine revived backing buffers (bounds=$bounds)',
+						({ bounds }) => {
+							const buffer = create();
+							const result = revive([[Constructor.name, 1, ...bounds], ['ArrayBuffer', 2], null], {
+								ArrayBuffer: () => buffer
+							});
 
-			test(`${Constructor.name} accepts genuine revived backing buffers`, () => {
-				for (const buffer of [
-					new ArrayBuffer(16),
-					new (class extends ArrayBuffer {})(16),
-					new SharedArrayBuffer(16),
-					vm.runInNewContext('new ArrayBuffer(16)'),
-					vm.runInNewContext('new SharedArrayBuffer(16)')
-				]) {
-					for (const bounds of [[], [8, 1]]) {
-						const result = revive(
-							[[Constructor.name, 1, ...bounds], ['ArrayBuffer', 2], null],
-							{ ArrayBuffer: () => buffer }
-						);
+							expect(result instanceof Constructor).toBeTruthy();
+							expect(result.buffer).toBe(buffer);
+							expect(result.byteOffset).toBe(bounds[0] ?? 0);
+							expect(result.byteLength).toBe(
+								bounds.length ? (Constructor.BYTES_PER_ELEMENT ?? 1) : 16
+							);
+						}
+					);
+				});
+			}
+		);
 
-						expect(result instanceof Constructor).toBeTruthy();
-						expect(result.buffer).toBe(buffer);
-						expect(result.byteOffset).toBe(bounds[0] ?? 0);
-						expect(result.byteLength).toBe(
-							bounds.length ? (Constructor.BYTES_PER_ELEMENT ?? 1) : 16
-						);
-					}
-				}
-			});
-		}
-
-		test('rejects spoofed buffers without reading their properties', () => {
+		test.each([
+			{ name: 'spoofed tag', create: (fake) => fake },
+			{ name: 'forged prototype', create: () => Object.create(ArrayBuffer.prototype) },
+			{ name: 'proxy', create: () => new Proxy(new ArrayBuffer(16), {}) },
+			{ name: 'typed array', create: () => new Uint8Array(16) },
+			{ name: 'null', create: () => null },
+			{ name: 'undefined', create: () => undefined },
+			{ name: 'string', create: () => '1024' }
+		])('rejects spoofed buffers without reading their properties ($name)', ({ create }) => {
 			let reads = 0;
 			const fake = {
 				[Symbol.toStringTag]: 'ArrayBuffer',
@@ -244,56 +264,58 @@ for (const fn of [parse, unflatten]) {
 				}
 			};
 
-			for (const buffer of [
-				fake,
-				Object.create(ArrayBuffer.prototype),
-				new Proxy(new ArrayBuffer(16), {}),
-				new Uint8Array(16),
-				null,
-				undefined,
-				'1024'
-			]) {
-				assert.throws(
-					() =>
-						revive([['Uint8Array', 1], ['ArrayBuffer', 2], null], {
-							ArrayBuffer: () => buffer
-						}),
-					(error) => error instanceof TypeError
-				);
-			}
+			const buffer = create(fake);
+			assert.throws(
+				() =>
+					revive([['Uint8Array', 1], ['ArrayBuffer', 2], null], {
+						ArrayBuffer: () => buffer
+					}),
+				(error) => error instanceof TypeError
+			);
 
 			expect(reads).toBe(0);
 		});
 
-		test('accepts empty buffers and ignores shadowed buffer properties', () => {
-			for (const Constructor of [ArrayBuffer, SharedArrayBuffer]) {
-				for (const length of [0, 16]) {
-					const buffer = new Constructor(length);
-					Object.defineProperties(buffer, {
-						byteLength: {
-							get() {
-								throw new Error('must use the native byteLength getter');
-							}
-						},
-						[Symbol.toStringTag]: { value: 'Object' }
-					});
+		describe.each([ArrayBuffer, SharedArrayBuffer].map((Constructor) => ({ Constructor })))(
+			'$Constructor.name with shadowed properties',
+			({ Constructor }) => {
+				test.each([0, 16])(
+					'accepts empty buffers and ignores shadowed buffer properties (length=%i)',
+					(length) => {
+						const buffer = new Constructor(length);
+						Object.defineProperties(buffer, {
+							byteLength: {
+								get() {
+									throw new Error('must use the native byteLength getter');
+								}
+							},
+							[Symbol.toStringTag]: { value: 'Object' }
+						});
 
-					const result = revive([['Uint8Array', 1], ['ArrayBuffer', 2], null], {
-						ArrayBuffer: () => buffer
-					});
+						const result = revive([['Uint8Array', 1], ['ArrayBuffer', 2], null], {
+							ArrayBuffer: () => buffer
+						});
 
-					expect(result.buffer).toBe(buffer);
-					expect(result.byteLength).toBe(length);
-				}
+						expect(result.buffer).toBe(buffer);
+						expect(result.byteLength).toBe(length);
+					}
+				);
 			}
-		});
+		);
 
 		test('validates backing buffers returned by custom operations', () => {
 			assert.throws(
 				() =>
-					revive([['Uint8Array', 1], ['ArrayBuffer', 'AA==']], undefined, {
-						operations: { fromArrayBuffer: () => 1024 }
-					}),
+					revive(
+						[
+							['Uint8Array', 1],
+							['ArrayBuffer', 'AA==']
+						],
+						undefined,
+						{
+							operations: { fromArrayBuffer: () => 1024 }
+						}
+					),
 				(error) => error instanceof TypeError
 			);
 		});
@@ -325,8 +347,8 @@ for (const fn of [parse, unflatten]) {
 
 			expect(result).toStrictEqual({ tag: 'Uint8Array', byteOffset: 2, length: 4 });
 		});
-	});
-}
+	}
+);
 
 // ---------------------------------------------------------------------------
 // Cross-realm revival (node:vm)
@@ -401,7 +423,8 @@ describe('cross-realm operations', () => {
 		expect(revived.list instanceof Array).toBeFalsy();
 
 		context.probe = revived;
-		expect(vm.runInContext(
+		expect(
+			vm.runInContext(
 				`probe.when instanceof Date &&
 				 probe.pattern instanceof RegExp &&
 				 probe.set instanceof Set &&
@@ -409,7 +432,8 @@ describe('cross-realm operations', () => {
 				 Array.isArray(probe.list) &&
 				 Object.getPrototypeOf(probe.bare) === null`,
 				context
-			)).toBeTruthy();
+			)
+		).toBeTruthy();
 	});
 
 	test('typed arrays are constructed in the target realm', () => {
@@ -423,10 +447,9 @@ describe('cross-realm operations', () => {
 		expect(revived instanceof Uint8Array).toBeFalsy();
 
 		context.probe = revived;
-		expect(vm.runInContext(
-				'probe instanceof Uint8Array && probe.buffer instanceof ArrayBuffer',
-				context
-			)).toBeTruthy();
+		expect(
+			vm.runInContext('probe instanceof Uint8Array && probe.buffer instanceof ArrayBuffer', context)
+		).toBeTruthy();
 	});
 
 	test('cyclic values are linked correctly across realms', () => {
@@ -444,7 +467,9 @@ describe('cross-realm operations', () => {
 		expect(revived.list[0]).toBe(revived);
 
 		context.probe = revived;
-		expect(vm.runInContext('probe.self === probe && probe.list[0] === probe', context)).toBeTruthy();
+		expect(
+			vm.runInContext('probe.self === probe && probe.list[0] === probe', context)
+		).toBeTruthy();
 	});
 });
 
@@ -481,23 +506,14 @@ describe('tripwire parse operations', () => {
 	const operations = {
 		fromPrimitive: (primitive) => tripwire(primitive),
 		fromISOString: (iso) => tripwire(new Date(iso)),
-		fromStringValue: (tag, text) =>
-			tripwire(defaultParseOperations.fromStringValue(tag, text)),
+		fromStringValue: (tag, text) => tripwire(defaultParseOperations.fromStringValue(tag, text)),
 		fromArrayBuffer: (buffer) => tripwire(buffer),
 		fromRegExpInfo: (source, flags) => tripwire(new RegExp(source, flags)),
 		fromViewInfo: (tag, buffer, byteOffset, length) =>
-			tripwire(
-				defaultParseOperations.fromViewInfo(
-					tag,
-					untrip(buffer),
-					byteOffset,
-					length
-				)
-			),
+			tripwire(defaultParseOperations.fromViewInfo(tag, untrip(buffer), byteOffset, length)),
 		box: (value) => tripwire(Object(untrip(value))),
 		createArray: (length) => tripwire(new Array(length)),
-		createSparseArray: (length) =>
-			tripwire(defaultParseOperations.createSparseArray(length)),
+		createSparseArray: (length) => tripwire(defaultParseOperations.createSparseArray(length)),
 		createObject: () => tripwire({}),
 		createNullPrototypeObject: () => tripwire(Object.create(null)),
 		createSet: () => tripwire(new Set()),

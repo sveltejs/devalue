@@ -828,9 +828,7 @@ const fixtures = {
 
 		{
 			name: 'Temporal.Instant (repetition)',
-			value: ((instant) => [instant, instant])(
-				Temporal.Instant.from('1999-09-29T05:30:00Z')
-			),
+			value: ((instant) => [instant, instant])(Temporal.Instant.from('1999-09-29T05:30:00Z')),
 			js: '(function(){let a=Temporal.Instant.from("1999-09-29T05:30:00Z");return [a,a]}())',
 			json: '[[1,1],["Temporal.Instant","1999-09-29T05:30:00Z"]]',
 			validate: ([a, b]) => {
@@ -1066,8 +1064,7 @@ const fixtures = {
 					// Test that the function works
 					expect(result.fn(5)).toEqual(10);
 				},
-				evaluate: (source) =>
-					new Function('FunctionRef', `return (${source})`)(FunctionRef)
+				evaluate: (source) => new Function('FunctionRef', `return (${source})`)(FunctionRef)
 			},
 			{
 				name: 'Function in nested structure',
@@ -1158,596 +1155,596 @@ async function catch_async_error(fn) {
 	expect.unreachable('expected operation to reject');
 }
 
-for (const [name, tests] of Object.entries(fixtures)) {
-	describe(`uneval: ${name}`, () => {
-	for (const t of tests) {
-		test(t.name, () => {
-			const source = uneval(t.value, t.replacer);
+describe.each(Object.entries(fixtures))('uneval: %s', (name, tests) => {
+	test.each(tests.map((t) => [t.name, t]))('%s', (_name, t) => {
+		const source = uneval(t.value, t.replacer);
 
-			if (name === 'strings' || name === 'XSS' || exact_uneval_numbers.has(t.name)) {
-				expect(source).toEqual(t.js);
-			}
+		if (name === 'strings' || name === 'XSS' || exact_uneval_numbers.has(t.name)) {
+			expect(source).toEqual(t.js);
+		}
 
-			validate_fixture(t, evaluate_fixture(t, source));
-		});
-	}
+		validate_fixture(t, evaluate_fixture(t, source));
 	});
-}
+});
 
 describe('uneval: custom source', () => {
-test('does not shadow constructors in literal or nested source', () => {
-	class Wrapper {
-		constructor(inner) {
-			this.inner = inner;
-		}
-	}
+	test.each([false, true])(
+		'does not shadow constructors in literal or nested source (nested=%s)',
+		(nested) => {
+			class Wrapper {
+				constructor(inner) {
+					this.inner = inner;
+				}
+			}
 
-	for (const nested of [false, true]) {
-		const shared = { answer: 42 };
-		const source = uneval([shared, shared, new Wrapper(shared)], (value, js) => {
-			if (!(value instanceof Wrapper)) return;
-			const source = js`new a(${value.inner})`;
-			return nested ? js`(${source})` : source;
-		});
-		const result = vm.runInNewContext(source, { a: Wrapper });
-		expect(result[0]).toBe(result[1]);
-		expect(result[2]).toBeInstanceOf(Wrapper);
-		expect(result[2].inner).toBe(result[0]);
-	}
-});
-test('literal local bindings do not capture serialized references', () => {
-	class Wrapper {
-		constructor(inner, total) {
-			this.inner = inner;
-			this.total = total;
+			const shared = { answer: 42 };
+			const source = uneval([shared, shared, new Wrapper(shared)], (value, js) => {
+				if (!(value instanceof Wrapper)) return;
+				const source = js`new a(${value.inner})`;
+				return nested ? js`(${source})` : source;
+			});
+			const result = vm.runInNewContext(source, { a: Wrapper });
+			expect(result[0]).toBe(result[1]);
+			expect(result[2]).toBeInstanceOf(Wrapper);
+			expect(result[2].inner).toBe(result[0]);
 		}
-	}
-
-	const shared = { answer: 42 };
-	const source = uneval([shared, shared, new Wrapper(shared, 3)], (value, js) => {
-		if (value instanceof Wrapper) {
-			return js`(()=>{const a=1,b=2;return new Wrapper(${value.inner},a+b)})()`;
-		}
-	});
-	const result = vm.runInNewContext(source, { Wrapper });
-	expect(result[0]).toBe(result[1]);
-	expect(result[2].inner).toBe(result[0]);
-	expect(result[2].total).toBe(3);
-});
-test('names allocated while breaking custom cycles do not shadow literal names', () => {
-	class Wrapper {
-		constructor(inner) {
-			this.inner = inner;
-		}
-	}
-
-	const container = {};
-	const wrapper = new Wrapper(container);
-	container.wrapper = wrapper;
-	const source = uneval(wrapper, (value, js) => {
-		if (value instanceof Wrapper) return js`new b(${value.inner})`;
-	});
-	const result = vm.runInNewContext(source, { b: Wrapper });
-	expect(result).toBeInstanceOf(Wrapper);
-	expect(result.inner.wrapper).toBe(result);
-});
-test('reserves dollar and underscore names in literal source', () => {
-	class Wrapper {
-		constructor(inner) {
-			this.inner = inner;
-		}
-	}
-
-	const shared = Array.from({ length: 54 }, () => ({}));
-	const source = uneval([shared, shared.slice(), new Wrapper(42)], (value, js) => {
-		if (value instanceof Wrapper) return js`new $(_(${value.inner}))`;
-	});
-	const result = vm.runInNewContext(source, { $: Wrapper, _: (value) => value });
-	for (let i = 0; i < shared.length; i += 1) expect(result[0][i]).toBe(result[1][i]);
-	expect(result[2]).toBeInstanceOf(Wrapper);
-	expect(result[2].inner).toBe(42);
-});
-test('reserves escaped identifiers in literal source', () => {
-	class Wrapper {
-		constructor(inner) {
-			this.inner = inner;
-		}
-	}
-
-	for (const code_point of [false, true]) {
-		const shared = { answer: 42 };
-		const source = uneval([shared, shared, new Wrapper(shared)], (value, js) => {
-			if (!(value instanceof Wrapper)) return;
-			return code_point ? js`new \u{61}(${value.inner})` : js`new \u0061(${value.inner})`;
-		});
-		const result = vm.runInNewContext(source, { a: Wrapper });
-		expect(result[0]).toBe(result[1]);
-		expect(result[2]).toBeInstanceOf(Wrapper);
-		expect(result[2].inner).toBe(result[0]);
-	}
-});
-test('preserves identities referenced by custom source', () => {
-	class Wrapper {
-		constructor(inner) {
-			this.inner = inner;
-		}
-	}
-	const shared = { hello: 'world' };
-	const source = uneval({ wrapped: new Wrapper(shared), shared }, (value, js) =>
-		value instanceof Wrapper ? js`new Wrapper(${value.inner})` : undefined
 	);
-	const result = eval(source);
-	expect(result.wrapped.inner).toBe(result.shared);
-});
-test('constructs a repeated wrapper after its shared child is populated', () => {
-	class Wrapper {
-		static calls = 0;
-
-		constructor(inner) {
-			Wrapper.calls += 1;
-			this.inner = inner;
-			this.answer = inner.answer;
+	test('literal local bindings do not capture serialized references', () => {
+		class Wrapper {
+			constructor(inner, total) {
+				this.inner = inner;
+				this.total = total;
+			}
 		}
-	}
 
-	const child = { answer: 42 };
-	const wrapper = new Wrapper(child);
-	Wrapper.calls = 0;
-	let replacer_calls = 0;
-	const source = uneval([wrapper, wrapper, child], (value, js) => {
-		if (value instanceof Wrapper) {
-			replacer_calls += 1;
-			return js`new Wrapper(${value.inner})`;
-		}
+		const shared = { answer: 42 };
+		const source = uneval([shared, shared, new Wrapper(shared, 3)], (value, js) => {
+			if (value instanceof Wrapper) {
+				return js`(()=>{const a=1,b=2;return new Wrapper(${value.inner},a+b)})()`;
+			}
+		});
+		const result = vm.runInNewContext(source, { Wrapper });
+		expect(result[0]).toBe(result[1]);
+		expect(result[2].inner).toBe(result[0]);
+		expect(result[2].total).toBe(3);
 	});
-	const result = vm.runInNewContext(source, { Wrapper });
-
-	expect(replacer_calls).toBe(1);
-	expect(Wrapper.calls).toBe(1);
-	expect(result[0]).toBe(result[1]);
-	expect(result[0].inner).toBe(result[2]);
-	expect(result[0].answer).toBe(42);
-});
-test('orders nested custom dependencies', () => {
-	class Inner {
-		static calls = 0;
-
-		constructor(value) {
-			Inner.calls += 1;
-			this.value = value;
+	test('names allocated while breaking custom cycles do not shadow literal names', () => {
+		class Wrapper {
+			constructor(inner) {
+				this.inner = inner;
+			}
 		}
-	}
-	class Outer {
-		static calls = 0;
 
-		constructor(inner) {
-			Outer.calls += 1;
-			this.inner = inner;
-			this.answer = inner.value.answer;
-		}
-	}
-
-	const child = { answer: 42 };
-	const inner = new Inner(child);
-	const outer = new Outer(inner);
-	Inner.calls = 0;
-	Outer.calls = 0;
-	const replacer_calls = new Map();
-	const source = uneval([outer, outer, inner, inner, child], (value, js) => {
-		if (value instanceof Outer) {
-			replacer_calls.set(value, (replacer_calls.get(value) ?? 0) + 1);
-			return js`new Outer(${value.inner})`;
-		}
-		if (value instanceof Inner) {
-			replacer_calls.set(value, (replacer_calls.get(value) ?? 0) + 1);
-			return js`new Inner(${value.value})`;
-		}
+		const container = {};
+		const wrapper = new Wrapper(container);
+		container.wrapper = wrapper;
+		const source = uneval(wrapper, (value, js) => {
+			if (value instanceof Wrapper) return js`new b(${value.inner})`;
+		});
+		const result = vm.runInNewContext(source, { b: Wrapper });
+		expect(result).toBeInstanceOf(Wrapper);
+		expect(result.inner.wrapper).toBe(result);
 	});
-	const result = vm.runInNewContext(source, { Inner, Outer });
-
-	expect(replacer_calls.get(inner)).toBe(1);
-	expect(replacer_calls.get(outer)).toBe(1);
-	expect(Inner.calls).toBe(1);
-	expect(Outer.calls).toBe(1);
-	expect(result[0]).toBe(result[1]);
-	expect(result[0].inner).toBe(result[2]);
-	expect(result[2]).toBe(result[3]);
-	expect(result[2].value).toBe(result[4]);
-	expect(result[0].answer).toBe(42);
-});
-test('finds custom dependencies inside inline containers', () => {
-	class Inner {
-		static calls = 0;
-
-		constructor(value) {
-			Inner.calls += 1;
-			this.value = value;
+	test('reserves dollar and underscore names in literal source', () => {
+		class Wrapper {
+			constructor(inner) {
+				this.inner = inner;
+			}
 		}
-	}
-	class Outer {
-		static calls = 0;
 
-		constructor(options) {
-			Outer.calls += 1;
-			this.inner = options.inner;
-			this.answer = options.inner.value.answer;
-		}
-	}
-
-	const inner = new Inner({ answer: 42 });
-	const outer = new Outer({ inner });
-	Inner.calls = 0;
-	Outer.calls = 0;
-	const source = uneval([outer, outer, inner], (value, js) => {
-		if (value instanceof Outer) return js`new Outer(${{ inner: value.inner }})`;
-		if (value instanceof Inner) return js`new Inner(${value.value})`;
+		const shared = Array.from({ length: 54 }, () => ({}));
+		const source = uneval([shared, shared.slice(), new Wrapper(42)], (value, js) => {
+			if (value instanceof Wrapper) return js`new $(_(${value.inner}))`;
+		});
+		const result = vm.runInNewContext(source, { $: Wrapper, _: (value) => value });
+		for (let i = 0; i < shared.length; i += 1) expect(result[0][i]).toBe(result[1][i]);
+		expect(result[2]).toBeInstanceOf(Wrapper);
+		expect(result[2].inner).toBe(42);
 	});
-	const result = vm.runInNewContext(source, { Inner, Outer });
+	test.each([false, true])(
+		'reserves escaped identifiers in literal source (code_point=%s)',
+		(code_point) => {
+			class Wrapper {
+				constructor(inner) {
+					this.inner = inner;
+				}
+			}
 
-	expect(Inner.calls).toBe(1);
-	expect(Outer.calls).toBe(1);
-	expect(result[0]).toBe(result[1]);
-	expect(result[0].inner).toBe(result[2]);
-	expect(result[0].answer).toBe(42);
-});
-test('preserves a child used by multiple source holes', () => {
-	class Pair {
-		constructor(left, right) {
-			this.left = left;
-			this.right = right;
+			const shared = { answer: 42 };
+			const source = uneval([shared, shared, new Wrapper(shared)], (value, js) => {
+				if (!(value instanceof Wrapper)) return;
+				return code_point ? js`new \u{61}(${value.inner})` : js`new \u0061(${value.inner})`;
+			});
+			const result = vm.runInNewContext(source, { a: Wrapper });
+			expect(result[0]).toBe(result[1]);
+			expect(result[2]).toBeInstanceOf(Wrapper);
+			expect(result[2].inner).toBe(result[0]);
 		}
-	}
-
-	const child = { answer: 42 };
-	const source = uneval(new Pair(child, child), (value, js) =>
-		value instanceof Pair ? js`new Pair(${value.left},${value.right})` : undefined
 	);
-	const result = vm.runInNewContext(source, { Pair });
-
-	expect(result.left).toBe(result.right);
-	expect(result.left.answer).toBe(42);
-});
-test('constructs a dependency-free repeated custom value once', () => {
-	class Wrapper {
-		static calls = 0;
-
-		constructor() {
-			Wrapper.calls += 1;
+	test('preserves identities referenced by custom source', () => {
+		class Wrapper {
+			constructor(inner) {
+				this.inner = inner;
+			}
 		}
-	}
-
-	const wrapper = new Wrapper();
-	Wrapper.calls = 0;
-	let replacer_calls = 0;
-	const source = uneval([wrapper, wrapper], (value, js) => {
-		if (value instanceof Wrapper) {
-			replacer_calls += 1;
-			return js`new Wrapper()`;
-		}
+		const shared = { hello: 'world' };
+		const source = uneval({ wrapped: new Wrapper(shared), shared }, (value, js) =>
+			value instanceof Wrapper ? js`new Wrapper(${value.inner})` : undefined
+		);
+		const result = eval(source);
+		expect(result.wrapped.inner).toBe(result.shared);
 	});
+	test('constructs a repeated wrapper after its shared child is populated', () => {
+		class Wrapper {
+			static calls = 0;
 
-	const result = vm.runInNewContext(source, { Wrapper });
-	expect(replacer_calls).toBe(1);
-	expect(Wrapper.calls).toBe(1);
-	expect(result[0]).toBe(result[1]);
-});
-test('orders a shared typed view after its backing buffer', () => {
-	class Wrapper {
-		static calls = 0;
-
-		constructor(view, buffer) {
-			Wrapper.calls += 1;
-			this.view = view;
-			this.buffer = buffer;
-			this.first = view[0];
+			constructor(inner) {
+				Wrapper.calls += 1;
+				this.inner = inner;
+				this.answer = inner.answer;
+			}
 		}
-	}
 
-	const view = new Uint8Array([1, 2, 3]);
-	const wrapper = new Wrapper(view, view.buffer);
-	Wrapper.calls = 0;
-	let replacer_calls = 0;
-	const source = uneval([wrapper, wrapper, view, view.buffer], (value, js) => {
-		if (value instanceof Wrapper) {
-			replacer_calls += 1;
-			return js`new Wrapper(${value.view},${value.buffer})`;
-		}
+		const child = { answer: 42 };
+		const wrapper = new Wrapper(child);
+		Wrapper.calls = 0;
+		let replacer_calls = 0;
+		const source = uneval([wrapper, wrapper, child], (value, js) => {
+			if (value instanceof Wrapper) {
+				replacer_calls += 1;
+				return js`new Wrapper(${value.inner})`;
+			}
+		});
+		const result = vm.runInNewContext(source, { Wrapper });
+
+		expect(replacer_calls).toBe(1);
+		expect(Wrapper.calls).toBe(1);
+		expect(result[0]).toBe(result[1]);
+		expect(result[0].inner).toBe(result[2]);
+		expect(result[0].answer).toBe(42);
 	});
-	const result = vm.runInNewContext(source, { Wrapper });
+	test('orders nested custom dependencies', () => {
+		class Inner {
+			static calls = 0;
 
-	expect(replacer_calls).toBe(1);
-	expect(Wrapper.calls).toBe(1);
-	expect(result[0]).toBe(result[1]);
-	expect(result[0].view).toBe(result[2]);
-	expect(result[2].buffer).toBe(result[3]);
-	expect(result[0].buffer).toBe(result[3]);
-	expect(result[0].first).toBe(1);
-});
-test('reconstructs custom cycles through mutable containers', () => {
-	class Wrapper {
-		static calls = 0;
-
-		constructor(inner) {
-			Wrapper.calls += 1;
-			this.inner = inner;
+			constructor(value) {
+				Inner.calls += 1;
+				this.value = value;
+			}
 		}
-	}
+		class Outer {
+			static calls = 0;
 
-	const container = {};
-	const wrapper = new Wrapper(container);
-	container.wrapper = wrapper;
-	Wrapper.calls = 0;
-	let replacer_calls = 0;
-	const source = uneval(wrapper, (value, js) => {
-		if (value instanceof Wrapper) {
-			replacer_calls += 1;
-			return js`new Wrapper(${value.inner})`;
+			constructor(inner) {
+				Outer.calls += 1;
+				this.inner = inner;
+				this.answer = inner.value.answer;
+			}
 		}
+
+		const child = { answer: 42 };
+		const inner = new Inner(child);
+		const outer = new Outer(inner);
+		Inner.calls = 0;
+		Outer.calls = 0;
+		const replacer_calls = new Map();
+		const source = uneval([outer, outer, inner, inner, child], (value, js) => {
+			if (value instanceof Outer) {
+				replacer_calls.set(value, (replacer_calls.get(value) ?? 0) + 1);
+				return js`new Outer(${value.inner})`;
+			}
+			if (value instanceof Inner) {
+				replacer_calls.set(value, (replacer_calls.get(value) ?? 0) + 1);
+				return js`new Inner(${value.value})`;
+			}
+		});
+		const result = vm.runInNewContext(source, { Inner, Outer });
+
+		expect(replacer_calls.get(inner)).toBe(1);
+		expect(replacer_calls.get(outer)).toBe(1);
+		expect(Inner.calls).toBe(1);
+		expect(Outer.calls).toBe(1);
+		expect(result[0]).toBe(result[1]);
+		expect(result[0].inner).toBe(result[2]);
+		expect(result[2]).toBe(result[3]);
+		expect(result[2].value).toBe(result[4]);
+		expect(result[0].answer).toBe(42);
 	});
-	const result = vm.runInNewContext(source, { Wrapper });
+	test('finds custom dependencies inside inline containers', () => {
+		class Inner {
+			static calls = 0;
 
-	expect(replacer_calls).toBe(1);
-	expect(Wrapper.calls).toBe(1);
-	expect(result.inner.wrapper).toBe(result);
-});
-test('preserves property order around cyclic references', () => {
-	class Marker {}
+			constructor(value) {
+				Inner.calls += 1;
+				this.value = value;
+			}
+		}
+		class Outer {
+			static calls = 0;
 
-	for (const prototype of [Object.prototype, null]) {
-		for (const position of ['first', 'middle', 'last']) {
-			const value = Object.create(prototype);
+			constructor(options) {
+				Outer.calls += 1;
+				this.inner = options.inner;
+				this.answer = options.inner.value.answer;
+			}
+		}
+
+		const inner = new Inner({ answer: 42 });
+		const outer = new Outer({ inner });
+		Inner.calls = 0;
+		Outer.calls = 0;
+		const source = uneval([outer, outer, inner], (value, js) => {
+			if (value instanceof Outer) return js`new Outer(${{ inner: value.inner }})`;
+			if (value instanceof Inner) return js`new Inner(${value.value})`;
+		});
+		const result = vm.runInNewContext(source, { Inner, Outer });
+
+		expect(Inner.calls).toBe(1);
+		expect(Outer.calls).toBe(1);
+		expect(result[0]).toBe(result[1]);
+		expect(result[0].inner).toBe(result[2]);
+		expect(result[0].answer).toBe(42);
+	});
+	test('preserves a child used by multiple source holes', () => {
+		class Pair {
+			constructor(left, right) {
+				this.left = left;
+				this.right = right;
+			}
+		}
+
+		const child = { answer: 42 };
+		const source = uneval(new Pair(child, child), (value, js) =>
+			value instanceof Pair ? js`new Pair(${value.left},${value.right})` : undefined
+		);
+		const result = vm.runInNewContext(source, { Pair });
+
+		expect(result.left).toBe(result.right);
+		expect(result.left.answer).toBe(42);
+	});
+	test('constructs a dependency-free repeated custom value once', () => {
+		class Wrapper {
+			static calls = 0;
+
+			constructor() {
+				Wrapper.calls += 1;
+			}
+		}
+
+		const wrapper = new Wrapper();
+		Wrapper.calls = 0;
+		let replacer_calls = 0;
+		const source = uneval([wrapper, wrapper], (value, js) => {
+			if (value instanceof Wrapper) {
+				replacer_calls += 1;
+				return js`new Wrapper()`;
+			}
+		});
+
+		const result = vm.runInNewContext(source, { Wrapper });
+		expect(replacer_calls).toBe(1);
+		expect(Wrapper.calls).toBe(1);
+		expect(result[0]).toBe(result[1]);
+	});
+	test('orders a shared typed view after its backing buffer', () => {
+		class Wrapper {
+			static calls = 0;
+
+			constructor(view, buffer) {
+				Wrapper.calls += 1;
+				this.view = view;
+				this.buffer = buffer;
+				this.first = view[0];
+			}
+		}
+
+		const view = new Uint8Array([1, 2, 3]);
+		const wrapper = new Wrapper(view, view.buffer);
+		Wrapper.calls = 0;
+		let replacer_calls = 0;
+		const source = uneval([wrapper, wrapper, view, view.buffer], (value, js) => {
+			if (value instanceof Wrapper) {
+				replacer_calls += 1;
+				return js`new Wrapper(${value.view},${value.buffer})`;
+			}
+		});
+		const result = vm.runInNewContext(source, { Wrapper });
+
+		expect(replacer_calls).toBe(1);
+		expect(Wrapper.calls).toBe(1);
+		expect(result[0]).toBe(result[1]);
+		expect(result[0].view).toBe(result[2]);
+		expect(result[2].buffer).toBe(result[3]);
+		expect(result[0].buffer).toBe(result[3]);
+		expect(result[0].first).toBe(1);
+	});
+	test('reconstructs custom cycles through mutable containers', () => {
+		class Wrapper {
+			static calls = 0;
+
+			constructor(inner) {
+				Wrapper.calls += 1;
+				this.inner = inner;
+			}
+		}
+
+		const container = {};
+		const wrapper = new Wrapper(container);
+		container.wrapper = wrapper;
+		Wrapper.calls = 0;
+		let replacer_calls = 0;
+		const source = uneval(wrapper, (value, js) => {
+			if (value instanceof Wrapper) {
+				replacer_calls += 1;
+				return js`new Wrapper(${value.inner})`;
+			}
+		});
+		const result = vm.runInNewContext(source, { Wrapper });
+
+		expect(replacer_calls).toBe(1);
+		expect(Wrapper.calls).toBe(1);
+		expect(result.inner.wrapper).toBe(result);
+	});
+	describe.each([
+		{ name: 'Object.prototype', prototype: Object.prototype },
+		{ name: 'null prototype', prototype: null }
+	])('$name', ({ prototype }) => {
+		test.each(['first', 'middle', 'last'])(
+			'preserves property order around cyclic references (%s)',
+			(position) => {
+				class Marker {}
+
+				const value = Object.create(prototype);
+				const completed = { done: true };
+				if (position !== 'first') value.before = completed;
+				value.self = value;
+				if (position !== 'last') value.after = 42;
+
+				const source = uneval([value, new Marker()], (item, js) =>
+					item instanceof Marker ? js`new Marker()` : undefined
+				);
+				const [result] = vm.runInNewContext(source, { Marker });
+				const expected = [
+					...(position === 'first' ? [] : ['before']),
+					'self',
+					...(position === 'last' ? [] : ['after'])
+				];
+
+				expect(Object.keys(result)).toEqual(expected);
+				expect(result.self).toBe(result);
+				if (position !== 'first') expect(result.before.done).toBe(true);
+			}
+		);
+	});
+	test.each(['first', 'middle', 'last'])(
+		'preserves Map and Set order around cyclic references (%s)',
+		(position) => {
+			class Marker {}
+
 			const completed = { done: true };
-			if (position !== 'first') value.before = completed;
-			value.self = value;
-			if (position !== 'last') value.after = 42;
+			const map = new Map();
+			if (position !== 'first') map.set('before', completed);
+			map.set('self', map);
+			if (position !== 'last') map.set('after', 42);
 
-			const source = uneval([value, new Marker()], (item, js) =>
+			const set = new Set();
+			if (position !== 'first') set.add(completed);
+			set.add(set);
+			if (position !== 'last') set.add(42);
+
+			const source = uneval([map, set, new Marker()], (item, js) =>
 				item instanceof Marker ? js`new Marker()` : undefined
 			);
-			const [result] = vm.runInNewContext(source, { Marker });
-			const expected = [
-				...(position === 'first' ? [] : ['before']),
-				'self',
-				...(position === 'last' ? [] : ['after'])
-			];
-
-			expect(Object.keys(result)).toEqual(expected);
-			expect(result.self).toBe(result);
-			if (position !== 'first') expect(result.before.done).toBe(true);
-		}
-	}
-});
-test('preserves Map and Set order around cyclic references', () => {
-	class Marker {}
-
-	for (const position of ['first', 'middle', 'last']) {
-		const completed = { done: true };
-		const map = new Map();
-		if (position !== 'first') map.set('before', completed);
-		map.set('self', map);
-		if (position !== 'last') map.set('after', 42);
-
-		const set = new Set();
-		if (position !== 'first') set.add(completed);
-		set.add(set);
-		if (position !== 'last') set.add(42);
-
-		const source = uneval([map, set, new Marker()], (item, js) =>
-			item instanceof Marker ? js`new Marker()` : undefined
-		);
-		const [result_map, result_set] = vm.runInNewContext(source, { Marker });
-		const map_entries = Array.from(result_map);
-		const set_values = Array.from(result_set);
+			const [result_map, result_set] = vm.runInNewContext(source, { Marker });
+			const map_entries = Array.from(result_map);
+			const set_values = Array.from(result_set);
 
 			expect(map_entries.map(([key]) => key)).toEqual([
 				...(position === 'first' ? [] : ['before']),
 				'self',
 				...(position === 'last' ? [] : ['after'])
 			]);
-		expect(map_entries[position === 'first' ? 0 : 1][1]).toBe(result_map);
-		expect(set_values[position === 'first' ? 0 : 1]).toBe(result_set);
-		if (position !== 'first') {
-			expect(map_entries[0][1].done).toBe(true);
-			expect(set_values[0].done).toBe(true);
-		}
-		if (position !== 'last') {
-			expect(map_entries.at(-1)[1]).toBe(42);
-			expect(set_values.at(-1)).toBe(42);
-		}
-	}
-});
-test('preserves order in mutual and custom cycles', () => {
-	class Wrapper {
-		constructor(inner) {
-			this.inner = inner;
-			this.before = inner.before.done;
-		}
-	}
-
-	const left = {};
-	const right = {};
-	left.peer = right;
-	left.tail = 'left';
-	right.peer = left;
-	right.tail = 'right';
-
-	const container = {};
-	container.before = { done: true };
-	const wrapper = new Wrapper(container);
-	container.wrapper = wrapper;
-	container.tail = 42;
-
-	const source = uneval([left, right, wrapper], (item, js) =>
-		item instanceof Wrapper ? js`new Wrapper(${item.inner})` : undefined
-	);
-	const [result_left, result_right, result_wrapper] = vm.runInNewContext(source, { Wrapper });
-
-	expect(Object.keys(result_left)).toEqual(['peer', 'tail']);
-	expect(Object.keys(result_right)).toEqual(['peer', 'tail']);
-	expect(result_left.peer).toBe(result_right);
-	expect(result_right.peer).toBe(result_left);
-	expect(Object.keys(result_wrapper.inner)).toEqual(['before', 'wrapper', 'tail']);
-	expect(result_wrapper.inner.wrapper).toBe(result_wrapper);
-	expect(result_wrapper.before).toBe(true);
-	expect(result_wrapper.inner.tail).toBe(42);
-});
-test('rejects cycles made entirely of custom constructions', () => {
-	class Atomic {
-		constructor() {
-			this.other = undefined;
-		}
-	}
-
-	const a = new Atomic();
-	const b = new Atomic();
-	a.other = b;
-	b.other = a;
-	const self = new Atomic();
-	self.other = self;
-	for (const value of [a, self]) {
-		const error = catch_error(() =>
-			uneval(value, (item, js) =>
-				item instanceof Atomic
-					? js`Object.assign(new Atomic(),{other:${item.other}})`
-					: undefined
-			)
-		);
-		expect(error).toMatchObject({
-			name: 'RangeError',
-			message: 'Maximum call stack size exceeded'
-		});
-	}
-});
-test('accepts only documented fallback values and rejects invalid fragments', () => {
-	for (const fallback of [undefined, null, false]) {
-		expect(uneval({ answer: 42 }, () => fallback)).toBe('{answer:42}');
-	}
-
-	for (const invalid of ['', 0, NaN, 0n]) {
-		const error = catch_error(() => uneval({ answer: 42 }, () => invalid));
-		expect(error).toBeInstanceOf(TypeError);
-		expect(error.message).toBe('Invalid uneval replacer result');
-	}
-
-	for (const invalid of [1, true, 'new Date()', Promise.resolve(), {}]) {
-		const error = catch_error(() => uneval({ answer: 42 }, () => invalid));
-		expect(error).toBeInstanceOf(TypeError);
-		expect(error.message).toBe('Invalid JavaScript fragment');
-	}
-});
-test('treats replacer results as expressions', () => {
-	class Replacement {
-		constructor(source) {
-			this.source = source;
-		}
-	}
-
-	const comma = new Replacement('comma');
-	const conditional = new Replacement('conditional');
-	const object = new Replacement('object');
-	const nested = new Replacement('nested');
-	const escaped = new Replacement('escaped');
-	const slashes = new Replacement('slashes');
-	const block = new Replacement('block');
-	const partial = new Replacement('partial');
-	const source = uneval(
-		[comma, conditional, object, nested, escaped, slashes, block, partial],
-		(value, js) => {
-			if (!(value instanceof Replacement)) return;
-			switch (value.source) {
-				case 'comma':
-					return js`(1,2)`;
-				case 'conditional':
-					return js`false?1:2`;
-				case 'object':
-					return js`{answer:42}`;
-				case 'nested':
-					return js`${js`Math.max(`}${1},${2}${js`)`}`;
-				case 'escaped':
-					return js`${'</script>'}`;
-				case 'slashes':
-					return js`"https://example.com//path"`;
-				case 'block':
-					return js`/* before */ ({answer:42}) /* after */`;
-				case 'partial':
-					return js`${js`(()=>{ // comment from a partial fragment`}${js`\nreturn `}${42}${js`;})()`}`;
+			expect(map_entries[position === 'first' ? 0 : 1][1]).toBe(result_map);
+			expect(set_values[position === 'first' ? 0 : 1]).toBe(result_set);
+			if (position !== 'first') {
+				expect(map_entries[0][1].done).toBe(true);
+				expect(set_values[0].done).toBe(true);
+			}
+			if (position !== 'last') {
+				expect(map_entries.at(-1)[1]).toBe(42);
+				expect(set_values.at(-1)).toBe(42);
 			}
 		}
 	);
-	const result = vm.runInNewContext(source);
+	test('preserves order in mutual and custom cycles', () => {
+		class Wrapper {
+			constructor(inner) {
+				this.inner = inner;
+				this.before = inner.before.done;
+			}
+		}
 
-	expect(result.length).toBe(8);
-	expect(result[0]).toBe(2);
-	expect(result[1]).toBe(2);
-	expect(result[2].answer).toBe(42);
-	expect(result[3]).toBe(2);
-	expect(result[4]).toBe('</script>');
-	expect(result[5]).toBe('https://example.com//path');
-	expect(result[6].answer).toBe(42);
-	expect(result[7]).toBe(42);
-	expect(!source.includes('</script>')).toBeTruthy();
-});
-test('requires js to be used as a tagged template', () => {
-	for (const invoke of [
-		(js) => js('new Date()'),
-		(js) => js(['new Date()'])
-	]) {
-		expect(() =>
-			uneval(new Date(), (value, js) => value instanceof Date ? invoke(js) : undefined)
-		).toThrow(/^`js` must be used as a tagged template, but was called as a regular function$/);
-	}
-});
-});
+		const left = {};
+		const right = {};
+		left.peer = right;
+		left.tail = 'left';
+		right.peer = left;
+		right.tail = 'right';
 
-for (const [name, tests] of Object.entries(fixtures)) {
-	describe(`stringify: ${name}`, () => {
-	for (const t of tests) {
-		test(t.name, () => {
-			const actual = stringify(t.value, t.reducers);
-			const expected = t.json;
-			expect(actual).toEqual(expected);
-		});
-	}
+		const container = {};
+		container.before = { done: true };
+		const wrapper = new Wrapper(container);
+		container.wrapper = wrapper;
+		container.tail = 42;
+
+		const source = uneval([left, right, wrapper], (item, js) =>
+			item instanceof Wrapper ? js`new Wrapper(${item.inner})` : undefined
+		);
+		const [result_left, result_right, result_wrapper] = vm.runInNewContext(source, { Wrapper });
+
+		expect(Object.keys(result_left)).toEqual(['peer', 'tail']);
+		expect(Object.keys(result_right)).toEqual(['peer', 'tail']);
+		expect(result_left.peer).toBe(result_right);
+		expect(result_right.peer).toBe(result_left);
+		expect(Object.keys(result_wrapper.inner)).toEqual(['before', 'wrapper', 'tail']);
+		expect(result_wrapper.inner.wrapper).toBe(result_wrapper);
+		expect(result_wrapper.before).toBe(true);
+		expect(result_wrapper.inner.tail).toBe(42);
 	});
-}
+	test.each(['mutual', 'self'])(
+		'rejects cycles made entirely of custom constructions (%s)',
+		(kind) => {
+			class Atomic {
+				constructor() {
+					this.other = undefined;
+				}
+			}
+
+			const a = new Atomic();
+			const b = new Atomic();
+			a.other = b;
+			b.other = a;
+			const self = new Atomic();
+			self.other = self;
+			const value = kind === 'mutual' ? a : self;
+			const error = catch_error(() =>
+				uneval(value, (item, js) =>
+					item instanceof Atomic ? js`Object.assign(new Atomic(),{other:${item.other}})` : undefined
+				)
+			);
+			expect(error).toMatchObject({
+				name: 'RangeError',
+				message: 'Maximum call stack size exceeded'
+			});
+		}
+	);
+	test.each([undefined, null, false])('accepts documented fallback %s', (fallback) => {
+		expect(uneval({ answer: 42 }, () => fallback)).toBe('{answer:42}');
+	});
+
+	test.each([
+		{ name: 'empty string', invalid: '' },
+		{ name: 'zero', invalid: 0 },
+		{ name: 'NaN', invalid: NaN },
+		{ name: 'zero bigint', invalid: 0n }
+	])('rejects undocumented fallback $name', ({ invalid }) => {
+		const error = catch_error(() => uneval({ answer: 42 }, () => invalid));
+		expect(error).toBeInstanceOf(TypeError);
+		expect(error.message).toBe('Invalid uneval replacer result');
+	});
+
+	test.each([
+		{ name: 'one', invalid: 1 },
+		{ name: 'true', invalid: true },
+		{ name: 'source string', invalid: 'new Date()' },
+		{ name: 'Promise', invalid: Promise.resolve() },
+		{ name: 'object', invalid: {} }
+	])('rejects invalid fragment $name', ({ invalid }) => {
+		const error = catch_error(() => uneval({ answer: 42 }, () => invalid));
+		expect(error).toBeInstanceOf(TypeError);
+		expect(error.message).toBe('Invalid JavaScript fragment');
+	});
+	test('treats replacer results as expressions', () => {
+		class Replacement {
+			constructor(source) {
+				this.source = source;
+			}
+		}
+
+		const comma = new Replacement('comma');
+		const conditional = new Replacement('conditional');
+		const object = new Replacement('object');
+		const nested = new Replacement('nested');
+		const escaped = new Replacement('escaped');
+		const slashes = new Replacement('slashes');
+		const block = new Replacement('block');
+		const partial = new Replacement('partial');
+		const source = uneval(
+			[comma, conditional, object, nested, escaped, slashes, block, partial],
+			(value, js) => {
+				if (!(value instanceof Replacement)) return;
+				switch (value.source) {
+					case 'comma':
+						return js`(1,2)`;
+					case 'conditional':
+						return js`false?1:2`;
+					case 'object':
+						return js`{answer:42}`;
+					case 'nested':
+						return js`${js`Math.max(`}${1},${2}${js`)`}`;
+					case 'escaped':
+						return js`${'</script>'}`;
+					case 'slashes':
+						return js`"https://example.com//path"`;
+					case 'block':
+						return js`/* before */ ({answer:42}) /* after */`;
+					case 'partial':
+						return js`${js`(()=>{ // comment from a partial fragment`}${js`\nreturn `}${42}${js`;})()`}`;
+				}
+			}
+		);
+		const result = vm.runInNewContext(source);
+
+		expect(result.length).toBe(8);
+		expect(result[0]).toBe(2);
+		expect(result[1]).toBe(2);
+		expect(result[2].answer).toBe(42);
+		expect(result[3]).toBe(2);
+		expect(result[4]).toBe('</script>');
+		expect(result[5]).toBe('https://example.com//path');
+		expect(result[6].answer).toBe(42);
+		expect(result[7]).toBe(42);
+		expect(!source.includes('</script>')).toBeTruthy();
+	});
+	test.each([
+		{ name: 'string', invoke: (js) => js('new Date()') },
+		{ name: 'array', invoke: (js) => js(['new Date()']) }
+	])('requires js to be used as a tagged template ($name argument)', ({ invoke }) => {
+		expect(() =>
+			uneval(new Date(), (value, js) => (value instanceof Date ? invoke(js) : undefined))
+		).toThrow(/^`js` must be used as a tagged template, but was called as a regular function$/);
+	});
+});
+
+describe.each(Object.entries(fixtures))('stringify: %s', (_name, tests) => {
+	test.each(tests.map((t) => [t.name, t]))('%s', (_name, t) => {
+		const actual = stringify(t.value, t.reducers);
+		const expected = t.json;
+		expect(actual).toEqual(expected);
+	});
+});
 
 describe('parse wrapper', () => {
+	test('parses normal input', () => {
+		expect(parse('[{"answer":1},42]')).toEqual({ answer: 42 });
+	});
 
-test('parses normal input', () => {
-	expect(parse('[{"answer":1},42]')).toEqual({ answer: 42 });
-});
+	test('forwards primitive sentinels', () => {
+		expect(parse(`${consts.UNDEFINED}`)).toBe(undefined);
+	});
 
-test('forwards primitive sentinels', () => {
-	expect(parse(`${consts.UNDEFINED}`)).toBe(undefined);
-});
-
-test('forwards revivers', () => {
-	class Answer {
-		constructor(value) {
-			this.value = value;
+	test('forwards revivers', () => {
+		class Answer {
+			constructor(value) {
+				this.value = value;
+			}
 		}
-	}
 
-	const actual = parse('[["Answer",1],42]', {
-		Answer: (value) => new Answer(value)
-	});
-
-	expect(actual instanceof Answer).toBeTruthy();
-	expect(actual.value).toBe(42);
-});
-
-});
-
-for (const [name, tests] of Object.entries(fixtures)) {
-	describe(`unflatten: ${name}`, () => {
-	for (const t of tests) {
-		test(t.name, () => {
-			const actual = unflatten(JSON.parse(t.json), t.revivers);
-			validate_fixture(t, actual);
+		const actual = parse('[["Answer",1],42]', {
+			Answer: (value) => new Answer(value)
 		});
-	}
+
+		expect(actual instanceof Answer).toBeTruthy();
+		expect(actual.value).toBe(42);
 	});
-}
+});
+
+describe.each(Object.entries(fixtures))('unflatten: %s', (_name, tests) => {
+	test.each(tests.map((t) => [t.name, t]))('%s', (_name, t) => {
+		const actual = unflatten(JSON.parse(t.json), t.revivers);
+		validate_fixture(t, actual);
+	});
+});
 
 const invalid = [
 	{
@@ -1893,19 +1890,21 @@ const invalid = [
 	}
 ];
 
-for (const { name, json, message, error: ErrorType, revivers } of invalid) {
-	test(`parse error: ${name}`, () => {
+test.each(invalid.map((t) => [t.name, t]))(
+	'parse error: %s',
+	(_name, { json, message, error: ErrorType, revivers }) => {
 		const error = catch_error(() => parse(json, revivers));
 		if (ErrorType) {
 			expect(error).toBeInstanceOf(ErrorType);
 		} else {
 			expect(error).toMatchObject({ message });
 		}
-	});
-}
+	}
+);
 
-for (const key of ['["__proto__"]', '[["__proto__"]]', '[]', '{}', '0', 'true', 'null']) {
-	test(`rejects null-prototype object key ${key}`, () => {
+test.each(['["__proto__"]', '[["__proto__"]]', '[]', '{}', '0', 'true', 'null'])(
+	'rejects null-prototype object key %s',
+	(key) => {
 		const json = `[["null",${key},1],{"isAdmin":2},true]`;
 		const message = 'Cannot parse an object with a non-string key';
 
@@ -1917,8 +1916,8 @@ for (const key of ['["__proto__"]', '[["__proto__"]]', '[]', '{}', '0', 'true', 
 			() => unflatten(JSON.parse(json)),
 			(error) => error.message === message
 		);
-	});
-}
+	}
+);
 
 test('rejects coerced __proto__ keys in nested null-prototype objects', () => {
 	const json = '[{"data":1},["null",["__proto__"],2],{"isAdmin":3},true]';
@@ -1934,41 +1933,43 @@ test('rejects coerced __proto__ keys in nested null-prototype objects', () => {
 	);
 });
 
-test('null-prototype objects retain valid string keys', () => {
-	const input = Object.assign(Object.create(null), {
-		'': 'empty',
-		0: 'numeric',
-		constructor: 'constructor',
-		toString: 'toString'
-	});
-	const json = stringify(input);
+test.each([parse, unflatten].map((fn) => ({ fn })))(
+	'$fn.name: null-prototype objects retain valid string keys',
+	({ fn }) => {
+		const input = Object.assign(Object.create(null), {
+			'': 'empty',
+			0: 'numeric',
+			constructor: 'constructor',
+			toString: 'toString'
+		});
+		const json = stringify(input);
 
-	for (const result of [parse(json), unflatten(JSON.parse(json))]) {
+		const result = fn(fn === parse ? json : JSON.parse(json));
 		expect(Object.getPrototypeOf(result)).toBe(null);
 		expect(result).toStrictEqual(input);
 	}
-});
+);
 
-for (const fn of [uneval, stringify]) {
-	test(`${fn.name} throws for non-POJOs`, () => {
+describe.each([uneval, stringify].map((fn) => ({ fn })))('$fn.name', ({ fn }) => {
+	test('throws for non-POJOs', () => {
 		class Foo {}
 		const foo = new Foo();
 		expect(() => fn(foo)).toThrow();
 	});
 
-	test(`${fn.name} throws for Symbols`, () => {
+	test('throws for Symbols', () => {
 		expect(() => fn(Symbol('foo'))).toThrow();
 	});
 
-	test(`${fn.name} throws for boxed Symbols`, () => {
+	test('throws for boxed Symbols', () => {
 		expect(() => fn(Object(Symbol('foo')))).toThrow();
 	});
 
-	test(`${fn.name} throws for symbolic keys`, () => {
+	test('throws for symbolic keys', () => {
 		expect(() => fn({ [Symbol()]: null })).toThrow();
 	});
 
-	test(`${fn.name} throws for __proto__ keys`, () => {
+	test('throws for __proto__ keys', () => {
 		const inner = JSON.parse('{"__proto__":1}');
 		const root = { foo: inner };
 		const error = catch_error(() => fn(root));
@@ -1979,7 +1980,7 @@ for (const fn of [uneval, stringify]) {
 		expect(error.root).toBe(root);
 	});
 
-	test(`${fn.name} reports function diagnostic context`, () => {
+	test('reports function diagnostic context', () => {
 		const value = function invalid() {};
 		const root = { foo: { array: [value] } };
 		const error = catch_error(() => fn(root));
@@ -1991,7 +1992,7 @@ for (const fn of [uneval, stringify]) {
 		expect(error.root).toBe(root);
 	});
 
-	test(`${fn.name} reports non-POJO diagnostic context`, () => {
+	test('reports non-POJO diagnostic context', () => {
 		class Whatever {}
 		const value = new Whatever();
 		const root = { foo: { ['string-key']: new Map([['key', value]]) } };
@@ -2004,7 +2005,7 @@ for (const fn of [uneval, stringify]) {
 		expect(error.root).toBe(root);
 	});
 
-	test(`${fn.name} populates error.path after maps (#64)`, () => {
+	test('populates error.path after maps (#64)', () => {
 		const value = function invalid() {};
 		const root = {
 			map: new Map([['key', 'value']]),
@@ -2019,7 +2020,7 @@ for (const fn of [uneval, stringify]) {
 		expect(error.root).toBe(root);
 	});
 
-	test(`${fn.name} reports symbolic-key diagnostic context`, () => {
+	test('reports symbolic-key diagnostic context', () => {
 		const symbolKey = Symbol('key');
 		const root = { [symbolKey]: 'value' };
 		const error = catch_error(() => fn(root));
@@ -2030,7 +2031,7 @@ for (const fn of [uneval, stringify]) {
 		expect(error.value).toBe(root);
 		expect(error.root).toBe(root);
 	});
-}
+});
 
 test('handles very sparse arrays efficiently', () => {
 	const arr = [];
@@ -2056,13 +2057,12 @@ test('handles very sparse arrays efficiently', () => {
 	expect(elapsed2 < 100, `uneval took ${elapsed2}ms, expected < 100ms`).toBeTruthy();
 });
 
-for (const kind of ['empty', 'single', 'shared', 'cyclic']) {
-	test(`uneval does not scan sparse array holes (${kind})`, () => {
+test.each(['empty', 'single', 'shared', 'cyclic'])(
+	'uneval does not scan sparse array holes (%s)',
+	(kind) => {
 		const length = 2 ** 32 - 1;
 		const index = length - 1;
-		const array = parse(
-			kind === 'empty' ? `[[-7,${length}]]` : `[[-7,${length},${index},1],42]`
-		);
+		const array = parse(kind === 'empty' ? `[[-7,${length}]]` : `[[-7,${length},${index},1],42]`);
 
 		// Count property probes rather than relying on wall-clock timings. This
 		// also bounds the work if either traversal regresses to scanning holes.
@@ -2097,34 +2097,38 @@ for (const kind of ['empty', 'single', 'shared', 'cyclic']) {
 		expect(Object.keys(restored)).toStrictEqual(kind === 'empty' ? [] : [String(index)]);
 		if (kind !== 'empty') expect(restored[index]).toBe(kind === 'cyclic' ? restored : 42);
 		if (kind === 'shared') expect(result[0]).toBe(result[1]);
-	});
-}
-
-for (const length of [3, 1000]) {
-	for (const shared of [false, true]) {
-		test(`uneval ignores inherited array elements (length=${length}, shared=${shared})`, () => {
-			const proto = Object.create(Array.prototype);
-			for (const index of [1, length - 1]) {
-				Object.defineProperty(proto, index, {
-					enumerable: index === 1,
-					get() {
-						throw new Error('inherited array elements should not be read');
-					}
-				});
-			}
-			const array = [42];
-			array.length = length;
-			Object.setPrototypeOf(array, proto);
-
-			const result = (0, eval)(uneval(shared ? [array, array] : array));
-			const restored = shared ? result[0] : result;
-			expect(restored.length).toBe(length);
-			expect(Object.keys(restored)).toStrictEqual(['0']);
-			expect(restored[0]).toBe(42);
-			if (shared) expect(result[0]).toBe(result[1]);
-		});
 	}
-}
+);
+
+test.each([
+	{ length: 3, shared: false },
+	{ length: 3, shared: true },
+	{ length: 1000, shared: false },
+	{ length: 1000, shared: true }
+])(
+	'uneval ignores inherited array elements (length=$length, shared=$shared)',
+	({ length, shared }) => {
+		const proto = Object.create(Array.prototype);
+		for (const index of [1, length - 1]) {
+			Object.defineProperty(proto, index, {
+				enumerable: index === 1,
+				get() {
+					throw new Error('inherited array elements should not be read');
+				}
+			});
+		}
+		const array = [42];
+		array.length = length;
+		Object.setPrototypeOf(array, proto);
+
+		const result = (0, eval)(uneval(shared ? [array, array] : array));
+		const restored = shared ? result[0] : result;
+		expect(restored.length).toBe(length);
+		expect(Object.keys(restored)).toStrictEqual(['0']);
+		expect(restored[0]).toBe(42);
+		if (shared) expect(result[0]).toBe(result[1]);
+	}
+);
 
 test('uneval ignores non-index properties on shared arrays', () => {
 	const array = [42];
@@ -2168,7 +2172,10 @@ test('ignores non-numeric array properties in dense encoding', () => {
 	const js = uneval(arr);
 	expect(!js.includes('foo'), `uneval output should not contain "foo": ${js}`).toBeTruthy();
 	expect(!js.includes('bar'), `uneval output should not contain "bar": ${js}`).toBeTruthy();
-	expect(!js.includes('should be ignored'), `uneval output should not contain non-numeric value: ${js}`).toBeTruthy();
+	expect(
+		!js.includes('should be ignored'),
+		`uneval output should not contain non-numeric value: ${js}`
+	).toBeTruthy();
 	const evaled = (0, eval)(js);
 	expect(evaled.length).toBe(4);
 	expect(evaled[1]).toBe('a');
@@ -2186,8 +2193,9 @@ test('ignores non-numeric array properties in dense encoding', () => {
 	expect(!(0 in parsed)).toBeTruthy();
 });
 
-test('uneval round-trips sparse arrays whose first hole is not at index 0', () => {
-	for (const arr of [[1, , 3], [1, ,], [1, , , 4], [1, 2, , 4]]) {
+test.each([{ arr: [1, , 3] }, { arr: [1, ,] }, { arr: [1, , , 4] }, { arr: [1, 2, , 4] }])(
+	'uneval round-trips sparse arrays whose first hole is not at index 0 ($arr)',
+	({ arr }) => {
 		const evaled = (0, eval)(uneval(arr));
 		expect(evaled.length, `length for keys ${Object.keys(arr).join(',')}`).toBe(arr.length);
 		expect(Object.keys(evaled)).toEqual(Object.keys(arr));
@@ -2195,7 +2203,7 @@ test('uneval round-trips sparse arrays whose first hole is not at index 0', () =
 			expect(evaled[k]).toBe(arr[k]);
 		}
 	}
-});
+);
 
 test('ignores non-numeric array properties in sparse encoding', () => {
 	// Sparse path (very sparse — Object.assign / SPARSE encoding wins)
@@ -2208,8 +2216,14 @@ test('ignores non-numeric array properties in sparse encoding', () => {
 	const js = uneval(arr);
 	expect(!js.includes('foo'), `uneval output should not contain "foo": ${js}`).toBeTruthy();
 	expect(!js.includes('bar'), `uneval output should not contain "bar": ${js}`).toBeTruthy();
-	expect(!js.includes('should be ignored'), `uneval output should not contain non-numeric value: ${js}`).toBeTruthy();
-	expect(js.includes('Object.assign'), `uneval should use Object.assign for very sparse arrays`).toBeTruthy();
+	expect(
+		!js.includes('should be ignored'),
+		`uneval output should not contain non-numeric value: ${js}`
+	).toBeTruthy();
+	expect(
+		js.includes('Object.assign'),
+		`uneval should use Object.assign for very sparse arrays`
+	).toBeTruthy();
 	const evaled = (0, eval)(js);
 	expect(evaled.length).toBe(1_000_001);
 	expect(evaled[1_000_000]).toBe('x');
@@ -2365,8 +2379,9 @@ const sparseDoSCases = [
 	{ perArrayLen: 100_000_000, count: 25 }
 ];
 
-for (const { perArrayLen, count } of sparseDoSCases) {
-	test(`does not eagerly allocate sparse arrays (len=${perArrayLen}, count=${count})`, () => {
+test.each(sparseDoSCases)(
+	'does not eagerly allocate sparse arrays (len=$perArrayLen, count=$count)',
+	({ perArrayLen, count }) => {
 		const payload = buildSparseDoSPayload(count, perArrayLen);
 		const result = parse(payload);
 
@@ -2384,11 +2399,12 @@ for (const { perArrayLen, count } of sparseDoSCases) {
 		expect(last.length).toBe(perArrayLen);
 		expect(first[0]).toBe(42);
 		expect(last[0]).toBe(42);
-	});
-}
+	}
+);
 
-for (const kind of ['inline', 'shared', 'cyclic', 'holes']) {
-	test(`uneval evaluates ${kind} sparse arrays without eager allocation`, () => {
+test.each(['inline', 'shared', 'cyclic', 'holes'])(
+	'uneval evaluates %s sparse arrays without eager allocation',
+	(kind) => {
 		// As in the parse regressions above, eager allocation would require ~20GB.
 		const length = 1_000_000;
 		const arrays = Object.values(parse(buildSparseDoSPayload(2500, length)));
@@ -2419,275 +2435,263 @@ for (const kind of ['inline', 'shared', 'cyclic', 'holes']) {
 			}
 			if (kind === 'shared') expect(result[0][i]).toBe(result[1][i]);
 		}
-	});
-}
-
+	}
+);
 
 // --- stringifyAsync tests ---
 
 // Verify same-version wire compatibility and round-trip semantics in one pass
-for (const [name, tests] of Object.entries(fixtures)) {
-	describe(`stringifyAsync: ${name}`, () => {
-	for (const t of tests) {
-		test(t.name, async () => {
-			const json = await stringifyAsync(t.value, t.reducers);
+describe.each(Object.entries(fixtures))('stringifyAsync: %s', (_name, tests) => {
+	test.each(tests.map((t) => [t.name, t]))('%s', async (_name, t) => {
+		const json = await stringifyAsync(t.value, t.reducers);
 
-			expect(json).toEqual(stringify(t.value, t.reducers));
-			validate_fixture(t, parse(json, t.revivers));
-		});
-	}
+		expect(json).toEqual(stringify(t.value, t.reducers));
+		validate_fixture(t, parse(json, t.revivers));
 	});
-}
+});
 
 // Async-specific tests
 describe('stringifyAsync: promises', () => {
-
-test('resolves top-level promise', async () => {
-	const result = await stringifyAsync(Promise.resolve(42));
-	expect(result).toEqual(stringify(42));
-});
-
-test('resolves promise to undefined', async () => {
-	const result = await stringifyAsync(Promise.resolve(undefined));
-	expect(result).toEqual(stringify(undefined));
-});
-
-test('resolves promise to null', async () => {
-	const result = await stringifyAsync(Promise.resolve(null));
-	expect(result).toEqual(stringify(null));
-});
-
-test('resolves promise to NaN', async () => {
-	const result = await stringifyAsync(Promise.resolve(NaN));
-	expect(result).toEqual(stringify(NaN));
-});
-
-test('resolves nested promises in objects', async () => {
-	const result = await stringifyAsync({
-		a: Promise.resolve(1),
-		b: Promise.resolve('hello')
+	test('resolves top-level promise', async () => {
+		const result = await stringifyAsync(Promise.resolve(42));
+		expect(result).toEqual(stringify(42));
 	});
-	expect(result).toEqual(stringify({ a: 1, b: 'hello' }));
-});
 
-test('resolves promises in arrays', async () => {
-	const result = await stringifyAsync([Promise.resolve('a'), Promise.resolve('b')]);
-	expect(result).toEqual(stringify(['a', 'b']));
-});
-
-test('resolves promises in Sets', async () => {
-	const result = await stringifyAsync(new Set([Promise.resolve(1), Promise.resolve(2)]));
-	expect(result).toEqual(stringify(new Set([1, 2])));
-});
-
-test('resolves promises in Map values', async () => {
-	const result = await stringifyAsync(new Map([['key', Promise.resolve('value')]]));
-	expect(result).toEqual(stringify(new Map([['key', 'value']])));
-});
-
-test('resolves deeply nested promises', async () => {
-	const result = await stringifyAsync({
-		a: { b: { c: Promise.resolve(42) } }
+	test('resolves promise to undefined', async () => {
+		const result = await stringifyAsync(Promise.resolve(undefined));
+		expect(result).toEqual(stringify(undefined));
 	});
-	expect(result).toEqual(stringify({ a: { b: { c: 42 } } }));
-});
 
-test('deduplicates resolved values by identity', async () => {
-	const obj = { x: 1 };
-	const promise = Promise.resolve(obj);
-	const result = await stringifyAsync([promise, promise]);
-	expect(result).toEqual(stringify([obj, obj]));
-});
-
-test('handles thenables', async () => {
-	const thenable = { then: (resolve) => resolve(42) };
-	const result = await stringifyAsync(thenable);
-	expect(result).toEqual(stringify(42));
-});
-
-test('propagates rejected promises', async () => {
-	const expected = new Error('fail');
-	await expect(stringifyAsync(Promise.reject(expected))).rejects.toBe(expected);
-});
-
-test('resolves promise to complex value', async () => {
-	const complex = { date: new Date(1e12), set: new Set([1, 2]), arr: [3, 4] };
-	const result = await stringifyAsync(Promise.resolve(complex));
-	expect(result).toEqual(stringify(complex));
-});
-
-test('resolves mixed sync and async values', async () => {
-	const result = await stringifyAsync({
-		sync: 'hello',
-		async: Promise.resolve('world'),
-		nested: {
-			sync: 42,
-			async: Promise.resolve([1, 2, 3])
-		}
+	test('resolves promise to null', async () => {
+		const result = await stringifyAsync(Promise.resolve(null));
+		expect(result).toEqual(stringify(null));
 	});
-	expect(result).toEqual(stringify({
+
+	test('resolves promise to NaN', async () => {
+		const result = await stringifyAsync(Promise.resolve(NaN));
+		expect(result).toEqual(stringify(NaN));
+	});
+
+	test('resolves nested promises in objects', async () => {
+		const result = await stringifyAsync({
+			a: Promise.resolve(1),
+			b: Promise.resolve('hello')
+		});
+		expect(result).toEqual(stringify({ a: 1, b: 'hello' }));
+	});
+
+	test('resolves promises in arrays', async () => {
+		const result = await stringifyAsync([Promise.resolve('a'), Promise.resolve('b')]);
+		expect(result).toEqual(stringify(['a', 'b']));
+	});
+
+	test('resolves promises in Sets', async () => {
+		const result = await stringifyAsync(new Set([Promise.resolve(1), Promise.resolve(2)]));
+		expect(result).toEqual(stringify(new Set([1, 2])));
+	});
+
+	test('resolves promises in Map values', async () => {
+		const result = await stringifyAsync(new Map([['key', Promise.resolve('value')]]));
+		expect(result).toEqual(stringify(new Map([['key', 'value']])));
+	});
+
+	test('resolves deeply nested promises', async () => {
+		const result = await stringifyAsync({
+			a: { b: { c: Promise.resolve(42) } }
+		});
+		expect(result).toEqual(stringify({ a: { b: { c: 42 } } }));
+	});
+
+	test('deduplicates resolved values by identity', async () => {
+		const obj = { x: 1 };
+		const promise = Promise.resolve(obj);
+		const result = await stringifyAsync([promise, promise]);
+		expect(result).toEqual(stringify([obj, obj]));
+	});
+
+	test('handles thenables', async () => {
+		const thenable = { then: (resolve) => resolve(42) };
+		const result = await stringifyAsync(thenable);
+		expect(result).toEqual(stringify(42));
+	});
+
+	test('propagates rejected promises', async () => {
+		const expected = new Error('fail');
+		await expect(stringifyAsync(Promise.reject(expected))).rejects.toBe(expected);
+	});
+
+	test('resolves promise to complex value', async () => {
+		const complex = { date: new Date(1e12), set: new Set([1, 2]), arr: [3, 4] };
+		const result = await stringifyAsync(Promise.resolve(complex));
+		expect(result).toEqual(stringify(complex));
+	});
+
+	test('resolves mixed sync and async values', async () => {
+		const result = await stringifyAsync({
 			sync: 'hello',
-			async: 'world',
+			async: Promise.resolve('world'),
 			nested: {
 				sync: 42,
-				async: [1, 2, 3]
+				async: Promise.resolve([1, 2, 3])
 			}
-		}));
-});
-
+		});
+		expect(result).toEqual(
+			stringify({
+				sync: 'hello',
+				async: 'world',
+				nested: {
+					sync: 42,
+					async: [1, 2, 3]
+				}
+			})
+		);
+	});
 });
 
 // Error handling with stringifyAsync
 describe('stringifyAsync: errors', () => {
+	test('throws for functions', async () => {
+		const value = function invalid() {};
+		const error = await catch_async_error(() => stringifyAsync(value));
+		expect(error.name).toEqual('DevalueError');
+		expect(error.message).toEqual('Cannot stringify a function');
+		expect(error.path).toEqual('');
+		expect(error.value).toBe(value);
+		expect(error.root).toBe(value);
+	});
 
-test('throws for functions', async () => {
-	const value = function invalid() {};
-	const error = await catch_async_error(() => stringifyAsync(value));
-	expect(error.name).toEqual('DevalueError');
-	expect(error.message).toEqual('Cannot stringify a function');
-	expect(error.path).toEqual('');
-	expect(error.value).toBe(value);
-	expect(error.root).toBe(value);
-});
+	test('throws for Symbols', async () => {
+		const value = Symbol('foo');
+		const error = await catch_async_error(() => stringifyAsync(value));
+		expect(error.name).toEqual('DevalueError');
+		expect(error.path).toEqual('');
+		expect(error.value).toBe(value);
+		expect(error.root).toBe(value);
+	});
 
-test('throws for Symbols', async () => {
-	const value = Symbol('foo');
-	const error = await catch_async_error(() => stringifyAsync(value));
-	expect(error.name).toEqual('DevalueError');
-	expect(error.path).toEqual('');
-	expect(error.value).toBe(value);
-	expect(error.root).toBe(value);
-});
+	test('throws for non-POJOs without reducer', async () => {
+		class Whatever {}
+		const value = new Whatever();
+		const error = await catch_async_error(() => stringifyAsync(value));
+		expect(error.name).toEqual('DevalueError');
+		expect(error.message).toEqual('Cannot stringify arbitrary non-POJOs');
+		expect(error.path).toEqual('');
+		expect(error.value).toBe(value);
+		expect(error.root).toBe(value);
+	});
 
-test('throws for non-POJOs without reducer', async () => {
-	class Whatever {}
-	const value = new Whatever();
-	const error = await catch_async_error(() => stringifyAsync(value));
-	expect(error.name).toEqual('DevalueError');
-	expect(error.message).toEqual('Cannot stringify arbitrary non-POJOs');
-	expect(error.path).toEqual('');
-	expect(error.value).toBe(value);
-	expect(error.root).toBe(value);
-});
-
-test('throws for promise resolving to function', async () => {
-	const value = function invalid() {};
-	const root = Promise.resolve(value);
-	const error = await catch_async_error(() => stringifyAsync(root));
-	expect(error.name).toEqual('DevalueError');
-	expect(error.message).toEqual('Cannot stringify a function');
-	expect(error.path).toEqual('');
-	expect(error.value).toBe(value);
-	expect(error.root).toBe(root);
-});
-
+	test('throws for promise resolving to function', async () => {
+		const value = function invalid() {};
+		const root = Promise.resolve(value);
+		const error = await catch_async_error(() => stringifyAsync(root));
+		expect(error.name).toEqual('DevalueError');
+		expect(error.message).toEqual('Cannot stringify a function');
+		expect(error.path).toEqual('');
+		expect(error.value).toBe(value);
+		expect(error.root).toBe(root);
+	});
 });
 
 describe('circular references through custom types', () => {
+	test('resolves circular reference through two custom types', () => {
+		const foo = new Foo({ name: 'outer' });
+		const bar = new Bar({ name: 'inner', ref: foo });
+		foo.value.ref = bar;
 
-test('resolves circular reference through two custom types', () => {
-	const foo = new Foo({ name: 'outer' });
-	const bar = new Bar({ name: 'inner', ref: foo });
-	foo.value.ref = bar;
-
-	const reducers = {
-		Foo: (x) => x instanceof Foo && x.value,
-		Bar: (x) => x instanceof Bar && x.value
-	};
-	const fooCache = new WeakMap();
-	const barCache = new WeakMap();
-	const revivers = {
-		Foo: (x) => {
-			let inst = fooCache.get(x);
-			if (!inst) {
-				inst = Object.create(Foo.prototype);
-				fooCache.set(x, inst);
+		const reducers = {
+			Foo: (x) => x instanceof Foo && x.value,
+			Bar: (x) => x instanceof Bar && x.value
+		};
+		const fooCache = new WeakMap();
+		const barCache = new WeakMap();
+		const revivers = {
+			Foo: (x) => {
+				let inst = fooCache.get(x);
+				if (!inst) {
+					inst = Object.create(Foo.prototype);
+					fooCache.set(x, inst);
+				}
+				inst.value = x;
+				return inst;
+			},
+			Bar: (x) => {
+				let inst = barCache.get(x);
+				if (!inst) {
+					inst = Object.create(Bar.prototype);
+					barCache.set(x, inst);
+				}
+				inst.value = x;
+				return inst;
 			}
-			inst.value = x;
-			return inst;
-		},
-		Bar: (x) => {
-			let inst = barCache.get(x);
-			if (!inst) {
-				inst = Object.create(Bar.prototype);
-				barCache.set(x, inst);
+		};
+
+		const json = stringify(foo, reducers);
+		const result = parse(json, revivers);
+
+		expect(result instanceof Foo).toBeTruthy();
+		expect(result.value.ref instanceof Bar).toBeTruthy();
+		expect(result.value.ref.value.ref).toBe(result);
+	});
+
+	test('resolves self-referencing custom type', () => {
+		const foo = new Foo({ name: 'self' });
+		foo.value.ref = foo;
+
+		const reducers = {
+			Foo: (x) => x instanceof Foo && x.value
+		};
+		const fooCache = new WeakMap();
+		const revivers = {
+			Foo: (x) => {
+				let inst = fooCache.get(x);
+				if (!inst) {
+					inst = Object.create(Foo.prototype);
+					fooCache.set(x, inst);
+				}
+				inst.value = x;
+				return inst;
 			}
-			inst.value = x;
-			return inst;
-		}
-	};
+		};
 
-	const json = stringify(foo, reducers);
-	const result = parse(json, revivers);
+		const json = stringify(foo, reducers);
+		const result = parse(json, revivers);
 
-	expect(result instanceof Foo).toBeTruthy();
-	expect(result.value.ref instanceof Bar).toBeTruthy();
-	expect(result.value.ref.value.ref).toBe(result);
+		expect(result instanceof Foo).toBeTruthy();
+		expect(result.value.ref).toBe(result);
+	});
 });
-
-test('resolves self-referencing custom type', () => {
-	const foo = new Foo({ name: 'self' });
-	foo.value.ref = foo;
-
-	const reducers = {
-		Foo: (x) => x instanceof Foo && x.value
-	};
-	const fooCache = new WeakMap();
-	const revivers = {
-		Foo: (x) => {
-			let inst = fooCache.get(x);
-			if (!inst) {
-				inst = Object.create(Foo.prototype);
-				fooCache.set(x, inst);
-			}
-			inst.value = x;
-			return inst;
-		}
-	};
-
-	const json = stringify(foo, reducers);
-	const result = parse(json, revivers);
-
-	expect(result instanceof Foo).toBeTruthy();
-	expect(result.value.ref).toBe(result);
-});
-
-});
-
 
 {
 	describe('uneval: large graphs', () => {
+		test('serializes more than 65534 repeated references to valid JS', () => {
+			// This graph exceeds engine function-parameter limits that previously
+			// made the generated program invalid. See issue #93.
+			const shared = Array.from({ length: 70000 }, (_, i) => ({ i }));
+			const value = { a: shared, b: shared.slice() };
 
-	test('serializes more than 65534 repeated references to valid JS', () => {
-		// This graph exceeds engine function-parameter limits that previously
-		// made the generated program invalid. See issue #93.
-		const shared = Array.from({ length: 70000 }, (_, i) => ({ i }));
-		const value = { a: shared, b: shared.slice() };
+			const serialized = uneval(value);
+			const roundtripped = new Function('return ' + serialized)();
 
-		const serialized = uneval(value);
-		const roundtripped = new Function('return ' + serialized)();
+			expect(roundtripped.a.length).toEqual(70000);
+			expect(roundtripped.a[0].i).toEqual(0);
+			expect(roundtripped.a[69999].i).toEqual(69999);
+			// the two arrays share object identity
+			expect(roundtripped.a[123] === roundtripped.b[123]).toBeTruthy();
+		});
 
-		expect(roundtripped.a.length).toEqual(70000);
-		expect(roundtripped.a[0].i).toEqual(0);
-		expect(roundtripped.a[69999].i).toEqual(69999);
-		// the two arrays share object identity
-		expect(roundtripped.a[123] === roundtripped.b[123]).toBeTruthy();
-	});
+		test('serializes an oversized custom graph to valid JS', () => {
+			class Marker {}
+			const shared = Array.from({ length: 65536 }, (_, i) => ({ i }));
+			const marker = new Marker();
+			const value = { a: shared, b: shared.slice(), marker };
 
-	test('serializes an oversized custom graph to valid JS', () => {
-		class Marker {}
-		const shared = Array.from({ length: 65536 }, (_, i) => ({ i }));
-		const marker = new Marker();
-		const value = { a: shared, b: shared.slice(), marker };
+			const serialized = uneval(value, (item, js) =>
+				item instanceof Marker ? js`({custom:true})` : undefined
+			);
+			const roundtripped = new Function('return ' + serialized)();
 
-		const serialized = uneval(value, (item, js) =>
-			item instanceof Marker ? js`({custom:true})` : undefined
-		);
-		const roundtripped = new Function('return ' + serialized)();
-
-		expect(roundtripped.a[65535]).toBe(roundtripped.b[65535]);
-		expect(roundtripped.marker.custom).toBe(true);
-	});
-
+			expect(roundtripped.a[65535]).toBe(roundtripped.b[65535]);
+			expect(roundtripped.marker.custom).toBe(true);
+		});
 	});
 }
