@@ -68,15 +68,16 @@ export function uneval(value, replacer) {
 			seen.add(thing);
 
 			if (replacer) {
-				const source = replacer(thing, js);
+				const fragment = replacer(thing, js);
 
-				if (JavaScriptSource.is(source)) {
+				if (fragment) {
+					const source = JavaScriptSource.from(fragment);
 					custom.set(thing, source);
 					source.visit(walk, reserved, templates);
 					return;
 				}
 
-				if (source !== undefined && source !== null && source !== false) {
+				if (fragment !== undefined && fragment !== null && fragment !== false) {
 					throw new TypeError('Invalid uneval replacer result');
 				}
 			}

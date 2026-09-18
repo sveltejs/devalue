@@ -1,6 +1,6 @@
 /**
  * @import {
- *   JavaScriptSource as JavaScriptSourceType,
+ *   JavaScriptFragment as JavaScriptFragmentType,
  *   JavaScriptTag as JavaScriptTagType,
  *   UnevalReplacer as UnevalReplacerType,
  *   StringValueTag as StringValueTagType,
@@ -23,7 +23,7 @@ export {
 } from './src/operations.js';
 export { DevalueError, filter_array_indices as filterArrayIndices } from './src/utils.js';
 
-/** @typedef {JavaScriptSourceType} JavaScriptSource */
+/** @typedef {JavaScriptFragmentType} JavaScriptFragment */
 /** @typedef {JavaScriptTagType} JavaScriptTag */
 /** @typedef {UnevalReplacerType} UnevalReplacer */
 /** @typedef {StringValueTagType} StringValueTag */

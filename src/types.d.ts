@@ -1,6 +1,6 @@
-import type { JavaScriptSource } from './javascript-source.js';
+import type { JavaScriptFragment } from './javascript-source.js';
 
-export type { JavaScriptSource };
+export type { JavaScriptFragment };
 
 export type StringValueTag =
 	| 'URL'
@@ -49,7 +49,7 @@ export type TypedArray =
  * reserved when generating names.
  */
 export interface JavaScriptTag {
-	(strings: TemplateStringsArray, ...values: unknown[]): JavaScriptSource;
+	(strings: TemplateStringsArray, ...values: unknown[]): JavaScriptFragment;
 }
 
 /**
@@ -60,7 +60,7 @@ export interface JavaScriptTag {
 export type UnevalReplacer = (
 	value: unknown,
 	js: JavaScriptTag
-) => JavaScriptSource | false | null | void;
+) => JavaScriptFragment | false | null | void;
 
 /**
  * The introspection/extraction operations `stringify` performs on the value

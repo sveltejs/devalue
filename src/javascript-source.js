@@ -1,3 +1,5 @@
+const SOURCE = Symbol('JavaScriptSource');
+
 export class JavaScriptSource {
 	/**
 	 * @param {TemplateStringsArray} strings
@@ -16,7 +18,9 @@ export class JavaScriptSource {
 		let result = strings[0];
 		for (let i = 0; i < values.length; i++) {
 			const value = values[i];
-			result += JavaScriptSource.is(value) ? value.render(fn) : fn(value);
+			result += JavaScriptSource.is_fragment(value)
+				? JavaScriptSource.from(value).render(fn)
+				: fn(value);
 			result += strings[i + 1];
 		}
 		return result;
@@ -46,28 +50,47 @@ export class JavaScriptSource {
 			}
 		}
 		for (const value of values) {
-			if (JavaScriptSource.is(value)) value.visit(fn, reserved, templates);
-			else fn(value);
+			if (JavaScriptSource.is_fragment(value)) {
+				JavaScriptSource.from(value).visit(fn, reserved, templates);
+			} else {
+				fn(value);
+			}
 		}
 	}
 
 	/**
 	 * @param {unknown} value
-	 * @returns {value is JavaScriptSource}
+	 * @returns {value is JavaScriptFragment}
 	 */
-	static is(value) {
-		return value instanceof JavaScriptSource;
+	static is_fragment(value) {
+		return typeof value === 'object' && value !== null && SOURCE in value;
+	}
+
+	/**
+	 * @param {JavaScriptFragment} fragment
+	 * @returns {JavaScriptSource}
+	 */
+	static from(fragment) {
+		if (!JavaScriptSource.is_fragment(fragment)) {
+			throw new TypeError('Invalid JavaScript fragment');
+		}
+		return fragment[SOURCE];
 	}
 }
 
 /**
  * @param {TemplateStringsArray} strings
  * @param {...unknown} values
- * @returns {JavaScriptSource}
+ * @returns {JavaScriptFragment}
  */
 export function js(strings, ...values) {
 	if (!Array.isArray(strings) || !Array.isArray(strings.raw)) {
 		throw new TypeError('`js` must be used as a tagged template, but was called as a regular function');
 	}
-	return new JavaScriptSource(strings, values);
+	return { [SOURCE]: new JavaScriptSource(strings, values) };
 }
+
+/**
+ * The opaque result of the `js` tag passed to an `uneval` replacer.
+ * @typedef {{ readonly [SOURCE]: JavaScriptSource }} JavaScriptFragment
+ */

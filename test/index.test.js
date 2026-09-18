@@ -1593,15 +1593,22 @@ custom_source_test('rejects cycles made entirely of custom constructions', () =>
 		);
 	}
 });
-custom_source_test('accepts only documented fallback values', () => {
+custom_source_test('accepts only documented fallback values and rejects invalid fragments', () => {
 	for (const fallback of [undefined, null, false]) {
 		assert.is(uneval({ answer: 42 }, () => fallback), '{answer:42}');
 	}
 
-	for (const invalid of ['', 0, 1, true, Promise.resolve(), {}]) {
+	for (const invalid of ['', 0, NaN, 0n]) {
 		assert.throws(
 			() => uneval({ answer: 42 }, () => invalid),
 			(error) => error instanceof TypeError && error.message === 'Invalid uneval replacer result'
+		);
+	}
+
+	for (const invalid of [1, true, 'new Date()', Promise.resolve(), {}]) {
+		assert.throws(
+			() => uneval({ answer: 42 }, () => invalid),
+			(error) => error instanceof TypeError && error.message === 'Invalid JavaScript fragment'
 		);
 	}
 });
