@@ -12,6 +12,10 @@ import {
 } from './utils.js';
 
 const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$';
+// Short strings have bounded escaping/output costs per reference, so they cannot
+// cause quadratic expansion. Keep them on the original fast path rather than
+// paying for deduplication on common values such as names, IDs and status fields.
+const MIN_STRING_LENGTH = 128;
 const unsafe_chars = /[<\b\f\n\r\t\0\u2028\u2029]/g;
 const reserved =
 	/^(?:do|if|in|for|int|let|new|try|var|byte|case|char|else|enum|goto|long|this|void|with|await|break|catch|class|const|final|float|short|super|throw|while|yield|delete|double|export|import|native|return|switch|throws|typeof|boolean|default|extends|finally|package|private|abstract|continue|debugger|function|volatile|interface|protected|transient|implements|instanceof|synchronized)$/;
@@ -28,6 +32,28 @@ export function uneval(value, replacer) {
 	const keys = [];
 
 	const custom = new Map();
+
+	// Only allocate a literal cache when we need to reuse an expensive primitive,
+	// including long Map keys rendered in error paths during the walk.
+	/** @type {Map<string | bigint, string> | undefined} */
+	let primitives;
+
+	/** @param {any} thing */
+	function stringify_cached_primitive(thing) {
+		if (
+			(typeof thing === 'string' && thing.length >= MIN_STRING_LENGTH) ||
+			typeof thing === 'bigint'
+		) {
+			primitives ??= new Map();
+			let literal = primitives.get(thing);
+			if (literal === undefined) {
+				literal = stringify_primitive(thing);
+				primitives.set(thing, literal);
+			}
+			return literal;
+		}
+		return stringify_primitive(thing);
+	}
 
 	/** @param {any} thing */
 	function walk(thing) {
@@ -55,9 +81,12 @@ export function uneval(value, replacer) {
 			const type = get_type(thing);
 
 			switch (type) {
-				case 'Number':
 				case 'BigInt':
 				case 'String':
+					walk(thing.valueOf());
+					return;
+
+				case 'Number':
 				case 'Boolean':
 				case 'Date':
 				case 'RegExp':
@@ -82,7 +111,7 @@ export function uneval(value, replacer) {
 
 				case 'Map':
 					for (const [key, value] of thing) {
-						keys.push(`.get(${is_primitive(key) ? stringify_primitive(key) : '...'})`);
+						keys.push(`.get(${is_primitive(key) ? stringify_cached_primitive(key) : '...'})`);
 						walk(key);
 						walk(value);
 						keys.pop();
@@ -144,6 +173,11 @@ export function uneval(value, replacer) {
 			}
 		} else if (typeof thing === 'symbol') {
 			throw new DevalueError(`Cannot stringify a Symbol primitive`, keys, thing, value);
+		} else if (
+			(typeof thing === 'string' && thing.length >= MIN_STRING_LENGTH) ||
+			typeof thing === 'bigint'
+		) {
+			counts.set(thing, (counts.get(thing) || 0) + 1);
 		}
 	}
 
@@ -151,11 +185,27 @@ export function uneval(value, replacer) {
 
 	const names = new Map();
 
-	Array.from(counts)
-		.filter((entry) => entry[1] > 1)
+	/** @type {Array<[any, number]>} */
+	const repeated = [];
+	// Avoid allocating entries for all the values that will never be hoisted.
+	counts.forEach((count, thing) => {
+		if (count > 1) repeated.push([thing, count]);
+	});
+
+	repeated
 		.sort((a, b) => b[1] - a[1])
-		.forEach((entry, i) => {
-			names.set(entry[0], get_name(i));
+		.forEach(([thing, count]) => {
+			const name = get_name(names.size);
+
+			if (is_primitive(thing)) {
+				const length = stringify_cached_primitive(thing).length;
+				// Hoisting costs one literal, a parameter and a reference per occurrence.
+				// Allow for the IIFE wrapper and separators even if one already exists,
+				// so inexpensive repetitions stay inline.
+				if (length * count <= length + (count + 1) * name.length + 25) return;
+			}
+
+			names.set(thing, name);
 		});
 
 	/**
@@ -384,7 +434,7 @@ export function uneval(value, replacer) {
 			}
 
 			if (is_primitive(thing)) {
-				values.push(stringify_primitive(thing));
+				values.push(stringify_cached_primitive(thing));
 				return;
 			}
 
@@ -394,9 +444,18 @@ export function uneval(value, replacer) {
 				case 'Number':
 				case 'String':
 				case 'Boolean':
-				case 'BigInt':
-					values.push(`Object(${stringify(thing.valueOf())})`);
+				case 'BigInt': {
+					const primitive = thing.valueOf();
+					if (names.has(primitive)) {
+						// A hoisted primitive is only in scope inside the IIFE, not in
+						// its arguments. Reconstruct the box before assigning references.
+						values.push('{}');
+						reconstructions.push(`${name}=Object(${stringify(primitive)})`);
+					} else {
+						values.push(`Object(${stringify(primitive)})`);
+					}
 					break;
+				}
 
 				case 'RegExp':
 					const { source, flags } = thing;
