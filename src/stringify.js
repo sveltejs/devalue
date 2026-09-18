@@ -1,4 +1,4 @@
-import { DevalueError, MAP_KEY, format_path, stringify_string } from './utils.js';
+import { DevalueError, MAP_KEY, format_path, quote_key, stringify_string } from './utils.js';
 import {
 	HOLE,
 	NAN,
@@ -381,7 +381,7 @@ function run(async, value, reducers, options) {
 							}
 
 							keys.push(key);
-							str += `,${stringify_string(key)},${flatten(ops.get(thing, key))}`;
+							str += `,${quote_key(key)},${flatten(ops.get(thing, key))}`;
 							keys.pop();
 						}
 						str += ']';
@@ -396,7 +396,7 @@ function run(async, value, reducers, options) {
 							if (started) str += ',';
 							started = true;
 							keys.push(key);
-							str += `${stringify_string(key)}:${flatten(ops.get(thing, key))}`;
+							str += `${quote_key(key)}:${flatten(ops.get(thing, key))}`;
 							keys.pop();
 						}
 						str += '}';

@@ -146,6 +146,25 @@ export function stringify_string(str) {
 	return `"${last_pos === 0 ? str : result + str.slice(last_pos)}"`;
 }
 
+// Property names repeat across the values of one call and across calls, so
+// their quoted form is cached. The cache is bounded so that unusual key sets
+// cannot grow it without limit.
+/** @type {Map<string, string>} */
+const quoted_keys = new Map();
+
+/** @param {string} key */
+export function quote_key(key) {
+	let quoted = quoted_keys.get(key);
+
+	if (quoted === undefined) {
+		if (quoted_keys.size >= 1024) quoted_keys.clear();
+		quoted = stringify_string(key);
+		quoted_keys.set(key, quoted);
+	}
+
+	return quoted;
+}
+
 /** @param {Record<string | symbol, any>} object */
 export function enumerable_symbols(object) {
 	const symbols = Object.getOwnPropertySymbols(object);
