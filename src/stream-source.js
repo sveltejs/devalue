@@ -94,6 +94,19 @@ export function promise_source(pending) {
 }
 
 /**
+ * Keep expensive primitives structured until a whole head or tail block is ready.
+ * This bounds expansion even when values repeat across independently emitted
+ * regions, boxed values, or descriptor template holes in the same block.
+ * @param {null | undefined | boolean | number | string | bigint} value
+ * @returns {Emission}
+ */
+export function primitive_source(value) {
+	return (typeof value === 'string' && value.length >= 128) || typeof value === 'bigint'
+		? instruction_source(brand({ type: 'primitive', value }))
+		: stringify_primitive(value);
+}
+
+/**
  * Marks the position where definitions for this final source are emitted.
  * @returns {JavaScriptSource}
  */
@@ -284,9 +297,51 @@ export function source_helpers(source) {
  * Renders structured stream source.
  * @param {Emission} source
  * @param {(keyof typeof RUNTIMES)[]} [definitions]
+ * @param {boolean} [statement] Whether this is a tail block rather than a head expression.
  */
-export function render_stream_source(source, definitions = []) {
+export function render_stream_source(source, definitions = [], statement = false) {
 	if (typeof source === 'string') return source;
+	/** @type {Map<string | bigint, { count: number, literal: string, name: string }>} */
+	const primitives = new Map();
+	visit_source_instructions(source, (instruction) => {
+		if (instruction.type !== 'primitive') return;
+		const previous = primitives.get(instruction.value);
+		if (previous) previous.count++;
+		else
+			primitives.set(instruction.value, {
+				count: 1,
+				literal: stringify_primitive(instruction.value),
+				name: ''
+			});
+	});
+	// A wrapper binding must not shadow trusted identifiers in nested templates.
+	const reserved = new Set();
+	const templates = new Set();
+	if (primitives.size) {
+		source.visit(() => {}, reserved, templates);
+		visit_source_instructions(source, (instruction) => {
+			if (instruction.type === 'capture' || instruction.type === 'expression') {
+				const fragment =
+					typeof instruction.source === 'string'
+						? raw_source(instruction.source)
+						: instruction.source;
+				fragment.visit(() => {}, reserved, templates);
+			}
+		});
+	}
+	/** @type {string[]} */
+	const declarations = [];
+	let index = 0;
+	for (const primitive of primitives.values()) {
+		if (primitive.count < 2) continue;
+		let name;
+		do name = `p${index++}`;
+		while (reserved.has(name));
+		const { literal, count } = primitive;
+		if (literal.length * count <= literal.length + (count + 1) * name.length + 40) continue;
+		primitive.name = name;
+		declarations.push(`${name}=${literal}`);
+	}
 	const definition_source = definitions.map((key) => `s.${key}=${RUNTIMES[key]('s')}`).join(';');
 	/** @param {Emission} fragment */
 	const render = (fragment) => {
@@ -323,9 +378,18 @@ export function render_stream_source(source, definitions = []) {
 				return `s.w(${instruction.pending})`;
 			case 'definitions':
 				return definition_source;
+			case 'primitive': {
+				const primitive = /** @type {{ literal: string, name: string }} */ (
+					primitives.get(instruction.value)
+				);
+				return primitive.name || primitive.literal;
+			}
 		}
 	};
-	return render(source);
+	const rendered = render(source);
+	return declarations.length
+		? `${statement ? ';' : ''}(()=>{let ${declarations.join(',')};${statement ? '' : 'return '}${rendered}\n})()${statement ? ';' : ''}`
+		: rendered;
 }
 
 /** @param {unknown} value */
@@ -496,6 +560,7 @@ export const RUNTIMES = {
 /** @typedef {{ type: 'runtime', key: keyof typeof RUNTIMES }} RuntimeInstruction */
 /** @typedef {{ type: 'promise', pending: number }} PromiseInstruction */
 /** @typedef {{ type: 'definitions' }} DefinitionsInstruction */
-/** @typedef {ReferenceInstruction | CaptureInstruction | ExpressionInstruction | RuntimeInstruction | PromiseInstruction | DefinitionsInstruction} UnbrandedStreamInstruction */
+/** @typedef {{ type: 'primitive', value: string | bigint }} PrimitiveInstruction */
+/** @typedef {ReferenceInstruction | CaptureInstruction | ExpressionInstruction | RuntimeInstruction | PromiseInstruction | DefinitionsInstruction | PrimitiveInstruction} UnbrandedStreamInstruction */
 /** @typedef {{ readonly [INSTRUCTION]: true }} InstructionBrand */
 /** @typedef {UnbrandedStreamInstruction & InstructionBrand} StreamInstruction */

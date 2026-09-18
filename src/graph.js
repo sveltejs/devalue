@@ -2,6 +2,7 @@ import {
 	DevalueError,
 	enumerable_symbols,
 	get_type,
+	is_buffer,
 	is_plain_object,
 	is_primitive,
 	stringify_key,
@@ -336,6 +337,9 @@ function builtin_classify(graph, node, value) {
 		case 'BigInt64Array':
 		case 'BigUint64Array':
 		case 'DataView': {
+			// Never discover or retain a Node Buffer's shared pool. Copy only its
+			// visible bytes into an exact-sized, unpooled backing buffer.
+			if (is_buffer(value)) value = new Uint8Array(value);
 			const view = /** @type {ArrayBufferView & { length?: number }} */ (value);
 			node.children = [/** @type {CapturedNode} */ (discover(graph, view.buffer))];
 			node.data = { byteOffset: view.byteOffset, byteLength: view.byteLength, length: view.length };
