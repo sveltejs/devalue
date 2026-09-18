@@ -16,6 +16,16 @@ for (const fn of [stringify, stringifyAsync]) {
 		);
 	});
 
+	uvu.test(`${fn.name} quotes property names too long for the key cache`, async () => {
+		const long = "k".repeat(65);
+		const object = { [long]: 1, [long + '"']: 2 };
+		const expected = `[{"${long}":1,"${long}\\"":2},1,2]`;
+
+		assert.is(await fn(object), expected);
+		assert.is(await fn(object), expected);
+		assert.equal(parse(expected), object);
+	});
+
 	uvu.test(`${fn.name} quotes more distinct property names than the key cache holds`, async () => {
 		const object = {};
 		for (let i = 0; i < 1500; i += 1) {

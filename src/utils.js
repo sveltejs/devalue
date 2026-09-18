@@ -147,13 +147,19 @@ export function stringify_string(str) {
 }
 
 // Property names repeat across the values of one call and across calls, so
-// their quoted form is cached. The cache is bounded so that unusual key sets
-// cannot grow it without limit.
+// their quoted form is cached. Names come from the data being serialized, so
+// the cache is bounded in both directions: only short names are kept, and the
+// cache is emptied once it holds 1024 of them. Longer names are quoted on
+// every visit, like every other string.
+const MAX_CACHED_KEY_LENGTH = 64;
+
 /** @type {Map<string, string>} */
 const quoted_keys = new Map();
 
 /** @param {string} key */
 export function quote_key(key) {
+	if (key.length > MAX_CACHED_KEY_LENGTH) return stringify_string(key);
+
 	let quoted = quoted_keys.get(key);
 
 	if (quoted === undefined) {
