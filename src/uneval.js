@@ -1,3 +1,4 @@
+import { MAX_ARRAY_INDEX } from './constants.js';
 import {
 	DevalueError,
 	enumerable_symbols,
@@ -65,11 +66,14 @@ export function uneval(value, replacer) {
 					return;
 
 				case 'Array':
-					/** @type {any[]} */ (thing).forEach((value, i) => {
+					// forEach scans the logical length of dictionary-backed sparse
+					// arrays. Visit own enumerable indices without doing work for
+					// every hole.
+					for (const i of valid_array_indices(thing)) {
 						keys.push(`[${i}]`);
-						walk(value);
+						walk(thing[i]);
 						keys.pop();
-					});
+					}
 					break;
 
 				case 'Set':
@@ -197,10 +201,10 @@ export function uneval(value, replacer) {
 
 			case 'Array': {
 				// For dense arrays (no holes), we iterate normally.
-				// When we encounter the first hole, we call Object.keys
+				// When we encounter the first hole, we collect own indices
 				// to determine the sparseness, then decide between:
 				//   - Array literal with holes: [,"a",,] (default)
-				//   - Object.assign: Object.assign(Array(n),{...}) (for very sparse arrays)
+				//   - Object.assign with a sparse-safe allocator (for very sparse arrays)
 				// Only the Object.assign path avoids iterating every slot, which
 				// is what protects against the DoS of e.g. `arr[1000000] = 1`.
 				let has_holes = false;
@@ -221,10 +225,11 @@ export function uneval(value, replacer) {
 						//
 						// Object.assign: populated indices are listed explicitly.
 						// For example, [, "a", ,] would be written as
-						// Object.assign(Array(3),{1:"a"}). This avoids paying
-						// per-hole, but has a large fixed overhead for the
-						// "Object.assign(Array(n),{...})" wrapper, and each
-						// element costs extra chars for its index and colon.
+						// Object.assign(sparse(3),{1:"a"}), where sparse(n) stands
+						// for the expression emitted by stringify_sparse_array(n).
+						// This avoids paying per-hole, but has a large fixed
+						// overhead for the allocator and Object.assign wrapper,
+						// and each element costs extra chars for its index and colon.
 						//
 						// The serialized values are the same size either way, so
 						// the choice comes down to the structural overhead:
@@ -235,30 +240,32 @@ export function uneval(value, replacer) {
 						//     = L + 2
 						//
 						//   Object.assign overhead:
-						//     "Object.assign(Array(" — 20 chars
-						//     + length              — d chars
-						//     + "),{"               — 3 chars
+						//     "Object.assign("      — 14 chars
+						//     + allocator expression — A chars
+						//     + ",{"                 — 2 chars
 						//     + for each populated element:
-						//       index + ":" + ","   — (d + 2) chars
-						//     + "})"                — 2 chars
-						//     = (25 + d) + P * (d + 2)
+						//       index + ":" + ","     — (d + 2) chars
+						//     + "})"                 — 2 chars
+						//     = (18 + A) + P * (d + 2)
 						//
 						// where L is the array length, P is the number of
-						// populated elements, and d is the number of digits
-						// in L (an upper bound on the digits in any index).
+						// populated elements, A is the allocator expression's
+						// length, and d is the number of digits in L (an upper
+						// bound on the digits in any index).
 						//
 						// Object.assign is cheaper when:
-						//   (25 + d) + P * (d + 2) < L + 2
-						const populated_keys = valid_array_indices(/** @type {any[]} */ (thing));
+						//   (18 + A) + P * (d + 2) < L + 2
+						const populated_keys = valid_array_indices(thing);
 						const population = populated_keys.length;
 						const d = String(thing.length).length;
+						const array = stringify_sparse_array(thing.length);
 
 						const hole_cost = thing.length + 2;
-						const sparse_cost = 25 + d + population * (d + 2);
+						const sparse_cost = array.length + 18 + population * (d + 2);
 
 						if (hole_cost > sparse_cost) {
 							const entries = populated_keys.map((k) => `${k}:${stringify(thing[k])}`).join(',');
-							return `Object.assign(Array(${thing.length}),{${entries}})`;
+							return `Object.assign(${array},{${entries}})`;
 						}
 
 						has_holes = true;
@@ -267,7 +274,7 @@ export function uneval(value, replacer) {
 					// (the comma separator is all we need — no content for this position)
 				}
 
-				const tail = thing.length === 0 || thing.length - 1 in thing ? '' : ',';
+				const tail = thing.length === 0 || Object.hasOwn(thing, thing.length - 1) ? '' : ',';
 				return result + tail + ']';
 			}
 
@@ -411,12 +418,20 @@ export function uneval(value, replacer) {
 					values.push(`new URLSearchParams(${stringify_string(thing.toString())})`);
 					break;
 
-				case 'Array':
-					values.push(`Array(${thing.length})`);
-					/** @type {any[]} */ (thing).forEach((v, i) => {
-						statements.push(`${name}[${i}]=${stringify(v)}`);
-					});
+				case 'Array': {
+					const populated_keys = valid_array_indices(thing);
+					// Only preallocate when the length is bounded by the number
+					// of populated elements, plus a small constant for short arrays.
+					values.push(
+						thing.length > 32 + 2 * populated_keys.length
+							? stringify_sparse_array(thing.length)
+							: `Array(${thing.length})`
+					);
+					for (const i of populated_keys) {
+						statements.push(`${name}[${i}]=${stringify(thing[i])}`);
+					}
 					break;
+				}
 
 				case 'Set': {
 					values.push(`new Set`);
@@ -527,6 +542,17 @@ export function uneval(value, replacer) {
 	} else {
 		return str;
 	}
+}
+
+/**
+ * Emit an array whose storage is not proportional to its declared length.
+ * As in the default parse operations, touching and deleting the largest valid
+ * index forces V8 into dictionary-elements mode before setting the length.
+ * Merely starting with [] and assigning .length still eagerly allocates.
+ * @param {number} length
+ */
+function stringify_sparse_array(length) {
+	return `(function(a){a[${MAX_ARRAY_INDEX}]=0;delete a[${MAX_ARRAY_INDEX}];a.length=${length};return a}([]))`;
 }
 
 /**
