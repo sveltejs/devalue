@@ -29,6 +29,39 @@ export class DevalueError extends Error {
 	}
 }
 
+/**
+ * Marks a Map key on the path being serialized. The key itself is recorded
+ * right after the marker, so nothing is formatted or allocated per entry.
+ */
+export const MAP_KEY = Symbol();
+
+/**
+ * Formats the path recorded on the way to the value being serialized — a
+ * property key, an array index, or `MAP_KEY` followed by a Map key — into
+ * the segments a `DevalueError` joins. Only runs when an error is raised.
+ * @param {any[]} keys
+ * @param {(key: any) => string} format_map_key
+ * @returns {string[]}
+ */
+export function format_path(keys, format_map_key) {
+	/** @type {string[]} */
+	const path = [];
+
+	for (let i = 0; i < keys.length; i += 1) {
+		const segment = keys[i];
+
+		if (segment === MAP_KEY) {
+			path.push(`.get(${format_map_key(keys[++i])})`);
+		} else if (typeof segment === 'number') {
+			path.push(`[${segment}]`);
+		} else {
+			path.push(stringify_key(segment));
+		}
+	}
+
+	return path;
+}
+
 /** @param {any} thing */
 export function is_primitive(thing) {
 	return thing === null || (typeof thing !== 'object' && typeof thing !== 'function');
@@ -88,8 +121,15 @@ function get_escaped_char(char) {
 	}
 }
 
+// characters `stringify_string` escapes: quote, backslash, `<`, control
+// characters, and the line/paragraph separators
+const needs_escape = /["<\\\u0000-\u001f\u2028\u2029]/;
+
 /** @param {string} str */
 export function stringify_string(str) {
+	// the common case: nothing to escape, no per-character work
+	if (!needs_escape.test(str)) return `"${str}"`;
+
 	let result = '';
 	let last_pos = 0;
 	const len = str.length;
@@ -106,11 +146,37 @@ export function stringify_string(str) {
 	return `"${last_pos === 0 ? str : result + str.slice(last_pos)}"`;
 }
 
+// Property names repeat across the values of one call and across calls, so
+// their quoted form is cached. Names come from the data being serialized, so
+// the cache is bounded in both directions: only short names are kept, and the
+// cache is emptied once it holds 1024 of them. Longer names are quoted on
+// every visit, like every other string.
+const MAX_CACHED_KEY_LENGTH = 64;
+
+/** @type {Map<string, string>} */
+const quoted_keys = new Map();
+
+/** @param {string} key */
+export function quote_key(key) {
+	if (key.length > MAX_CACHED_KEY_LENGTH) return stringify_string(key);
+
+	let quoted = quoted_keys.get(key);
+
+	if (quoted === undefined) {
+		if (quoted_keys.size >= 1024) quoted_keys.clear();
+		quoted = stringify_string(key);
+		quoted_keys.set(key, quoted);
+	}
+
+	return quoted;
+}
+
 /** @param {Record<string | symbol, any>} object */
 export function enumerable_symbols(object) {
-	return Object.getOwnPropertySymbols(object).filter(
-		(symbol) => Object.getOwnPropertyDescriptor(object, symbol).enumerable
-	);
+	const symbols = Object.getOwnPropertySymbols(object);
+	return symbols.length === 0
+		? symbols
+		: symbols.filter((symbol) => Object.getOwnPropertyDescriptor(object, symbol).enumerable);
 }
 
 const is_identifier = /^[a-zA-Z_$][a-zA-Z_$0-9]*$/;

@@ -1,4 +1,4 @@
-import { DevalueError, stringify_key, stringify_string } from './utils.js';
+import { DevalueError, MAP_KEY, format_path, quote_key, stringify_string } from './utils.js';
 import {
 	HOLE,
 	NAN,
@@ -84,10 +84,27 @@ function run(async, value, reducers, options) {
 		}
 	}
 
-	/** @type {string[]} */
+	// the path to the value being serialized, recorded as-is and only
+	// formatted by `error` — see `format_path`
+	/** @type {any[]} */
 	const keys = [];
 
 	let p = 0;
+
+	/**
+	 * @param {string} message
+	 * @param {any} thing
+	 */
+	function error(message, thing) {
+		const path = format_path(keys, (key) => {
+			const key_type = ops.typeOf(key);
+			const key_is_primitive =
+				key_type !== 'object' && key_type !== 'function' && key_type !== 'symbol';
+			return key_is_primitive ? stringify_primitive(ops.toPrimitive(key)) : '...';
+		});
+
+		return new DevalueError(message, path, thing, value);
+	}
 
 	/**
 	 * @param {any} thing
@@ -128,9 +145,9 @@ function run(async, value, reducers, options) {
 		}
 
 		if (type === 'function') {
-			throw new DevalueError(`Cannot stringify a function`, keys, thing, value);
+			throw error(`Cannot stringify a function`, thing);
 		} else if (type === 'symbol') {
-			throw new DevalueError(`Cannot stringify a Symbol primitive`, keys, thing, value);
+			throw error(`Cannot stringify a Symbol primitive`, thing);
 		}
 
 		/** @type {string | Promise<any>} */
@@ -140,12 +157,7 @@ function run(async, value, reducers, options) {
 			str = stringify_primitive(type === 'number' ? number : ops.toPrimitive(thing));
 		} else if (ops.isThenable(thing)) {
 			if (!async) {
-				throw new DevalueError(
-					`Cannot stringify a Promise or thenable — use stringifyAsync instead`,
-					keys,
-					thing,
-					value
-				);
+				throw error(`Cannot stringify a Promise or thenable — use stringifyAsync instead`, thing);
 			}
 
 			str = ops.toPromise(thing).then((value) => {
@@ -205,7 +217,7 @@ function run(async, value, reducers, options) {
 						if (i > 0) str += ',';
 
 						if (ops.hasOwn(thing, i)) {
-							keys.push(`[${i}]`);
+							keys.push(i);
 							str += flatten(ops.get(thing, i));
 							keys.pop();
 						} else if (mostly_dense) {
@@ -256,7 +268,7 @@ function run(async, value, reducers, options) {
 								str = '[' + SPARSE + ',' + length;
 								for (let j = 0; j < populated_keys.length; j++) {
 									const key = populated_keys[j];
-									keys.push(`[${key}]`);
+									keys.push(+key);
 									str += ',' + key + ',' + flatten(ops.get(thing, key));
 									keys.pop();
 								}
@@ -287,13 +299,9 @@ function run(async, value, reducers, options) {
 					str = '["Map"';
 
 					for (const [key, value] of ops.entriesOf(thing)) {
-						const key_type = ops.typeOf(key);
-						const key_is_primitive =
-							key_type !== 'object' && key_type !== 'function' && key_type !== 'symbol';
-						keys.push(
-							`.get(${key_is_primitive ? stringify_primitive(ops.toPrimitive(key)) : '...'})`
-						);
+						keys.push(MAP_KEY, key);
 						str += `,${flatten(key)},${flatten(value)}`;
+						keys.pop();
 						keys.pop();
 					}
 
@@ -358,27 +366,22 @@ function run(async, value, reducers, options) {
 					const shape = ops.shapeOf(thing);
 
 					if (shape.kind === 'not-plain') {
-						throw new DevalueError(`Cannot stringify arbitrary non-POJOs`, keys, thing, value);
+						throw error(`Cannot stringify arbitrary non-POJOs`, thing);
 					}
 
 					if (shape.kind === 'symbol-keys') {
-						throw new DevalueError(`Cannot stringify POJOs with symbolic keys`, keys, thing, value);
+						throw error(`Cannot stringify POJOs with symbolic keys`, thing);
 					}
 
 					if (shape.kind === 'null-proto') {
 						str = '["null"';
 						for (const key of shape.keys) {
 							if (key === '__proto__') {
-								throw new DevalueError(
-									`Cannot stringify objects with __proto__ keys`,
-									keys,
-									thing,
-									value
-								);
+								throw error(`Cannot stringify objects with __proto__ keys`, thing);
 							}
 
-							keys.push(stringify_key(key));
-							str += `,${stringify_string(key)},${flatten(ops.get(thing, key))}`;
+							keys.push(key);
+							str += `,${quote_key(key)},${flatten(ops.get(thing, key))}`;
 							keys.pop();
 						}
 						str += ']';
@@ -387,18 +390,13 @@ function run(async, value, reducers, options) {
 						let started = false;
 						for (const key of shape.keys) {
 							if (key === '__proto__') {
-								throw new DevalueError(
-									`Cannot stringify objects with __proto__ keys`,
-									keys,
-									thing,
-									value
-								);
+								throw error(`Cannot stringify objects with __proto__ keys`, thing);
 							}
 
 							if (started) str += ',';
 							started = true;
-							keys.push(stringify_key(key));
-							str += `${stringify_string(key)}:${flatten(ops.get(thing, key))}`;
+							keys.push(key);
+							str += `${quote_key(key)}:${flatten(ops.get(thing, key))}`;
 							keys.pop();
 						}
 						str += '}';
