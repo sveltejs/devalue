@@ -173,6 +173,173 @@ suite('sparse arrays', (test) => {
 });
 
 // ---------------------------------------------------------------------------
+// Revived view backing buffers
+// ---------------------------------------------------------------------------
+
+for (const fn of [parse, unflatten]) {
+	suite(`${fn.name} view backing buffers`, (test) => {
+		function revive(values, revivers, options) {
+			return fn(fn === parse ? JSON.stringify(values) : values, revivers, options);
+		}
+
+		const constructors = [
+			Int8Array,
+			Uint8Array,
+			Uint8ClampedArray,
+			Int16Array,
+			Uint16Array,
+			globalThis.Float16Array,
+			Int32Array,
+			Uint32Array,
+			Float32Array,
+			Float64Array,
+			BigInt64Array,
+			BigUint64Array,
+			DataView
+		].filter(Boolean);
+
+		for (const Constructor of constructors) {
+			test(`${Constructor.name} rejects revived lengths and array-like values`, () => {
+				for (const bounds of [[], [0, 1]]) {
+					// Keep these lengths small so regressions cannot exhaust memory.
+					for (const payload of [[1024], [[-7, 1024]], [{ length: 3 }, 1024]]) {
+						assert.throws(
+							() =>
+								revive(
+									[[Constructor.name, 1, ...bounds], ['ArrayBuffer', 2], ...payload],
+									{ ArrayBuffer: (value) => value }
+								),
+							(error) => error instanceof TypeError
+						);
+					}
+				}
+			});
+
+			test(`${Constructor.name} accepts genuine revived backing buffers`, () => {
+				for (const buffer of [
+					new ArrayBuffer(16),
+					new (class extends ArrayBuffer {})(16),
+					new SharedArrayBuffer(16),
+					vm.runInNewContext('new ArrayBuffer(16)'),
+					vm.runInNewContext('new SharedArrayBuffer(16)')
+				]) {
+					for (const bounds of [[], [8, 1]]) {
+						const result = revive(
+							[[Constructor.name, 1, ...bounds], ['ArrayBuffer', 2], null],
+							{ ArrayBuffer: () => buffer }
+						);
+
+						assert.ok(result instanceof Constructor);
+						assert.is(result.buffer, buffer);
+						assert.is(result.byteOffset, bounds[0] ?? 0);
+						assert.is(
+							result.byteLength,
+							bounds.length ? (Constructor.BYTES_PER_ELEMENT ?? 1) : 16
+						);
+					}
+				}
+			});
+		}
+
+		test('rejects spoofed buffers without reading their properties', () => {
+			let reads = 0;
+			const fake = {
+				[Symbol.toStringTag]: 'ArrayBuffer',
+				get byteLength() {
+					reads += 1;
+					return 16;
+				},
+				get length() {
+					reads += 1;
+					return 1024;
+				}
+			};
+
+			for (const buffer of [
+				fake,
+				Object.create(ArrayBuffer.prototype),
+				new Proxy(new ArrayBuffer(16), {}),
+				new Uint8Array(16),
+				null,
+				undefined,
+				'1024'
+			]) {
+				assert.throws(
+					() =>
+						revive([['Uint8Array', 1], ['ArrayBuffer', 2], null], {
+							ArrayBuffer: () => buffer
+						}),
+					(error) => error instanceof TypeError
+				);
+			}
+
+			assert.is(reads, 0);
+		});
+
+		test('accepts empty buffers and ignores shadowed buffer properties', () => {
+			for (const Constructor of [ArrayBuffer, SharedArrayBuffer]) {
+				for (const length of [0, 16]) {
+					const buffer = new Constructor(length);
+					Object.defineProperties(buffer, {
+						byteLength: {
+							get() {
+								throw new Error('must use the native byteLength getter');
+							}
+						},
+						[Symbol.toStringTag]: { value: 'Object' }
+					});
+
+					const result = revive([['Uint8Array', 1], ['ArrayBuffer', 2], null], {
+						ArrayBuffer: () => buffer
+					});
+
+					assert.is(result.buffer, buffer);
+					assert.is(result.byteLength, length);
+				}
+			}
+		});
+
+		test('validates backing buffers returned by custom operations', () => {
+			assert.throws(
+				() =>
+					revive([['Uint8Array', 1], ['ArrayBuffer', 'AA==']], undefined, {
+						operations: { fromArrayBuffer: () => 1024 }
+					}),
+				(error) => error instanceof TypeError
+			);
+		});
+
+		test('validates previously revived backing buffers', () => {
+			assert.throws(
+				() =>
+					revive([[1, 3], ['ArrayBuffer', 2], 1024, ['Uint8Array', 1]], {
+						ArrayBuffer: (value) => value
+					}),
+				(error) => error instanceof TypeError
+			);
+		});
+
+		test('allows custom view operations to use opaque revived buffers', () => {
+			const handle = {};
+			const result = revive(
+				[['Uint8Array', 1, 2, 4], ['ArrayBuffer', 2], null],
+				{ ArrayBuffer: () => handle },
+				{
+					operations: {
+						fromViewInfo: (tag, buffer, byteOffset, length) => {
+							assert.is(buffer, handle);
+							return { tag, byteOffset, length };
+						}
+					}
+				}
+			);
+
+			assert.equal(result, { tag: 'Uint8Array', byteOffset: 2, length: 4 });
+		});
+	});
+}
+
+// ---------------------------------------------------------------------------
 // Cross-realm revival (node:vm)
 // ---------------------------------------------------------------------------
 

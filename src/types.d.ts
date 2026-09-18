@@ -357,6 +357,11 @@ export interface ParseOperations {
 	 * `undefined` when the view spans the whole buffer; otherwise `length`
 	 * is the element count for typed arrays and the byte length for
 	 * `DataView`, matching the constructor signatures.
+	 *
+	 * Implementations must validate that `buffer` represents a genuine backing
+	 * buffer, since custom revivers can return other values. In particular,
+	 * passing a number or array-like value to a native typed array constructor
+	 * can allocate storage unrelated to the size of the serialized input.
 	 */
 	fromViewInfo(
 		tag: ViewTag,

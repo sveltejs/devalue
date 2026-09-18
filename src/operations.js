@@ -107,6 +107,16 @@ const stringify_operations = {
 
 export const default_stringify_operations = Object.freeze(stringify_operations);
 
+const array_buffer_byte_length = Object.getOwnPropertyDescriptor(
+	ArrayBuffer.prototype,
+	'byteLength'
+).get;
+
+const shared_array_buffer_byte_length =
+	typeof SharedArrayBuffer === 'undefined'
+		? undefined
+		: Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, 'byteLength').get;
+
 /**
  * The default implementations of every construction operation `parse` and
  * `unflatten` perform while reviving a value. Each one uses native
@@ -141,6 +151,17 @@ const parse_operations = {
 	fromRegExpInfo: (source, flags) => new RegExp(source, flags),
 
 	fromViewInfo: (tag, buffer, byteOffset, length) => {
+		// A reviver can replace an ArrayBuffer with a length or array-like value,
+		// which a typed array constructor would use to allocate a new buffer.
+		// The native getters check internal slots, so they work across realms
+		// and cannot be fooled by a forged prototype or Symbol.toStringTag.
+		try {
+			array_buffer_byte_length.call(buffer);
+		} catch (error) {
+			if (!shared_array_buffer_byte_length) throw error;
+			shared_array_buffer_byte_length.call(buffer);
+		}
+
 		const Constructor = /** @type {any} */ (globalThis)[tag];
 		return byteOffset !== undefined
 			? new Constructor(buffer, byteOffset, length)
