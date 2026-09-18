@@ -114,15 +114,15 @@ const stringify_operations = {
 
 export const default_stringify_operations = /* @__PURE__ */ Object.freeze(stringify_operations);
 
-const array_buffer_byte_length = Object.getOwnPropertyDescriptor(
+const array_buffer_byte_length = /** @type {() => number} */ (Object.getOwnPropertyDescriptor(
 	ArrayBuffer.prototype,
 	'byteLength'
-).get;
+)?.get);
 
 const shared_array_buffer_byte_length =
 	typeof SharedArrayBuffer === 'undefined'
 		? undefined
-		: Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, 'byteLength').get;
+		: Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, 'byteLength')?.get;
 
 /**
  * The default implementations of every construction operation `parse` and
