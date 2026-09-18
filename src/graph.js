@@ -11,7 +11,7 @@ import {
 } from './utils.js';
 
 /** @import { Source } from './uneval-stream.js' */
-/** @import { JavaScriptSource } from './javascript-source.js' */
+/** @import { JavaScriptFragment } from './javascript-source.js' */
 
 /**
  * A direct child of a captured node. Can either be another node or a primitive.
@@ -70,8 +70,8 @@ import {
  *   | { kind: 'Object' | 'NullObject', keys: string[], children: Child[], data: undefined }
  *   | { kind: 'Set' | 'Map', keys: never[], children: Child[], data: undefined }
  *   | { kind: ViewKind, keys: never[], children: [CapturedNode], data: { byteOffset: number, byteLength: number, length: number | undefined } }
- *   | { kind: 'Custom', keys: never[], children: Child[], data: JavaScriptSource }
- *   | { kind: 'Async', keys: never[], children: Child[], data: { source: JavaScriptSource, pending: number, captured: boolean, state: Source } }
+ *   | { kind: 'Custom', keys: never[], children: Child[], data: JavaScriptFragment }
+ *   | { kind: 'Async', keys: never[], children: Child[], data: { source: JavaScriptFragment, pending: number, captured: boolean, state: Source } }
  *   | { kind: 'Number' | 'String' | 'Boolean' | 'BigInt', keys: never[], children: never[], data: number | string | boolean | bigint }
  *   | { kind: 'Date', keys: never[], children: never[], data: number }
  *   | { kind: 'RegExp', keys: never[], children: never[], data: { source: string, flags: string } }

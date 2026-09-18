@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import vm from 'node:vm';
-import { js, raw_source } from './javascript-source.js';
+import { JavaScriptSource, js, raw_source } from './javascript-source.js';
 import { stringify_primitive } from './utils.js';
 import {
 	capture_source,
@@ -26,7 +26,7 @@ describe('structured stream source', () => {
 	test('classifies real instructions by private brand rather than shape', () => {
 		const node = /** @type {any} */ ({});
 		const source = reference_source(node, { kind: 'anchor', index: 0, segments: [] });
-		const instruction = source.values[0];
+		const instruction = JavaScriptSource.from(source).values[0];
 		expect(is_stream_instruction(instruction)).toBeTruthy();
 		for (const value of [
 			{ type: 'reference', node },
@@ -176,8 +176,10 @@ describe('structured stream source', () => {
 	test('retains only structured children when joining text and instructions', () => {
 		const pending = promise_source(12);
 		const source = join_sources(['{text:', '"0"', ',pending:', pending, ',other:', '"001"', '}']);
-		expect(source.strings).toEqual(['{text:"0",pending:', ',other:"001"}']);
-		expect(source.values).toEqual([pending]);
+		if (typeof source === 'string') expect.unreachable('expected a structured fragment');
+		const { strings, values } = JavaScriptSource.from(source);
+		expect(strings).toEqual(['{text:"0",pending:', ',other:"001"}']);
+		expect(values).toEqual([pending]);
 		expect(source_helpers(source)).toEqual(['w']);
 		expect(render_stream_source(source)).toBe('{text:"0",pending:s.w(12),other:"001"}');
 		expect(render_stream_source(join_sources([pending, '"0"', pending], ','))).toBe(

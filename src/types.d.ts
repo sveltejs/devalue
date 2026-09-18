@@ -69,7 +69,7 @@ export interface ClientReference {
 	 * `construct` returned `new Promise()`, `target` would be the source expression that evaluates to
 	 * that promise.
 	 */
-	target: JavaScriptSource;
+	target: JavaScriptFragment;
 	/**
 	 * The source expression for the expression passed to the `capture` callback of `construct`. For example,
 	 * if `construct` was:
@@ -81,7 +81,7 @@ export interface ClientReference {
 	 *
 	 * ...this would be the source expression that evaluates to the captured `[resolve, reject]` tuple.
 	 */
-	control?: JavaScriptSource;
+	control?: JavaScriptFragment;
 }
 
 /**
@@ -111,7 +111,7 @@ export interface AsyncValueDescriptor<T = unknown> {
 	 * that returned fragment, including its composed capture expression, are serialized through the
 	 * same session graph; fragments created but not returned or composed remain undiscovered.
 	 */
-	construct(capture: (expression: JavaScriptSource) => JavaScriptSource): JavaScriptSource;
+	construct(capture: (expression: JavaScriptFragment) => JavaScriptFragment): JavaScriptFragment;
 	/**
 	 * When `source` resolves, `unevalStream` needs to generate code that uses the serialized server
 	 * value to resolve the client value. It calls `resolve` with a reference to the value returned by
@@ -126,7 +126,7 @@ export interface AsyncValueDescriptor<T = unknown> {
 	 * `construct`, so index 0 contains the client `resolve` function, and `valueSource` evaluates to
 	 * the value that the server `source` resolved to.
 	 */
-	resolve(reference: ClientReference, valueSource: JavaScriptSource): JavaScriptSource;
+	resolve(reference: ClientReference, valueSource: JavaScriptFragment): JavaScriptFragment;
 	/**
 	 * When `source` rejects, `unevalStream` calls `reject` to generate code that rejects the client
 	 * value with the serialized server reason. It receives the same references as `resolve`, plus the
@@ -139,7 +139,7 @@ export interface AsyncValueDescriptor<T = unknown> {
 	 * The result is equivalent to `reject(expression)`: index 1 of the captured control contains the
 	 * client `reject` function, and `reasonSource` evaluates to the reason from the server.
 	 */
-	reject(reference: ClientReference, reasonSource: JavaScriptSource): JavaScriptSource;
+	reject(reference: ClientReference, reasonSource: JavaScriptFragment): JavaScriptFragment;
 	/**
 	 * Optional server-side cancellation cleanup. Devalue invokes this at most once for explicit
 	 * `tail.return()` or AbortSignal cancellation, but not after successful completion.
@@ -182,7 +182,7 @@ export interface AsyncSequenceDescriptor<T = unknown, TReturn = unknown> {
 	 * `capture` stashes the update function and evaluates to that same function. It is subsequently
 	 * available to `next`, `complete`, and `error` as `reference.control`.
 	 */
-	construct(capture: (expression: JavaScriptSource) => JavaScriptSource): JavaScriptSource;
+	construct(capture: (expression: JavaScriptFragment) => JavaScriptFragment): JavaScriptFragment;
 	/**
 	 * Called for each value yielded by the server iterator. `valueSource` is the source expression for
 	 * that serialized value. The native adapter calls its captured control with opcode 0, which queues
@@ -194,7 +194,7 @@ export interface AsyncSequenceDescriptor<T = unknown, TReturn = unknown> {
 	 *
 	 * For example, this may generate `s.p[0](0,s.a[1])`, delivering the value retained at `s.a[1]`.
 	 */
-	next(reference: ClientReference, valueSource: JavaScriptSource): JavaScriptSource;
+	next(reference: ClientReference, valueSource: JavaScriptFragment): JavaScriptFragment;
 	/**
 	 * Called when the server iterator returns. `returnValueSource` is the source expression for the
 	 * serialized return value, or `void 0` when none is available. The native adapter calls its control
@@ -204,7 +204,7 @@ export interface AsyncSequenceDescriptor<T = unknown, TReturn = unknown> {
 	 * ({ control }, returnValueSource) => js`${control}(1,${returnValueSource})`
 	 * ```
 	 */
-	complete(reference: ClientReference, returnValueSource: JavaScriptSource): JavaScriptSource;
+	complete(reference: ClientReference, returnValueSource: JavaScriptFragment): JavaScriptFragment;
 	/**
 	 * Called when acquiring or pulling the server iterator fails. `reasonSource` is the source
 	 * expression for the serialized error reason. The native adapter calls its control with opcode 2,
@@ -214,7 +214,7 @@ export interface AsyncSequenceDescriptor<T = unknown, TReturn = unknown> {
 	 * ({ control }, reasonSource) => js`${control}(2,${reasonSource})`
 	 * ```
 	 */
-	error(reference: ClientReference, reasonSource: JavaScriptSource): JavaScriptSource;
+	error(reference: ClientReference, reasonSource: JavaScriptFragment): JavaScriptFragment;
 	/**
 	 * Optional server-side cancellation cleanup. This does not generate client source. On explicit
 	 * `tail.return()` or AbortSignal cancellation, devalue initiates `iterator.return()` and then this
@@ -232,7 +232,7 @@ export interface AsyncSequenceDescriptor<T = unknown, TReturn = unknown> {
 export type UnevalStreamReplacer = (
 	value: unknown,
 	js: JavaScriptTag
-) => JavaScriptSource | AsyncValueDescriptor | AsyncSequenceDescriptor | false | null | void;
+) => JavaScriptFragment | AsyncValueDescriptor | AsyncSequenceDescriptor | false | null | void;
 
 /** Configures the shared client session table, session ID, and server-side cancellation signal. */
 export interface UnevalStreamOptions {

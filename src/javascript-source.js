@@ -102,14 +102,6 @@ export function create_source(strings, values) {
 }
 
 /**
- * @param {unknown} value
- * @returns {value is JavaScriptFragment}
- */
-export function is_source(value) {
-	return JavaScriptSource.is_fragment(value);
-}
-
-/**
  * @param {string} text
  * @returns {JavaScriptFragment}
  */
