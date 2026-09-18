@@ -177,7 +177,10 @@ export interface StringifyOperations {
 	/**
 	 * Returns the view metadata of a typed array or `DataView` value.
 	 * `length` is only meaningful for typed arrays. `buffer` is serialized
-	 * recursively, so it may be a foreign value/handle.
+	 * recursively in full, so it may be a foreign value/handle.
+	 * The default copies Node Buffers into an exact-sized backing buffer with
+	 * byteOffset 0 to avoid exposing unrelated bytes from Node's shared pool.
+	 * Overrides must take equivalent care with pooled views.
 	 */
 	viewInfo(view: any): {
 		buffer: any;

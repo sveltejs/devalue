@@ -2,6 +2,7 @@ import { MAX_ARRAY_INDEX } from './constants.js';
 import {
 	enumerable_symbols,
 	get_type,
+	is_buffer,
 	is_plain_object,
 	valid_array_indices
 } from './utils.js';
@@ -76,13 +77,19 @@ const stringify_operations = {
 
 	entriesOf: (map) => map,
 
-	viewInfo: (view) => ({
-		buffer: view.buffer,
-		byteOffset: view.byteOffset,
-		byteLength: view.byteLength,
-		length: view.length,
-		bufferByteLength: view.buffer.byteLength
-	}),
+	viewInfo: (view) => {
+		// Node Buffers may share a pool containing unrelated, sensitive data.
+		// Copy only the visible bytes, without using Buffer's pooling or slice.
+		if (is_buffer(view)) view = new Uint8Array(view);
+
+		return {
+			buffer: view.buffer,
+			byteOffset: view.byteOffset,
+			byteLength: view.byteLength,
+			length: view.length,
+			bufferByteLength: view.buffer.byteLength
+		};
+	},
 
 	toArrayBuffer: (buffer) => buffer,
 

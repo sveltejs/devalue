@@ -55,6 +55,11 @@ export function get_type(thing) {
 	return Object.prototype.toString.call(thing).slice(8, -1);
 }
 
+/** @param {any} thing */
+export function is_buffer(thing) {
+	return typeof Buffer !== 'undefined' && Buffer.isBuffer(thing);
+}
+
 /** @param {string} char */
 function get_escaped_char(char) {
 	switch (char) {
