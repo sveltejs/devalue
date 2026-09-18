@@ -1,5 +1,9 @@
 import { MAX_ARRAY_INDEX, MAX_ARRAY_LEN } from './constants.js';
 
+const name_chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$';
+const reserved_names =
+	/^(?:do|if|in|for|int|let|new|try|var|byte|case|char|else|enum|goto|long|this|void|with|await|break|catch|class|const|final|float|short|super|throw|while|yield|delete|double|export|import|native|return|switch|throws|typeof|boolean|default|extends|finally|package|private|abstract|continue|debugger|function|volatile|interface|protected|transient|implements|instanceof|synchronized)$/;
+
 /** @type {Record<string, string>} */
 export const escaped = {
 	'<': '\\u003C',
@@ -93,6 +97,28 @@ export function is_buffer(thing) {
 	return typeof Buffer !== 'undefined' && Buffer.isBuffer(thing);
 }
 
+/**
+ * Emit an array whose storage is not proportional to its declared length.
+ * Touching and deleting the largest valid index forces dictionary elements
+ * before setting the length; assigning .length on [] can still eagerly allocate.
+ * @param {number} length
+ */
+export function stringify_sparse_array(length) {
+	return `(function(a){a[${MAX_ARRAY_INDEX}]=0;delete a[${MAX_ARRAY_INDEX}];a.length=${length};return a}([]))`;
+}
+
+/** Returns the compact JavaScript identifier at `index`. @param {number} index */
+export function get_name(index) {
+	let name = '';
+
+	do {
+		name = name_chars[index % name_chars.length] + name;
+		index = ~~(index / name_chars.length) - 1;
+	} while (index >= 0);
+
+	return reserved_names.test(name) ? `${name}0` : name;
+}
+
 /** @param {string} char */
 function get_escaped_char(char) {
 	switch (char) {
@@ -121,9 +147,10 @@ function get_escaped_char(char) {
 	}
 }
 
-// characters `stringify_string` escapes: quote, backslash, `<`, control
-// characters, and the line/paragraph separators
-const needs_escape = /["<\\\u0000-\u001f\u2028\u2029]/;
+// characters `stringify_string` may escape: quote, backslash, `<`, control
+// characters, the line/paragraph separators, and surrogates (only unpaired
+// ones are escaped, but pairs are rare enough to take the slow path too)
+const needs_escape = /["<\\\u0000-\u001f\u2028\u2029\ud800-\udfff]/;
 
 /** @param {string} str */
 export function stringify_string(str) {
@@ -135,8 +162,19 @@ export function stringify_string(str) {
 	const len = str.length;
 
 	for (let i = 0; i < len; i += 1) {
-		const char = str[i];
-		const replacement = get_escaped_char(char);
+		const code = str.charCodeAt(i);
+		if (code >= 0xd800 && code <= 0xdfff) {
+			// A well-formed surrogate pair passes through untouched; an unpaired
+			// surrogate cannot survive UTF-8 transport, so it is escaped.
+			if (code <= 0xdbff && i + 1 < len && (str.charCodeAt(i + 1) & 0xfc00) === 0xdc00) {
+				i += 1;
+				continue;
+			}
+			result += str.slice(last_pos, i) + `\\u${code.toString(16)}`;
+			last_pos = i + 1;
+			continue;
+		}
+		const replacement = get_escaped_char(str[i]);
 		if (replacement) {
 			result += str.slice(last_pos, i) + replacement;
 			last_pos = i + 1;
@@ -174,9 +212,11 @@ export function quote_key(key) {
 /** @param {Record<string | symbol, any>} object */
 export function enumerable_symbols(object) {
 	const symbols = Object.getOwnPropertySymbols(object);
+	// Own symbols always have a descriptor; the optional chain only satisfies the lib's
+	// `PropertyDescriptor | undefined` return type.
 	return symbols.length === 0
 		? symbols
-		: symbols.filter((symbol) => Object.getOwnPropertyDescriptor(object, symbol).enumerable);
+		: symbols.filter((symbol) => Object.getOwnPropertyDescriptor(object, symbol)?.enumerable);
 }
 
 const is_identifier = /^[a-zA-Z_$][a-zA-Z_$0-9]*$/;

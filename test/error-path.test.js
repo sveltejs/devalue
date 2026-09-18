@@ -1,26 +1,38 @@
-import * as uvu from 'uvu';
-import * as assert from 'uvu/assert';
+import { describe, expect, test } from 'vitest';
 import { DevalueError, stringify, stringifyAsync, uneval } from '../index.js';
 
-for (const fn of [stringify, stringifyAsync, uneval]) {
-	uvu.test(`${fn.name} reports sparse array indices and quoted keys in error.path`, async () => {
+/**
+ * @param {(value: any) => any} fn
+ * @param {any} value
+ */
+async function capture(fn, value) {
+	try {
+		await fn(value);
+	} catch (error) {
+		return error;
+	}
+	throw new Error('expected a DevalueError');
+}
+
+describe.each([
+	{ name: 'stringify', fn: stringify },
+	{ name: 'stringifyAsync', fn: stringifyAsync },
+	{ name: 'uneval', fn: uneval }
+])('$name error paths', ({ fn }) => {
+	test('reports sparse array indices and quoted keys', async () => {
 		const invalid = () => {};
 		const array = [];
 		array[1000000] = { 0: { 'odd.key': invalid } };
 		const root = { array };
 
-		try {
-			await fn(root);
-			assert.unreachable('should have thrown');
-		} catch (error) {
-			assert.instance(error, DevalueError);
-			assert.is(error.path, '.array[1000000]["0"]["odd.key"]');
-			assert.is(error.value, invalid);
-			assert.is(error.root, root);
-		}
+		const error = await capture(fn, root);
+		expect(error).toBeInstanceOf(DevalueError);
+		expect(error.path).toBe('.array[1000000]["0"]["odd.key"]');
+		expect(error.value).toBe(invalid);
+		expect(error.root).toBe(root);
 	});
 
-	uvu.test(`${fn.name} formats primitive and object Map keys in error.path`, async () => {
+	test('formats primitive and object Map keys', async () => {
 		const invalid = () => {};
 		const inner = new Map([[null, [invalid]]]);
 		const root = new Map([
@@ -28,42 +40,32 @@ for (const fn of [stringify, stringifyAsync, uneval]) {
 			[42, new Map([[{ id: 1 }, inner]])]
 		]);
 
-		try {
-			await fn(root);
-			assert.unreachable('should have thrown');
-		} catch (error) {
-			assert.instance(error, DevalueError);
-			assert.is(error.path, '.get(42).get(...).get(null)[0]');
-			assert.is(error.value, invalid);
-			assert.is(error.root, root);
-		}
+		const error = await capture(fn, root);
+		expect(error).toBeInstanceOf(DevalueError);
+		expect(error.path).toBe('.get(42).get(...).get(null)[0]');
+		expect(error.value).toBe(invalid);
+		expect(error.root).toBe(root);
 	});
 
-	uvu.test(`${fn.name} drops Map entries from error.path once they are serialized`, async () => {
+	test('drops Map entries from the path once they are serialized', async () => {
 		const invalid = () => {};
 		const root = {
 			map: new Map([['key', new Map([['nested', 1]])]]),
 			later: { invalid }
 		};
 
-		try {
-			await fn(root);
-			assert.unreachable('should have thrown');
-		} catch (error) {
-			assert.instance(error, DevalueError);
-			assert.is(error.path, '.later.invalid');
-		}
+		const error = await capture(fn, root);
+		expect(error).toBeInstanceOf(DevalueError);
+		expect(error.path).toBe('.later.invalid');
 	});
-}
+});
 
-uvu.test('DevalueError joins the path segments it is given', () => {
+test('DevalueError joins the path segments it is given', () => {
 	const value = () => {};
 	const root = { array: [value] };
 	const error = new DevalueError('invalid', ['.array', '[0]', '.get("key")'], value, root);
 
-	assert.is(error.path, '.array[0].get("key")');
-	assert.is(error.value, value);
-	assert.is(error.root, root);
+	expect(error.path).toBe('.array[0].get("key")');
+	expect(error.value).toBe(value);
+	expect(error.root).toBe(root);
 });
-
-uvu.test.run();

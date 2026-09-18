@@ -1,5 +1,4 @@
-import * as assert from 'uvu/assert';
-import * as uvu from 'uvu';
+import { describe, test, expect } from 'vitest';
 import {
 	stringify,
 	stringifyAsync,
@@ -10,57 +9,39 @@ import {
 
 globalThis.Temporal ??= (await import('@js-temporal/polyfill')).Temporal;
 
-/**
- * @param {string} name
- * @param {(test: import('uvu').Test) => void} fn
- */
-function suite(name, fn) {
-	const test = uvu.suite(name);
-	fn(test);
-	test.run();
-}
-
 // ---------------------------------------------------------------------------
 // Custom operations: basic plumbing
 // ---------------------------------------------------------------------------
 
-suite('operations option', (test) => {
+describe('operations option', () => {
 	test('partial overrides merge over defaults', () => {
 		let calls = 0;
 
-		const result = stringify(
-			{ a: 1, b: [2, 3] },
-			undefined,
-			{
-				operations: {
-					get(value, key) {
-						calls += 1;
-						return value[key];
-					}
+		const result = stringify({ a: 1, b: [2, 3] }, undefined, {
+			operations: {
+				get(value, key) {
+					calls += 1;
+					return value[key];
 				}
 			}
-		);
+		});
 
-		assert.equal(result, stringify({ a: 1, b: [2, 3] }));
+		expect(result).toEqual(stringify({ a: 1, b: [2, 3] }));
 		// a, b, b[0], b[1]
-		assert.equal(calls, 4);
+		expect(calls).toEqual(4);
 	});
 
 	test('explicitly-undefined overrides fall back to defaults', () => {
 		// programmatically-built override objects often carry undefined members
-		const result = stringify(
-			{ a: 1, date: new Date(1700000000000) },
-			undefined,
-			{
-				operations: {
-					get: undefined,
-					toISOString: undefined,
-					tagOf: (value) => defaultStringifyOperations.tagOf(value)
-				}
+		const result = stringify({ a: 1, date: new Date(1700000000000) }, undefined, {
+			operations: {
+				get: undefined,
+				toISOString: undefined,
+				tagOf: (value) => defaultStringifyOperations.tagOf(value)
 			}
-		);
+		});
 
-		assert.equal(result, stringify({ a: 1, date: new Date(1700000000000) }));
+		expect(result).toEqual(stringify({ a: 1, date: new Date(1700000000000) }));
 	});
 
 	test('nullish overrides fall back to defaults', () => {
@@ -75,7 +56,7 @@ suite('operations option', (test) => {
 			}
 		});
 
-		assert.equal(result, stringify(value));
+		expect(result).toEqual(stringify(value));
 	});
 
 	test('inherited operation members are picked up', () => {
@@ -91,15 +72,15 @@ suite('operations option', (test) => {
 			operations: new Operations()
 		});
 
-		assert.equal(result, '[["Date","custom:1700000000000"]]');
+		expect(result).toEqual('[["Date","custom:1700000000000"]]');
 	});
 
 	test('defaultStringifyOperations and shapeOf sentinels are frozen', () => {
-		assert.ok(Object.isFrozen(defaultStringifyOperations));
-		assert.ok(Object.isFrozen(defaultStringifyOperations.shapeOf(new Map())));
-		assert.ok(
+		expect(Object.isFrozen(defaultStringifyOperations)).toBeTruthy();
+		expect(Object.isFrozen(defaultStringifyOperations.shapeOf(new Map()))).toBeTruthy();
+		expect(
 			Object.isFrozen(defaultStringifyOperations.shapeOf({ [Symbol('key')]: 1 }))
-		);
+		).toBeTruthy();
 	});
 
 	test('defaultStringifyOperations is exported and delegable', () => {
@@ -109,7 +90,7 @@ suite('operations option', (test) => {
 			}
 		});
 
-		assert.equal(result, stringify(new Map([['k', 'v']])));
+		expect(result).toEqual(stringify(new Map([['k', 'v']])));
 	});
 
 	test('identify controls deduplication and cycle detection', () => {
@@ -134,15 +115,16 @@ suite('operations option', (test) => {
 		const result = stringify([a, b], undefined, {
 			operations: {
 				identify: (value) => (value instanceof Wrapper ? value.inner : value),
-				tagOf: (value) => (value instanceof Wrapper ? 'Object' : defaultStringifyOperations.tagOf(value)),
+				tagOf: (value) =>
+					value instanceof Wrapper ? 'Object' : defaultStringifyOperations.tagOf(value),
 				shapeOf,
-				get: (value, key) =>
-					value instanceof Wrapper ? value.inner[key] : value[key]
+				get: (value, key) => (value instanceof Wrapper ? value.inner[key] : value[key])
 			}
 		});
 
-		assert.equal(result, stringify([shared, shared]));
-		assert.equal(parse(result)[0], parse(result)[1]);
+		expect(result).toEqual(stringify([shared, shared]));
+		const decoded = parse(result);
+		expect(decoded[0]).toBe(decoded[1]);
 	});
 });
 
@@ -150,7 +132,7 @@ suite('operations option', (test) => {
 // Side-effect-free serialization
 // ---------------------------------------------------------------------------
 
-suite('side-effect-free operations', (test) => {
+describe('side-effect-free operations', () => {
 	test('toISOString override avoids patched Date.prototype.toISOString', () => {
 		const original = Date.prototype.toISOString;
 		let patched_calls = 0;
@@ -165,7 +147,7 @@ suite('side-effect-free operations', (test) => {
 
 			// default ops call the (patched) prototype method
 			stringify(date);
-			assert.equal(patched_calls, 1);
+			expect(patched_calls).toEqual(1);
 
 			// hardened ops use a captured intrinsic
 			const result = stringify(date, undefined, {
@@ -174,8 +156,8 @@ suite('side-effect-free operations', (test) => {
 				}
 			});
 
-			assert.equal(patched_calls, 1); // unchanged
-			assert.equal(result, `[["Date","2023-11-14T22:13:20.000Z"]]`);
+			expect(patched_calls).toEqual(1); // unchanged
+			expect(result).toEqual(`[["Date","2023-11-14T22:13:20.000Z"]]`);
 		} finally {
 			// eslint-disable-next-line no-extend-native
 			Date.prototype.toISOString = original;
@@ -208,8 +190,8 @@ suite('side-effect-free operations', (test) => {
 				}
 			});
 
-			assert.equal(patched_calls, 0);
-			assert.equal(result, stringify({ map: new Map([[1, 2]]), set: new Set([3]) }));
+			expect(patched_calls).toEqual(0);
+			expect(result).toEqual(stringify({ map: new Map([[1, 2]]), set: new Set([3]) }));
 		} finally {
 			Map.prototype[Symbol.iterator] = map_iterator;
 			Set.prototype[Symbol.iterator] = set_iterator;
@@ -230,8 +212,8 @@ suite('side-effect-free operations', (test) => {
 		// default ops consult Object.prototype.toString, which reads the
 		// (getter-defined) Symbol.toStringTag — executing user code and
 		// misclassifying the object
-		assert.throws(() => stringify(sneaky));
-		assert.ok(getter_calls > 0);
+		expect(() => stringify(sneaky)).toThrow();
+		expect(getter_calls > 0).toBeTruthy();
 
 		getter_calls = 0;
 
@@ -246,8 +228,8 @@ suite('side-effect-free operations', (test) => {
 			}
 		});
 
-		assert.equal(getter_calls, 0);
-		assert.equal(result, '[{}]');
+		expect(getter_calls).toEqual(0);
+		expect(result).toEqual('[{}]');
 	});
 
 	test('get override reads through descriptors without invoking getters', () => {
@@ -270,15 +252,14 @@ suite('side-effect-free operations', (test) => {
 			return descriptor ? descriptor.value : undefined;
 		};
 
-		assert.throws(
-			() => stringify(thing, undefined, { operations: { get } }),
+		expect(() => stringify(thing, undefined, { operations: { get } })).toThrow(
 			/refusing to invoke getter for "computed"/
 		);
-		assert.equal(getter_calls, 0);
+		expect(getter_calls).toEqual(0);
 
 		// default behavior does invoke the getter
 		stringify(thing);
-		assert.equal(getter_calls, 1);
+		expect(getter_calls).toEqual(1);
 	});
 
 	test('isThenable override avoids .then getter execution', () => {
@@ -304,7 +285,7 @@ suite('side-effect-free operations', (test) => {
 			}
 		});
 
-		assert.equal(then_reads, 0);
+		expect(then_reads).toEqual(0);
 	});
 });
 
@@ -366,11 +347,10 @@ const handle_operations = {
 	get: (handle, key) => h(raw(handle)[key])
 };
 
-suite('handle-based operations', (test) => {
+describe('handle-based operations', () => {
 	/** @param {any} value */
 	function assert_parity(value) {
-		assert.equal(
-			stringify(h(value), undefined, { operations: handle_operations }),
+		expect(stringify(h(value), undefined, { operations: handle_operations })).toEqual(
 			stringify(value)
 		);
 	}
@@ -411,8 +391,7 @@ suite('handle-based operations', (test) => {
 
 	test('only serializes visible Buffer bytes through handles', () => {
 		const buffer = Buffer.from([255, 1, 2, 3, 255]).subarray(1, 4);
-		assert.is(
-			stringify(h(buffer), undefined, { operations: handle_operations }),
+		expect(stringify(h(buffer), undefined, { operations: handle_operations })).toBe(
 			'[["Uint8Array",1],["ArrayBuffer","AQID"]]'
 		);
 	});
@@ -425,10 +404,10 @@ suite('handle-based operations', (test) => {
 		// identify-based keying the two handles would serialize twice
 		const result = stringify(h(value), undefined, { operations: handle_operations });
 
-		assert.equal(result, stringify(value));
+		expect(result).toEqual(stringify(value));
 
 		const parsed = parse(result);
-		assert.equal(parsed.first, parsed.second);
+		expect(parsed.first).toBe(parsed.second);
 	});
 
 	test('cyclic values', () => {
@@ -438,10 +417,10 @@ suite('handle-based operations', (test) => {
 
 		const result = stringify(h(cyclic), undefined, { operations: handle_operations });
 
-		assert.equal(result, stringify(cyclic));
+		expect(result).toEqual(stringify(cyclic));
 
 		const parsed = parse(result);
-		assert.equal(parsed.self, parsed);
+		expect(parsed.self).toBe(parsed);
 	});
 
 	test('reducers receive the handle, not the raw value', () => {
@@ -451,14 +430,16 @@ suite('handle-based operations', (test) => {
 			}
 		}
 
-		const result = stringify(h(new Custom('yes')), {
-			Custom: (handle) =>
-				handle instanceof Handle && raw(handle) instanceof Custom
-					? h(raw(handle).inner)
-					: false
-		}, { operations: handle_operations });
+		const result = stringify(
+			h(new Custom('yes')),
+			{
+				Custom: (handle) =>
+					handle instanceof Handle && raw(handle) instanceof Custom ? h(raw(handle).inner) : false
+			},
+			{ operations: handle_operations }
+		);
 
-		assert.equal(result, '[["Custom",1],"yes"]');
+		expect(result).toEqual('[["Custom",1],"yes"]');
 	});
 
 	test('async: thenables resolve through toPromise', async () => {
@@ -469,7 +450,7 @@ suite('handle-based operations', (test) => {
 			stringifyAsync(h(value), undefined, { operations: handle_operations })
 		]);
 
-		assert.equal(actual, expected);
+		expect(actual).toEqual(expected);
 	});
 
 	test('temporal values', () => {
@@ -547,9 +528,7 @@ function tripwire(value) {
 			}
 
 			const detail =
-				typeof args[0] === 'string' || typeof args[0] === 'symbol'
-					? ` (${String(args[0])})`
-					: '';
+				typeof args[0] === 'string' || typeof args[0] === 'symbol' ? ` (${String(args[0])})` : '';
 			tripwire_violations.push(trap + detail);
 			throw new Error(`value touched directly: ${trap}${detail}`);
 		};
@@ -598,7 +577,7 @@ const tripwire_operations = {
 	get: (value, key) => tripwire(untrip(value)[key])
 };
 
-suite('tripwire operations (value is never touched)', (test) => {
+describe('tripwire operations (value is never touched)', () => {
 	/** @param {any} value */
 	function assert_untouched(value) {
 		tripwire_violations = [];
@@ -608,9 +587,9 @@ suite('tripwire operations (value is never touched)', (test) => {
 			operations: tripwire_operations
 		});
 
-		assert.equal(tripwire_violations, [], `traps fired: ${tripwire_violations.join(', ')}`);
-		assert.equal(tripwire_then_probes, 0, 'sync serialization must never read .then');
-		assert.equal(result, stringify(value), 'output parity');
+		expect(tripwire_violations, `traps fired: ${tripwire_violations.join(', ')}`).toEqual([]);
+		expect(tripwire_then_probes, 'sync serialization must never read .then').toEqual(0);
+		expect(result, 'output parity').toEqual(stringify(value));
 	}
 
 	test('sync serialization never touches the value', () => {
@@ -631,7 +610,12 @@ suite('tripwire operations (value is never touched)', (test) => {
 		assert_untouched(sparse);
 		assert_untouched(new Date(1700000000000));
 		assert_untouched(/ab+c/gi);
-		assert_untouched(new Map([['k', { v: 1 }], [shared, shared]]));
+		assert_untouched(
+			new Map([
+				['k', { v: 1 }],
+				[shared, shared]
+			])
+		);
 		assert_untouched(new Set([1, { two: 2 }]));
 		assert_untouched(new URL('https://example.com/?q=1'));
 		assert_untouched(Object.assign(Object.create(null), { x: 1 }));
@@ -654,13 +638,13 @@ suite('tripwire operations (value is never touched)', (test) => {
 			operations: tripwire_operations
 		});
 
-		assert.equal(tripwire_violations, [], `traps fired: ${tripwire_violations.join(', ')}`);
+		expect(tripwire_violations, `traps fired: ${tripwire_violations.join(', ')}`).toEqual([]);
 		// exactly one: the promise resolution procedure reading .then on the
 		// (re-wrapped) object that `p` fulfills with — absorbed by the proxy,
 		// never reaching the underlying value. `42` is a primitive, so the
 		// inner promise adds none.
-		assert.equal(tripwire_then_probes, 1);
-		assert.equal(result, await stringifyAsync(value));
+		expect(tripwire_then_probes).toEqual(1);
+		expect(result).toEqual(await stringifyAsync(value));
 	});
 
 	test('reducers receive the untouched proxy', () => {
@@ -683,8 +667,8 @@ suite('tripwire operations (value is never touched)', (test) => {
 			{ operations: tripwire_operations }
 		);
 
-		assert.equal(tripwire_violations, []);
-		assert.equal(parse(result, { Custom: (value) => value }).inner, 'yes');
+		expect(tripwire_violations).toEqual([]);
+		expect(parse(result, { Custom: (value) => value }).inner).toEqual('yes');
 	});
 
 	test('negative control: default operations trip the wire', () => {
@@ -692,8 +676,8 @@ suite('tripwire operations (value is never touched)', (test) => {
 		// tests would pass vacuously
 		tripwire_violations = [];
 
-		assert.throws(() => stringify(tripwire({ a: 1 })), /value touched directly/);
-		assert.ok(tripwire_violations.length > 0);
+		expect(() => stringify(tripwire({ a: 1 }))).toThrow(/value touched directly/);
+		expect(tripwire_violations.length > 0).toBeTruthy();
 	});
 });
 
@@ -701,37 +685,36 @@ suite('tripwire operations (value is never touched)', (test) => {
 // filterArrayIndices helper
 // ---------------------------------------------------------------------------
 
-suite('filterArrayIndices', (test) => {
+describe('filterArrayIndices', () => {
 	test('keeps the leading run of valid array indices', () => {
-		assert.equal(filterArrayIndices(['0', '1', '2']), ['0', '1', '2']);
-		assert.equal(filterArrayIndices(['0', '2', '7']), ['0', '2', '7']);
-		assert.equal(filterArrayIndices([]), []);
+		expect(filterArrayIndices(['0', '1', '2'])).toEqual(['0', '1', '2']);
+		expect(filterArrayIndices(['0', '2', '7'])).toEqual(['0', '2', '7']);
+		expect(filterArrayIndices([])).toEqual([]);
 	});
 
 	test('trims trailing non-index keys', () => {
-		assert.equal(filterArrayIndices(['0', '1', 'extra']), ['0', '1']);
-		assert.equal(filterArrayIndices(['0', 'a', 'b']), ['0']);
-		assert.equal(filterArrayIndices(['a', 'b']), []);
+		expect(filterArrayIndices(['0', '1', 'extra'])).toEqual(['0', '1']);
+		expect(filterArrayIndices(['0', 'a', 'b'])).toEqual(['0']);
+		expect(filterArrayIndices(['a', 'b'])).toEqual([]);
 	});
 
 	test('rejects index-like strings that are not valid indices', () => {
-		assert.equal(filterArrayIndices(['0', '01']), ['0']);
-		assert.equal(filterArrayIndices(['0', '-1']), ['0']);
-		assert.equal(filterArrayIndices(['0', '1.5']), ['0']);
-		assert.equal(filterArrayIndices(['0', '4294967295']), ['0']);
+		expect(filterArrayIndices(['0', '01'])).toEqual(['0']);
+		expect(filterArrayIndices(['0', '-1'])).toEqual(['0']);
+		expect(filterArrayIndices(['0', '1.5'])).toEqual(['0']);
+		expect(filterArrayIndices(['0', '4294967295'])).toEqual(['0']);
 	});
 
 	test('does not modify the input', () => {
 		const keys = ['0', '1', 'extra'];
 		filterArrayIndices(keys);
-		assert.equal(keys, ['0', '1', 'extra']);
+		expect(keys).toEqual(['0', '1', 'extra']);
 	});
 
 	test('matches the default operation for the same value', () => {
 		const array = [1, 2, 3];
 		array.extra = 'x';
-		assert.equal(
-			filterArrayIndices(Object.keys(array)),
+		expect(filterArrayIndices(Object.keys(array))).toEqual(
 			defaultStringifyOperations.indicesOf(array)
 		);
 	});
