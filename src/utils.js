@@ -23,22 +23,43 @@ export class DevalueError extends Error {
 	constructor(message, keys, value, root) {
 		super(message);
 		this.name = 'DevalueError';
-		this.path = keys.map(format_key).join('');
+		this.path = keys.join('');
 		this.value = value;
 		this.root = root;
 	}
 }
 
 /**
- * Path segments are recorded raw while stringifying — a property key, an
- * array index, or a pre-formatted `.get(…)` step — and only formatted here,
- * when an error is actually raised.
- * @param {import('./types.js').PathSegment} segment
+ * Marks a Map key on the path being serialized. The key itself is recorded
+ * right after the marker, so nothing is formatted or allocated per entry.
  */
-function format_key(segment) {
-	if (typeof segment === 'number') return `[${segment}]`;
-	if (typeof segment === 'string') return stringify_key(segment);
-	return segment.formatted;
+export const MAP_KEY = Symbol();
+
+/**
+ * Formats the path recorded on the way to the value being serialized — a
+ * property key, an array index, or `MAP_KEY` followed by a Map key — into
+ * the segments a `DevalueError` joins. Only runs when an error is raised.
+ * @param {any[]} keys
+ * @param {(key: any) => string} format_map_key
+ * @returns {string[]}
+ */
+export function format_path(keys, format_map_key) {
+	/** @type {string[]} */
+	const path = [];
+
+	for (let i = 0; i < keys.length; i += 1) {
+		const segment = keys[i];
+
+		if (segment === MAP_KEY) {
+			path.push(`.get(${format_map_key(keys[++i])})`);
+		} else if (typeof segment === 'number') {
+			path.push(`[${segment}]`);
+		} else {
+			path.push(stringify_key(segment));
+		}
+	}
+
+	return path;
 }
 
 /** @param {any} thing */
