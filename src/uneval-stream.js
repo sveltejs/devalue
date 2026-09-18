@@ -13,7 +13,7 @@
  * @import { Emission } from './stream-source.js'
  */
 
-import { DevalueError, is_primitive, stringify_primitive, stringify_string } from './utils.js';
+import { DevalueError, is_primitive, stringify_sparse_array, stringify_string } from './utils.js';
 import {
 	child,
 	create_captured_graph,
@@ -37,6 +37,7 @@ import {
 	map_descriptor_source,
 	map_source,
 	promise_source,
+	primitive_source,
 	reference_source,
 	reference_length,
 	render_reference,
@@ -224,12 +225,13 @@ class Session {
 	 * as emitted, and renders the block once with definitions at its explicit prelude point.
 	 *
 	 * @param {Emission} source
+	 * @param {boolean} [statement] Whether this is a tail block rather than a head expression.
 	 * @returns {string}
 	 */
-	#render_final(source) {
+	#render_final(source, statement = false) {
 		const definitions = source_helpers(source).filter((key) => !this.#runtimes_emitted[key]);
 		for (const key of definitions) this.#runtimes_emitted[key] = true;
-		return render_stream_source(source, definitions);
+		return render_stream_source(source, definitions, statement);
 	}
 
 	/**
@@ -602,7 +604,7 @@ class Session {
 			const lowered = map_descriptor_source(source, (value, index) => {
 				if (typeof value === 'symbol')
 					throw descriptor_interpolation_error(undefined, value, context, index);
-				return stringify_primitive(
+				return primitive_source(
 					/** @type {null | undefined | boolean | number | string | bigint} */ (value)
 				);
 			});
@@ -671,7 +673,7 @@ class Session {
 				if (is_primitive(value)) {
 					if (typeof value === 'symbol')
 						throw descriptor_interpolation_error(undefined, value, context, index);
-					return stringify_primitive(value);
+					return primitive_source(value);
 				}
 				const node = nodes.get(/** @type {object} */ (value));
 				const binding = node && bindings.get(node);
@@ -736,7 +738,8 @@ class Session {
 	}
 
 	/**
-	 * Validates the synchronous shape of an async descriptor without observing its source.
+	 * Validates the synchronous shape of an async descriptor before starting it,
+	 * attaching only a no-op rejection handler when its source is a native Promise.
 	 *
 	 * @param {any} descriptor
 	 * @param {'async-value' | 'async-sequence'} type
@@ -753,6 +756,17 @@ class Session {
 			throw new TypeError(
 				`Invalid ${type} source: received ${describe_received(source)}. ${requirement}`
 			);
+		}
+		if (type === 'async-value') {
+			// A later constructor or graph traversal can fail before committed
+			// sources start. Observe native rejections now without invoking a
+			// custom thenable's `then` getter or starting provisional work.
+			try {
+				const observed = promise_then.call(source, undefined, () => {});
+				promise_then.call(observed, undefined, () => {});
+			} catch {
+				// Non-native thenables are observed only after their transaction commits.
+			}
 		}
 		for (const key of methods) {
 			const method = descriptor[key];
@@ -1015,7 +1029,7 @@ class Session {
 			this.#start_unstarted();
 			this.#consume(events);
 			if (!this.#is_active()) return await this.#throw_failure(undefined);
-			const source = block ? this.#render_final(emitted.source) : emitted.source;
+			const source = block ? this.#render_final(emitted.source, true) : emitted.source;
 			if (block && this.#active === 0 && this.#batch.length === 0) this.#complete();
 			return source;
 		} catch (error) {
@@ -1037,7 +1051,7 @@ class Session {
 		if (is_primitive(value)) {
 			if (typeof value === 'symbol')
 				throw this.#error('Cannot stringify a Symbol primitive', value);
-			return stringify_primitive(value);
+			return primitive_source(value);
 		}
 		const identities = this.#graph.identities;
 		const region_id = ++this.#region_id;
@@ -1186,7 +1200,7 @@ class Session {
 			if (is_primitive(thing)) {
 				if (typeof thing === 'symbol')
 					throw this.#error('Cannot stringify a Symbol primitive', thing);
-				return stringify_primitive(thing);
+				return primitive_source(thing);
 			}
 			const node = identities.get(/** @type {object} */ (thing));
 			if (!node)
@@ -1224,7 +1238,7 @@ class Session {
 			if (is_node(child)) return expression_node(child);
 			if (typeof child === 'symbol')
 				throw this.#error('Cannot stringify a Symbol primitive', child);
-			return stringify_primitive(child);
+			return primitive_source(child);
 		};
 
 		/** @param {Child[]} children */
@@ -1356,7 +1370,7 @@ class Session {
 			if (!node.name || !node.early) continue;
 			switch (node.kind) {
 				case 'Array':
-					declarations.push(`${node.name}=Array(${node.data})`);
+					declarations.push(`${node.name}=${array_allocation(node)}`);
 					break;
 				case 'Object':
 				case 'NullObject':
@@ -1392,7 +1406,7 @@ class Session {
 				switch (node.kind) {
 					case 'Array': {
 						if (is_sparse(node)) {
-							declarations.push(`${name}=Array(${node.data})`);
+							declarations.push(`${name}=${array_allocation(node)}`);
 							populate(fill_entries(node, name, available));
 							break;
 						}
@@ -2305,7 +2319,7 @@ function scalar(node, expression) {
 		case 'String':
 		case 'Boolean':
 		case 'BigInt':
-			return `Object(${stringify_primitive(node.data)})`;
+			return join_sources(['Object(', primitive_source(node.data), ')']);
 		case 'Date':
 			return `new Date(${node.data})`;
 		case 'RegExp': {
@@ -2366,6 +2380,13 @@ function is_view(node) {
  */
 function is_atomic(node) {
 	return node.kind === 'Custom' || node.kind === 'Async' || is_view(node);
+}
+
+/** @param {CapturedNode & { kind: 'Array' }} node */
+function array_allocation(node) {
+	return node.data > 32 + 2 * node.keys.length
+		? stringify_sparse_array(node.data)
+		: `Array(${node.data})`;
 }
 
 /**
