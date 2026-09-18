@@ -123,7 +123,9 @@ export interface StringifyOperations {
 	 * Classifies a value. Same contract as the `typeof` operator, except
 	 * `null` must be reported as `'null'` (not `'object'`).
 	 */
-	typeOf(value: any):
+	typeOf(
+		value: any
+	):
 		| 'undefined'
 		| 'null'
 		| 'boolean'
@@ -343,9 +345,7 @@ export interface ParseOperations {
 	 * into the representation the other operations expect. The inverse of
 	 * `toPrimitive`. Default: the value itself.
 	 */
-	fromPrimitive(
-		primitive: string | number | boolean | bigint | null | undefined
-	): any;
+	fromPrimitive(primitive: string | number | boolean | bigint | null | undefined): any;
 
 	/**
 	 * Creates a `Date` from an ISO string. The inverse of `toISOString`.

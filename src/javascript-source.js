@@ -85,7 +85,9 @@ export class JavaScriptSource {
  */
 export function js(strings, ...values) {
 	if (!Array.isArray(strings) || !Array.isArray(strings.raw)) {
-		throw new TypeError('`js` must be used as a tagged template, but was called as a regular function');
+		throw new TypeError(
+			'`js` must be used as a tagged template, but was called as a regular function'
+		);
 	}
 	return { [SOURCE]: new JavaScriptSource(strings, values) };
 }

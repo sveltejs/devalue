@@ -45,7 +45,10 @@ export function uneval(value, replacer) {
 
 	/** @param {any} thing */
 	function stringify_cached_primitive(thing) {
-		if ((typeof thing === 'string' && thing.length >= MIN_STRING_LENGTH) || typeof thing === 'bigint') {
+		if (
+			(typeof thing === 'string' && thing.length >= MIN_STRING_LENGTH) ||
+			typeof thing === 'bigint'
+		) {
 			primitives ??= new Map();
 			let literal = primitives.get(thing);
 			if (literal === undefined) {
@@ -180,7 +183,10 @@ export function uneval(value, replacer) {
 			}
 		} else if (typeof thing === 'symbol') {
 			throw new DevalueError(`Cannot stringify a Symbol primitive`, keys, thing, value);
-		} else if ((typeof thing === 'string' && thing.length >= MIN_STRING_LENGTH) || typeof thing === 'bigint') {
+		} else if (
+			(typeof thing === 'string' && thing.length >= MIN_STRING_LENGTH) ||
+			typeof thing === 'bigint'
+		) {
 			primitive_counts ??= new Map();
 			primitive_counts.set(thing, (primitive_counts.get(thing) || 0) + 1);
 		}
@@ -249,9 +255,10 @@ export function uneval(value, replacer) {
 					case 'Array': {
 						seen.add(thing);
 						const indices = valid_array_indices(thing);
-						const array = thing.length > 32 + 2 * indices.length
-							? stringify_sparse_array(thing.length)
-							: `Array(${thing.length})`;
+						const array =
+							thing.length > 32 + 2 * indices.length
+								? stringify_sparse_array(thing.length)
+								: `Array(${thing.length})`;
 						statements.push(`let ${name}=${array}`);
 						for (const i of indices) {
 							statements.push(`${name}[${i}]=${stringify(thing[i])}`);

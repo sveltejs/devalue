@@ -20,6 +20,9 @@ importers:
       dts-buddy:
         specifier: ^0.8.3
         version: 0.8.3(typescript@6.0.3)
+      prettier:
+        specifier: ^3.2.4
+        version: 3.9.6
       publint:
         specifier: ^0.3.12
         version: 0.3.21
@@ -765,6 +768,11 @@ packages:
   prettier@2.8.8:
     resolution: {integrity: sha512-tdN8qQGvNjw4CHbY+XXk0JgCXn9QiF21a55rBe5LJAU+kDyC4WQn4+awm2Xfk2lQMk5fKup9XgzTZtGkjBdP9Q==}
     engines: {node: '>=10.13.0'}
+    hasBin: true
+
+  prettier@3.9.6:
+    resolution: {integrity: sha512-OpN0zzVdiaiAhxpuuj5efpIS4sY9j7bY6uR5mnj5yPzGkdkjNKSJeUThPb60Jw29QuAZgA4o+/iB49kFiaBX6g==}
+    engines: {node: '>=14'}
     hasBin: true
 
   publint@0.3.21:
@@ -1649,6 +1657,8 @@ snapshots:
       source-map-js: 1.2.1
 
   prettier@2.8.8: {}
+
+  prettier@3.9.6: {}
 
   publint@0.3.21:
     dependencies:

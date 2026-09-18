@@ -17,18 +17,14 @@ describe('operations option', () => {
 	test('partial overrides merge over defaults', () => {
 		let calls = 0;
 
-		const result = stringify(
-			{ a: 1, b: [2, 3] },
-			undefined,
-			{
-				operations: {
-					get(value, key) {
-						calls += 1;
-						return value[key];
-					}
+		const result = stringify({ a: 1, b: [2, 3] }, undefined, {
+			operations: {
+				get(value, key) {
+					calls += 1;
+					return value[key];
 				}
 			}
-		);
+		});
 
 		expect(result).toEqual(stringify({ a: 1, b: [2, 3] }));
 		// a, b, b[0], b[1]
@@ -37,17 +33,13 @@ describe('operations option', () => {
 
 	test('explicitly-undefined overrides fall back to defaults', () => {
 		// programmatically-built override objects often carry undefined members
-		const result = stringify(
-			{ a: 1, date: new Date(1700000000000) },
-			undefined,
-			{
-				operations: {
-					get: undefined,
-					toISOString: undefined,
-					tagOf: (value) => defaultStringifyOperations.tagOf(value)
-				}
+		const result = stringify({ a: 1, date: new Date(1700000000000) }, undefined, {
+			operations: {
+				get: undefined,
+				toISOString: undefined,
+				tagOf: (value) => defaultStringifyOperations.tagOf(value)
 			}
-		);
+		});
 
 		expect(result).toEqual(stringify({ a: 1, date: new Date(1700000000000) }));
 	});
@@ -86,7 +78,9 @@ describe('operations option', () => {
 	test('defaultStringifyOperations and shapeOf sentinels are frozen', () => {
 		expect(Object.isFrozen(defaultStringifyOperations)).toBeTruthy();
 		expect(Object.isFrozen(defaultStringifyOperations.shapeOf(new Map()))).toBeTruthy();
-		expect(Object.isFrozen(defaultStringifyOperations.shapeOf({ [Symbol('key')]: 1 }))).toBeTruthy();
+		expect(
+			Object.isFrozen(defaultStringifyOperations.shapeOf({ [Symbol('key')]: 1 }))
+		).toBeTruthy();
 	});
 
 	test('defaultStringifyOperations is exported and delegable', () => {
@@ -121,10 +115,10 @@ describe('operations option', () => {
 		const result = stringify([a, b], undefined, {
 			operations: {
 				identify: (value) => (value instanceof Wrapper ? value.inner : value),
-				tagOf: (value) => (value instanceof Wrapper ? 'Object' : defaultStringifyOperations.tagOf(value)),
+				tagOf: (value) =>
+					value instanceof Wrapper ? 'Object' : defaultStringifyOperations.tagOf(value),
 				shapeOf,
-				get: (value, key) =>
-					value instanceof Wrapper ? value.inner[key] : value[key]
+				get: (value, key) => (value instanceof Wrapper ? value.inner[key] : value[key])
 			}
 		});
 
@@ -356,7 +350,9 @@ const handle_operations = {
 describe('handle-based operations', () => {
 	/** @param {any} value */
 	function assert_parity(value) {
-		expect(stringify(h(value), undefined, { operations: handle_operations })).toEqual(stringify(value));
+		expect(stringify(h(value), undefined, { operations: handle_operations })).toEqual(
+			stringify(value)
+		);
 	}
 
 	test('primitives', () => {
@@ -434,12 +430,14 @@ describe('handle-based operations', () => {
 			}
 		}
 
-		const result = stringify(h(new Custom('yes')), {
-			Custom: (handle) =>
-				handle instanceof Handle && raw(handle) instanceof Custom
-					? h(raw(handle).inner)
-					: false
-		}, { operations: handle_operations });
+		const result = stringify(
+			h(new Custom('yes')),
+			{
+				Custom: (handle) =>
+					handle instanceof Handle && raw(handle) instanceof Custom ? h(raw(handle).inner) : false
+			},
+			{ operations: handle_operations }
+		);
 
 		expect(result).toEqual('[["Custom",1],"yes"]');
 	});
@@ -530,9 +528,7 @@ function tripwire(value) {
 			}
 
 			const detail =
-				typeof args[0] === 'string' || typeof args[0] === 'symbol'
-					? ` (${String(args[0])})`
-					: '';
+				typeof args[0] === 'string' || typeof args[0] === 'symbol' ? ` (${String(args[0])})` : '';
 			tripwire_violations.push(trap + detail);
 			throw new Error(`value touched directly: ${trap}${detail}`);
 		};
@@ -614,7 +610,12 @@ describe('tripwire operations (value is never touched)', () => {
 		assert_untouched(sparse);
 		assert_untouched(new Date(1700000000000));
 		assert_untouched(/ab+c/gi);
-		assert_untouched(new Map([['k', { v: 1 }], [shared, shared]]));
+		assert_untouched(
+			new Map([
+				['k', { v: 1 }],
+				[shared, shared]
+			])
+		);
 		assert_untouched(new Set([1, { two: 2 }]));
 		assert_untouched(new URL('https://example.com/?q=1'));
 		assert_untouched(Object.assign(Object.create(null), { x: 1 }));
@@ -713,6 +714,8 @@ describe('filterArrayIndices', () => {
 	test('matches the default operation for the same value', () => {
 		const array = [1, 2, 3];
 		array.extra = 'x';
-		expect(filterArrayIndices(Object.keys(array))).toEqual(defaultStringifyOperations.indicesOf(array));
+		expect(filterArrayIndices(Object.keys(array))).toEqual(
+			defaultStringifyOperations.indicesOf(array)
+		);
 	});
 });

@@ -77,8 +77,8 @@ Use `stringify` and `parse` when evaluating JavaScript isn't an option.
 import * as devalue from 'devalue';
 
 let obj = {
-	quick: 'data',
-	slow: fetch('/api/slow').then((r) => r.json())
+  quick: 'data',
+  slow: fetch('/api/slow').then((r) => r.json())
 };
 
 let stringified = await devalue.stringifyAsync(obj);
@@ -121,24 +121,24 @@ You can serialize and deserialize custom types by passing a second argument to `
 
 ```js
 class Vector {
-	constructor(x, y) {
-		this.x = x;
-		this.y = y;
-	}
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+  }
 
-	magnitude() {
-		return Math.sqrt(this.x * this.x + this.y * this.y);
-	}
+  magnitude() {
+    return Math.sqrt(this.x * this.x + this.y * this.y);
+  }
 }
 
 const stringified = devalue.stringify(new Vector(30, 40), {
-	Vector: (value) => value instanceof Vector && [value.x, value.y]
+  Vector: (value) => value instanceof Vector && [value.x, value.y]
 });
 
 console.log(stringified); // [["Vector",1],[2,3],30,40]
 
 const vector = devalue.parse(stringified, {
-	Vector: ([x, y]) => new Vector(x, y)
+  Vector: ([x, y]) => new Vector(x, y)
 });
 
 console.log(vector.magnitude()); // 50
@@ -150,9 +150,9 @@ You can also use custom types with `uneval` by specifying a custom replacer:
 
 ```js
 devalue.uneval(vector, (value, js) => {
-	if (value instanceof Vector) {
-		return js`new Vector(${value.x},${value.y})`;
-	}
+  if (value instanceof Vector) {
+    return js`new Vector(${value.x},${value.y})`;
+  }
 }); // `new Vector(30,40)`
 ```
 
@@ -172,17 +172,17 @@ This is useful in two situations:
 const originalToISOString = Date.prototype.toISOString;
 
 const stringified = devalue.stringify(value, undefined, {
-	operations: {
-		// use a captured intrinsic instead of a (possibly patched) prototype method
-		toISOString: (date) => originalToISOString.call(date),
+  operations: {
+    // use a captured intrinsic instead of a (possibly patched) prototype method
+    toISOString: (date) => originalToISOString.call(date),
 
-		// read through descriptors so getters are never invoked
-		get: (object, key) => {
-			const descriptor = Object.getOwnPropertyDescriptor(object, key);
-			if (descriptor?.get) throw new Error(`refusing to invoke getter for "${key}"`);
-			return descriptor?.value;
-		}
-	}
+    // read through descriptors so getters are never invoked
+    get: (object, key) => {
+      const descriptor = Object.getOwnPropertyDescriptor(object, key);
+      if (descriptor?.get) throw new Error(`refusing to invoke getter for "${key}"`);
+      return descriptor?.value;
+    }
+  }
 });
 ```
 
@@ -190,19 +190,19 @@ const stringified = devalue.stringify(value, undefined, {
 
 ```js
 const stringified = devalue.stringify(rootHandle, undefined, {
-	operations: {
-		identify: (handle) => handle.pointer,
-		typeOf: (handle) => handle.typeOf(),
-		get: (handle, key) => handle.getProperty(key)
-		// ... see StringifyOperations for the full interface
-	}
+  operations: {
+    identify: (handle) => handle.pointer,
+    typeOf: (handle) => handle.typeOf(),
+    get: (handle, key) => handle.getProperty(key)
+    // ... see StringifyOperations for the full interface
+  }
 });
 ```
 
 Some operations have a non-obvious contract that is easy to get subtly wrong. Where the work is not specific to your values, devalue exports the pieces so you don't have to reimplement them — `filterArrayIndices` does the array-index filtering that `indicesOf` needs, given keys you already have:
 
 ```js
-indicesOf: (handle) => devalue.filterArrayIndices(handle.ownEnumerableStringKeys())
+indicesOf: (handle) => devalue.filterArrayIndices(handle.ownEnumerableStringKeys());
 ```
 
 Reducers compose with custom operations: they receive the raw value/handle, and whatever they return is serialized through the same operations.
@@ -215,11 +215,11 @@ The mirror image: `parse` and `unflatten` build every value through construction
 
 ```js
 const revived = devalue.parse(serialized, undefined, {
-	operations: {
-		fromISOString: (iso) => new sandbox.Date(iso),
-		createMap: () => new sandbox.Map(),
-		createObject: () => sandbox.makeObject()
-	}
+  operations: {
+    fromISOString: (iso) => new sandbox.Date(iso),
+    createMap: () => new sandbox.Map(),
+    createObject: () => sandbox.makeObject()
+  }
 });
 ```
 
@@ -227,12 +227,12 @@ const revived = devalue.parse(serialized, undefined, {
 
 ```js
 const rootHandle = devalue.parse(serialized, undefined, {
-	operations: {
-		fromPrimitive: (primitive) => vm.toHandle(primitive),
-		createObject: () => vm.newObject(),
-		set: (handle, key, value) => handle.setProp(key, value)
-		// ... see ParseOperations for the full interface
-	}
+  operations: {
+    fromPrimitive: (primitive) => vm.toHandle(primitive),
+    createObject: () => vm.newObject(),
+    set: (handle, key, value) => handle.setProp(key, value)
+    // ... see ParseOperations for the full interface
+  }
 });
 ```
 
@@ -246,16 +246,16 @@ If `uneval` or `stringify` encounters a function or a non-POJO that isn't handle
 
 ```js
 try {
-	const map = new Map();
-	map.set('key', function invalid() {});
+  const map = new Map();
+  map.set('key', function invalid() {});
 
-	uneval({
-		object: {
-			array: [map]
-		}
-	});
+  uneval({
+    object: {
+      array: [map]
+    }
+  });
 } catch (e) {
-	console.log(e.path); // '.object.array[0].get("key")'
+  console.log(e.path); // '.object.array[0].get("key")'
 }
 ```
 
@@ -265,7 +265,7 @@ Say you're server-rendering a page and want to serialize some state, which could
 
 ```js
 const state = {
-	userinput: `</script><script src='https://evil.com/mwahaha.js'>`
+  userinput: `</script><script src='https://evil.com/mwahaha.js'>`
 };
 
 const template = `
@@ -279,11 +279,11 @@ Which would result in this:
 
 ```html
 <script>
-	// NEVER DO THIS
-	var preloaded = {"userinput":"
+  // NEVER DO THIS
+  var preloaded = {"userinput":"
 </script>
 <script src="https://evil.com/mwahaha.js">
-	"};
+  "};
 </script>
 ```
 
@@ -298,10 +298,10 @@ const template = `
 
 ```html
 <script>
-	var preloaded = {
-		userinput:
-			"\\u003C\\u002Fscript\\u003E\\u003Cscript src='https:\\u002F\\u002Fevil.com\\u002Fmwahaha.js'\\u003E"
-	};
+  var preloaded = {
+    userinput:
+      "\\u003C\\u002Fscript\\u003E\\u003Cscript src='https:\\u002F\\u002Fevil.com\\u002Fmwahaha.js'\\u003E"
+  };
 </script>
 ```
 
@@ -319,9 +319,9 @@ When using `eval`, ensure that you call it _indirectly_ so that the evaluated co
 
 ```js
 {
-	const sensitiveData = 'Setec Astronomy';
-	eval('sendToEvilServer(sensitiveData)'); // pwned :(
-	(0, eval)('sendToEvilServer(sensitiveData)'); // nice try, evildoer!
+  const sensitiveData = 'Setec Astronomy';
+  eval('sendToEvilServer(sensitiveData)'); // pwned :(
+  (0, eval)('sendToEvilServer(sensitiveData)'); // nice try, evildoer!
 }
 ```
 
