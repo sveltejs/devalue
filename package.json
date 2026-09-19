@@ -28,7 +28,7 @@
     "prettier": "^3.2.4",
     "publint": "^0.3.12",
     "typescript": "^6.0.3",
-    "vite": "7.3.1",
+    "vite": "8.3.0",
     "vitest": "5.0.1"
   },
   "scripts": {
