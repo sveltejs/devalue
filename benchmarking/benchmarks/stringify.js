@@ -37,6 +37,16 @@ export default [
 		200
 	),
 	benchmark(
+		'strings with an emoji',
+		Array.from({ length: 1000 }, (_, i) => `item-${i} 😀`),
+		2000
+	),
+	benchmark(
+		'emoji-dense strings',
+		Array.from({ length: 1000 }, (_, i) => `${i} ${'😀❤️'.repeat(20)}`),
+		500
+	),
+	benchmark(
 		'escaped strings',
 		Array.from({ length: 1000 }, (_, i) => `<p class="item">Item ${i}</p>\n`),
 		500

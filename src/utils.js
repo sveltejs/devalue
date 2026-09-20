@@ -147,15 +147,16 @@ function get_escaped_char(char) {
 	}
 }
 
-// characters `stringify_string` may escape: quote, backslash, `<`, control
-// characters, the line/paragraph separators, and surrogates (only unpaired
-// ones are escaped, but pairs are rare enough to take the slow path too)
-const needs_escape = /["<\\\u0000-\u001f\u2028\u2029\ud800-\udfff]/;
+// characters `stringify_string` always escapes: quote, backslash, `<`, control
+// characters and the line/paragraph separators. Surrogates are only escaped
+// when unpaired, which `isWellFormed` detects natively, so well-formed pairs
+// such as emoji stay on the fast path
+const needs_escape = /["<\\\u0000-\u001f\u2028\u2029]/;
 
 /** @param {string} str */
 export function stringify_string(str) {
 	// the common case: nothing to escape, no per-character work
-	if (!needs_escape.test(str)) return `"${str}"`;
+	if (!needs_escape.test(str) && str.isWellFormed()) return `"${str}"`;
 
 	let result = '';
 	let last_pos = 0;
