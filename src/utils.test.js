@@ -74,4 +74,12 @@ describe('stringify_string', () => {
 		expect(stringify_string('\ud83d\ude00')).toBe('"\ud83d\ude00"');
 		expect((0, eval)(stringify_string('a\ud83d\ude00b'))).toBe('a\ud83d\ude00b');
 	});
+
+	test('still escapes around well-formed surrogate pairs', () => {
+		// a pair next to an unpaired surrogate: only the unpaired one is escaped
+		expect(stringify_string('\ud83d\ude00\ud800')).toBe('"\ud83d\ude00\\ud800"');
+		expect(stringify_string('\udc00\ud83d\ude00')).toBe('"\\udc00\ud83d\ude00"');
+		// a pair next to characters that are always escaped
+		expect(stringify_string('<\ud83d\ude00"\n')).toBe('"\\u003C\ud83d\ude00\\"\\n"');
+	});
 });
