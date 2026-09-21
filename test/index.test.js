@@ -1947,37 +1947,36 @@ test.each(invalid.map((t) => [t.name, t]))(
 	}
 );
 
-describe.each([
-	{ tag: 'Object' },
-	{ tag: 'Uint8Array' },
-	{ tag: 'DataView' }
-])('$tag reference validation', ({ tag }) => {
-	test.each([parse, unflatten].map((fn) => ({ fn })))(
-		'$fn.name rejects an index that cannot be coerced to a property key',
-		({ fn }) => {
-			const input = [[tag, { toString: null }]];
+describe.each([{ tag: 'Object' }, { tag: 'Uint8Array' }, { tag: 'DataView' }])(
+	'$tag reference validation',
+	({ tag }) => {
+		test.each([parse, unflatten].map((fn) => ({ fn })))(
+			'$fn.name rejects an index that cannot be coerced to a property key',
+			({ fn }) => {
+				const input = [[tag, { toString: null }]];
 
-			assert.throws(() => fn(fn === parse ? JSON.stringify(input) : input), {
-				name: 'Error',
-				message: 'Invalid input'
+				assert.throws(() => fn(fn === parse ? JSON.stringify(input) : input), {
+					name: 'Error',
+					message: 'Invalid input'
+				});
+			}
+		);
+
+		test('unflatten rejects a fractional index even when the property exists', () => {
+			const input = Object.assign([[tag, 1.5], 0], {
+				1.5: tag === 'Object' ? 42 : ['ArrayBuffer', 'AQID']
 			});
-		}
-	);
 
-	test('unflatten rejects a fractional index even when the property exists', () => {
-		const input = Object.assign([[tag, 1.5], 0], {
-			1.5: tag === 'Object' ? 42 : ['ArrayBuffer', 'AQID']
+			assert.throws(() => unflatten(input), { name: 'Error', message: 'Invalid input' });
 		});
 
-		assert.throws(() => unflatten(input), { name: 'Error', message: 'Invalid input' });
-	});
+		test('unflatten rejects a non-array object with an inherited type tag', () => {
+			const input = [[tag, 1], Object.create({ 0: tag === 'Object' ? 'BigInt' : 'ArrayBuffer' })];
 
-	test('unflatten rejects a non-array object with an inherited type tag', () => {
-		const input = [[tag, 1], Object.create({ 0: tag === 'Object' ? 'BigInt' : 'ArrayBuffer' })];
-
-		assert.throws(() => unflatten(input), { name: 'Error', message: 'Invalid input' });
-	});
-});
+			assert.throws(() => unflatten(input), { name: 'Error', message: 'Invalid input' });
+		});
+	}
+);
 
 test.each(['undefined', 'array hole'])('unflatten rejects a boxed %s', (kind) => {
 	const input = [['Object', 1], undefined];
