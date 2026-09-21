@@ -1,7 +1,7 @@
 {
   "name": "devalue",
   "description": "Gets the job done when JSON.stringify can't",
-  "version": "5.9.4",
+  "version": "6.0.0",
   "repository": "sveltejs/devalue",
   "sideEffects": false,
   "exports": {
@@ -28,7 +28,7 @@
     "prettier": "^3.2.4",
     "publint": "^0.3.12",
     "typescript": "^6.0.3",
-    "vite": "7.3.1",
+    "vite": "8.3.0",
     "vitest": "5.0.1"
   },
   "scripts": {
