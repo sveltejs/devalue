@@ -11,8 +11,9 @@
 		"lib": ["es6", "esnext", "dom"],
 		"module": "esnext",
 		"target": "esnext",
-		"types": ["node"]
+		"types": ["node"],
+		"rootDir": "./src"
 	},
-	"include": ["index.js", "src/*.js"],
+	"include": ["src/index.js", "src/types.ts"],
 	"exclude": ["node_modules", "src/*.test.js"]
 }
