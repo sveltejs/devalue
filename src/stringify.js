@@ -85,7 +85,7 @@ function run(async, value, reducers, options) {
 	}
 
 	/** @type {string[]} */
-	const keys = [];
+	let keys = [];
 
 	let p = 0;
 
@@ -150,18 +150,13 @@ function run(async, value, reducers, options) {
 
 			// the callback runs after the synchronous walk has unwound `keys`,
 			// so the path to the thenable has to be captured and reinstated
-			const path = keys.slice();
+			const prev_keys = keys.slice();
 
 			str = ops.toPromise(thing).then((value) => {
-				const depth = keys.length;
-				for (const key of path) keys.push(key);
+				keys = prev_keys;
 
-				try {
-					const i = flatten(value, index);
-					if (i < 0) stringified[index] = i;
-				} finally {
-					keys.length = depth;
-				}
+				const i = flatten(value, index);
+				if (i < 0) stringified[index] = i;
 			});
 
 			// Promises are awaited sequentially, and traversal may throw before
