@@ -212,16 +212,14 @@ export function unflatten(parsed, revivers, options) {
 					case 'DataView': {
 						const buffer_index = value[1];
 
+						if (!is_valid_array_index(buffer_index)	|| buffer_index >= values.length) {
+							throw new Error('Invalid data');
+						}
+
 						// `buffer_index` is checked before it is used as a lookup, otherwise a
 						// non-index reads `undefined` out of `values` and the `[0]` access
 						// below throws a raw TypeError instead of the intended `Invalid data`.
-						const buffer_value =
-							typeof buffer_index === 'number' &&
-							Number.isInteger(buffer_index) &&
-							buffer_index >= 0 &&
-							buffer_index < values.length
-								? values[buffer_index]
-								: undefined;
+						const buffer_value = values[buffer_index];
 
 						if (!Array.isArray(buffer_value) || buffer_value[0] !== 'ArrayBuffer') {
 							// without this, if we receive malformed input we could
