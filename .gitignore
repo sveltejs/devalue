@@ -1,4 +1,6 @@
 .DS_Store
-node_modules
-*.d.ts
-dist
+/node_modules
+/types
+.results
+.vitest
+coverage
