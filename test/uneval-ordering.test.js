@@ -1,6 +1,6 @@
 import * as vm from 'node:vm';
 import { describe, expect, test } from 'vitest';
-import { uneval } from '../index.js';
+import { uneval } from '../src/index.js';
 
 describe('uneval: collection construction order', () => {
 	describe.each(['map value', 'map key', 'set'])('%s:', (kind) => {

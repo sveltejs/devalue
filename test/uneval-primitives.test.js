@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'vitest';
-import { parse, stringify, uneval } from '../index.js';
+import { parse, stringify, uneval } from '../src/index.js';
 
 describe('uneval: repeated primitives', () => {
 	describe.each([

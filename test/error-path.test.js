@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { DevalueError, stringify, stringifyAsync, uneval } from '../index.js';
+import { DevalueError, stringify, stringifyAsync, uneval } from '../src/index.js';
 
 /**
  * @param {(value: any) => any} fn

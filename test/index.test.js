@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import * as vm from 'vm';
 import { describe, test, expect } from 'vitest';
 import * as consts from '../src/constants.js';
-import { uneval, unflatten, parse, stringify, stringifyAsync } from '../index.js';
+import { uneval, unflatten, parse, stringify, stringifyAsync } from '../src/index.js';
 
 globalThis.Temporal ??= (await import('@js-temporal/polyfill')).Temporal;
 
