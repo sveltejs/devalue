@@ -163,11 +163,9 @@ export function unflatten(parsed, revivers, options) {
 						if (!is_boxable_sentinel) {
 							const wrapped = get_raw(wrapped_index);
 
-							// `typeof null === 'object'`, so `null` also has to be rejected here
-							// rather than being indexed into.
 							const is_bigint = Array.isArray(wrapped) && wrapped[0] === 'BigInt';
 
-							if ((wrapped == null || typeof wrapped === 'object') && !is_bigint) {
+							if ((wrapped === undefined || typeof wrapped === 'object') && !is_bigint) {
 								// avoid infinite recusion in case of malformed input
 								throw new Error('Invalid input');
 							}
