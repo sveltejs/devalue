@@ -11,6 +11,10 @@ import {
 import { default_parse_operations, merge_operations } from './operations.js';
 import { is_valid_array_index, is_valid_array_len } from './utils.js';
 
+function invalid() {
+	throw new Error('Invalid input');
+}
+
 /**
  * Revive a value serialized with `devalue.stringify`
  * @param {string} serialized
@@ -34,7 +38,7 @@ export function unflatten(parsed, revivers, options) {
 	if (typeof parsed === 'number') return hydrate(parsed, true);
 
 	if (!Array.isArray(parsed) || parsed.length === 0) {
-		throw new Error('Invalid input');
+		invalid()
 	}
 
 	const values = /** @type {any[]} */ (parsed);
@@ -54,7 +58,7 @@ export function unflatten(parsed, revivers, options) {
 	 */
 	function get_raw(index) {
 		if (!is_valid_array_index(index) || index >= values.length) {
-			throw new Error('Invalid input');
+			invalid()
 		}
 
 		return values[index];
@@ -72,13 +76,13 @@ export function unflatten(parsed, revivers, options) {
 		if (index === NEGATIVE_ZERO) return ops.fromPrimitive(-0);
 
 		if (standalone || typeof index !== 'number') {
-			throw new Error(`Invalid input`);
+			invalid();
 		}
 
 		if (index in hydrated) return hydrated[index];
 
 		if (index >= values.length) {
-			throw new Error(`Invalid input`);
+			invalid();
 		}
 
 		const value = values[index];
@@ -167,7 +171,7 @@ export function unflatten(parsed, revivers, options) {
 
 							if ((wrapped === undefined || typeof wrapped === 'object') && !is_bigint) {
 								// avoid infinite recusion in case of malformed input
-								throw new Error('Invalid input');
+								invalid()
 							}
 						}
 
@@ -217,7 +221,7 @@ export function unflatten(parsed, revivers, options) {
 							// without this, if we receive malformed input we could
 							// end up trying to hydrate in a circle or allocate
 							// huge amounts of memory when we call `new TypedArrayConstructor(buffer)`
-							throw new Error('Invalid input');
+							invalid()
 						}
 
 						const buffer = hydrate(buffer_index);
@@ -259,7 +263,7 @@ export function unflatten(parsed, revivers, options) {
 				const len = value[1];
 
 				if (!is_valid_array_len(len)) {
-					throw new Error('Invalid input');
+					invalid()
 				}
 
 				// `len` comes from the input rather than being bounded by it, so
@@ -272,7 +276,7 @@ export function unflatten(parsed, revivers, options) {
 					const idx = value[i];
 
 					if (!is_valid_array_index(idx) || idx >= len) {
-						throw new Error('Invalid input');
+						invalid()
 					}
 
 					ops.set(array, idx, hydrate(value[i + 1]));
