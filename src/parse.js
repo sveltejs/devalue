@@ -52,6 +52,18 @@ export function unflatten(parsed, revivers, options) {
 	 * @param {number} index
 	 * @returns {any}
 	 */
+	function get_raw(index) {
+		if (!is_valid_array_index(index) || index >= values.length) {
+			throw new Error('Invalid input');
+		}
+
+		return values[index];
+	}
+
+	/**
+	 * @param {number} index
+	 * @returns {any}
+	 */
 	function hydrate(index, standalone = false) {
 		if (index === UNDEFINED) return ops.fromPrimitive(undefined);
 		if (index === NAN) return ops.fromPrimitive(NaN);
@@ -149,18 +161,7 @@ export function unflatten(parsed, revivers, options) {
 							wrapped_index === NEGATIVE_ZERO;
 
 						if (!is_boxable_sentinel) {
-							// The index must be checked before it is used to look up `values`,
-							// otherwise a non-index (or an out-of-bounds one) reaches the
-							// `[0]` access below as `undefined` and throws a raw TypeError
-							// instead of the intended `Invalid input`.
-							if (
-								!is_valid_array_index(wrapped_index) ||
-								wrapped_index >= values.length
-							) {
-								throw new Error('Invalid input');
-							}
-
-							const wrapped = values[wrapped_index];
+							const wrapped = get_raw(wrapped_index);
 
 							// `typeof null === 'object'`, so `null` also has to be rejected here
 							// rather than being indexed into.
@@ -212,16 +213,9 @@ export function unflatten(parsed, revivers, options) {
 					case 'DataView': {
 						const buffer_index = value[1];
 
-						if (!is_valid_array_index(buffer_index)	|| buffer_index >= values.length) {
-							throw new Error('Invalid input');
-						}
+						const raw = get_raw(buffer_index);
 
-						// `buffer_index` is checked before it is used as a lookup, otherwise a
-						// non-index reads `undefined` out of `values` and the `[0]` access
-						// below throws a raw TypeError instead of the intended `Invalid input`.
-						const buffer_value = values[buffer_index];
-
-						if (!Array.isArray(buffer_value) || buffer_value[0] !== 'ArrayBuffer') {
+						if (!Array.isArray(raw) || raw[0] !== 'ArrayBuffer') {
 							// without this, if we receive malformed input we could
 							// end up trying to hydrate in a circle or allocate
 							// huge amounts of memory when we call `new TypedArrayConstructor(buffer)`
