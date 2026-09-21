@@ -1750,32 +1750,32 @@ const invalid = [
 	{
 		name: 'typed array with non-ArrayBuffer input',
 		json: '[["Int8Array", 1], { "length": 2 }, 1000000000]',
-		message: 'Invalid data'
+		message: 'Invalid input'
 	},
 	{
 		name: 'typed array with out-of-bounds buffer index',
 		json: '[["Uint8Array", 9, 0, 1]]',
-		message: 'Invalid data'
+		message: 'Invalid input'
 	},
 	{
 		name: 'typed array with negative buffer index',
 		json: '[["Uint8Array", -1, 0, 1]]',
-		message: 'Invalid data'
+		message: 'Invalid input'
 	},
 	{
 		name: 'typed array with null buffer',
 		json: '[["Uint8Array", 1, 0, 1], null]',
-		message: 'Invalid data'
+		message: 'Invalid input'
 	},
 	{
 		name: 'typed array with non-numeric buffer index',
 		json: '[["Uint8Array", "1", 0, 1], ["ArrayBuffer", "AQID"]]',
-		message: 'Invalid data'
+		message: 'Invalid input'
 	},
 	{
 		name: 'DataView with out-of-bounds buffer index',
 		json: '[["DataView", 4, 0, 1]]',
-		message: 'Invalid data'
+		message: 'Invalid input'
 	},
 	{
 		name: 'boxed primitive wrapping null',
@@ -1920,7 +1920,7 @@ const invalid = [
 	{
 		name: 'TypedArray self-reference',
 		json: '[["Uint8Array", 0]]',
-		message: 'Invalid data'
+		message: 'Invalid input'
 	},
 	{
 		name: 'custom reviver self-reference',
@@ -1931,7 +1931,7 @@ const invalid = [
 	{
 		name: 'mutual TypedArray reference',
 		json: '[["Uint8Array", 1], ["Uint8Array", 0]]',
-		message: 'Invalid data'
+		message: 'Invalid input'
 	}
 ];
 
@@ -1948,10 +1948,10 @@ test.each(invalid.map((t) => [t.name, t]))(
 );
 
 describe.each([
-	{ tag: 'Object', message: 'Invalid input' },
-	{ tag: 'Uint8Array', message: 'Invalid data' },
-	{ tag: 'DataView', message: 'Invalid data' }
-])('$tag reference validation', ({ tag, message }) => {
+	{ tag: 'Object' },
+	{ tag: 'Uint8Array' },
+	{ tag: 'DataView' }
+])('$tag reference validation', ({ tag }) => {
 	test.each([parse, unflatten].map((fn) => ({ fn })))(
 		'$fn.name rejects an index that cannot be coerced to a property key',
 		({ fn }) => {
@@ -1959,7 +1959,7 @@ describe.each([
 
 			assert.throws(() => fn(fn === parse ? JSON.stringify(input) : input), {
 				name: 'Error',
-				message
+				message: 'Invalid input'
 			});
 		}
 	);
@@ -1969,13 +1969,13 @@ describe.each([
 			1.5: tag === 'Object' ? 42 : ['ArrayBuffer', 'AQID']
 		});
 
-		assert.throws(() => unflatten(input), { name: 'Error', message });
+		assert.throws(() => unflatten(input), { name: 'Error', message: 'Invalid input' });
 	});
 
 	test('unflatten rejects a non-array object with an inherited type tag', () => {
 		const input = [[tag, 1], Object.create({ 0: tag === 'Object' ? 'BigInt' : 'ArrayBuffer' })];
 
-		assert.throws(() => unflatten(input), { name: 'Error', message });
+		assert.throws(() => unflatten(input), { name: 'Error', message: 'Invalid input' });
 	});
 });
 

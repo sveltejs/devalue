@@ -213,19 +213,19 @@ export function unflatten(parsed, revivers, options) {
 						const buffer_index = value[1];
 
 						if (!is_valid_array_index(buffer_index)	|| buffer_index >= values.length) {
-							throw new Error('Invalid data');
+							throw new Error('Invalid input');
 						}
 
 						// `buffer_index` is checked before it is used as a lookup, otherwise a
 						// non-index reads `undefined` out of `values` and the `[0]` access
-						// below throws a raw TypeError instead of the intended `Invalid data`.
+						// below throws a raw TypeError instead of the intended `Invalid input`.
 						const buffer_value = values[buffer_index];
 
 						if (!Array.isArray(buffer_value) || buffer_value[0] !== 'ArrayBuffer') {
 							// without this, if we receive malformed input we could
 							// end up trying to hydrate in a circle or allocate
 							// huge amounts of memory when we call `new TypedArrayConstructor(buffer)`
-							throw new Error('Invalid data');
+							throw new Error('Invalid input');
 						}
 
 						const buffer = hydrate(buffer_index);
