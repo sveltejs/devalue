@@ -4,8 +4,10 @@
 import { js, JavaScriptSource } from './javascript-source.js';
 import {
 	DevalueError,
+	MAP_KEY,
 	enumerable_symbols,
 	escaped,
+	format_path,
 	get_name,
 	get_type,
 	is_buffer,
@@ -33,11 +35,23 @@ export function uneval(value, replacer) {
 	const templates = new Set();
 	const seen = new Set();
 
-	/** @type {string[]} */
+	// the path to the value being walked, recorded as-is and only formatted
+	// by `error` — see `format_path`
+	/** @type {any[]} */
 	const keys = [];
 
 	/** @type {Map<any, JavaScriptSource>} */
 	const custom = new Map();
+
+	/**
+	 * @param {string} message
+	 * @param {any} thing
+	 */
+	function error(message, thing) {
+		const path = format_path(keys, (key) => (is_primitive(key) ? stringify_primitive(key) : '...'));
+		return new DevalueError(message, path, thing, value);
+	}
+
 	/** @type {Map<string | bigint, number> | undefined} */
 	let primitive_counts;
 	/** @type {Map<string | bigint, string> | undefined} */
@@ -86,7 +100,7 @@ export function uneval(value, replacer) {
 			}
 
 			if (typeof thing === 'function') {
-				throw new DevalueError(`Cannot stringify a function`, keys, thing, value);
+				throw error(`Cannot stringify a function`, thing);
 			}
 
 			const type = get_type(thing);
@@ -108,7 +122,7 @@ export function uneval(value, replacer) {
 				case 'Array':
 					// Never scan the logical length of a dictionary-backed sparse array.
 					for (const i of valid_array_indices(thing)) {
-						keys.push(`[${i}]`);
+						keys.push(+i);
 						walk(thing[i]);
 						keys.pop();
 					}
@@ -120,9 +134,10 @@ export function uneval(value, replacer) {
 
 				case 'Map':
 					for (const [key, value] of thing) {
-						keys.push(`.get(${is_primitive(key) ? stringify_cached_primitive(key) : '...'})`);
+						keys.push(MAP_KEY, key);
 						walk(key);
 						walk(value);
+						keys.pop();
 						keys.pop();
 					}
 					break;
@@ -159,30 +174,25 @@ export function uneval(value, replacer) {
 
 				default:
 					if (!is_plain_object(thing)) {
-						throw new DevalueError(`Cannot stringify arbitrary non-POJOs`, keys, thing, value);
+						throw error(`Cannot stringify arbitrary non-POJOs`, thing);
 					}
 
 					if (enumerable_symbols(thing).length > 0) {
-						throw new DevalueError(`Cannot stringify POJOs with symbolic keys`, keys, thing, value);
+						throw error(`Cannot stringify POJOs with symbolic keys`, thing);
 					}
 
 					for (const key of Object.keys(thing)) {
 						if (key === '__proto__') {
-							throw new DevalueError(
-								`Cannot stringify objects with __proto__ keys`,
-								keys,
-								thing,
-								value
-							);
+							throw error(`Cannot stringify objects with __proto__ keys`, thing);
 						}
 
-						keys.push(stringify_key(key));
+						keys.push(key);
 						walk(thing[key]);
 						keys.pop();
 					}
 			}
 		} else if (typeof thing === 'symbol') {
-			throw new DevalueError(`Cannot stringify a Symbol primitive`, keys, thing, value);
+			throw error(`Cannot stringify a Symbol primitive`, thing);
 		} else if (
 			(typeof thing === 'string' && thing.length >= MIN_STRING_LENGTH) ||
 			typeof thing === 'bigint'
