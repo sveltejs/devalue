@@ -1,4 +1,4 @@
-import { uneval } from '../../index.js';
+import { stringify } from '../../index.js';
 import { records } from '../records.js';
 import { fastest_test } from '../utils.js';
 
@@ -9,15 +9,18 @@ import { fastest_test } from '../utils.js';
  */
 function benchmark(label, value, iterations) {
 	return {
-		label: `uneval: ${label}`,
+		label: `stringify: ${label}`,
 		async fn() {
-			for (let i = 0; i < iterations; i += 1) uneval(value);
+			for (let i = 0; i < iterations; i += 1) stringify(value);
 			return fastest_test(3, () => {
-				for (let i = 0; i < iterations; i += 1) uneval(value);
+				for (let i = 0; i < iterations; i += 1) stringify(value);
 			});
 		}
 	};
 }
+
+const sparse = [];
+sparse[1000000] = records(1);
 
 export default [
 	benchmark('small object', { id: 42, name: 'Jane Smith', roles: ['admin', 'editor'] }, 100000),
@@ -33,8 +36,21 @@ export default [
 		Array.from({ length: 1000 }, (_, i) => `item-${i}:`.padEnd(256, 'x')),
 		200
 	),
-	benchmark('repeated short strings', Array(1000).fill('pending'), 2000),
-	benchmark('repeated long strings', Array(1000).fill('x'.repeat(256)), 200),
+	benchmark(
+		'strings with an emoji',
+		Array.from({ length: 1000 }, (_, i) => `item-${i} 😀`),
+		2000
+	),
+	benchmark(
+		'emoji-dense strings',
+		Array.from({ length: 1000 }, (_, i) => `${i} ${'😀❤️'.repeat(20)}`),
+		500
+	),
+	benchmark(
+		'escaped strings',
+		Array.from({ length: 1000 }, (_, i) => `<p class="item">Item ${i}</p>\n`),
+		500
+	),
 	benchmark(
 		'string Map',
 		new Map(Array.from({ length: 1000 }, (_, i) => [`key-${i}`, `value-${i}`])),
@@ -45,6 +61,5 @@ export default [
 		Array.from({ length: 1000 }, (_, i) => i / 7),
 		1000
 	),
-	benchmark('amplification n=2000', Array(2000).fill('x'.repeat(2000)), 10),
-	benchmark('amplification n=4000', Array(4000).fill('x'.repeat(4000)), 3)
+	benchmark('sparse array', sparse, 20000)
 ];
