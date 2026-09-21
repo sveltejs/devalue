@@ -154,9 +154,7 @@ export function unflatten(parsed, revivers, options) {
 							// `[0]` access below as `undefined` and throws a raw TypeError
 							// instead of the intended `Invalid input`.
 							if (
-								typeof wrapped_index !== 'number' ||
-								!Number.isInteger(wrapped_index) ||
-								wrapped_index < 0 ||
+								!is_valid_array_index(wrapped_index) ||
 								wrapped_index >= values.length
 							) {
 								throw new Error('Invalid input');
