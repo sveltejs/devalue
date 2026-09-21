@@ -11,6 +11,10 @@ import {
 import { default_parse_operations, merge_operations } from './operations.js';
 import { is_valid_array_index, is_valid_array_len } from './utils.js';
 
+function invalid() {
+	throw new Error('Invalid input');
+}
+
 /**
  * Revive a value serialized with `devalue.stringify`
  * @param {string} serialized
@@ -34,7 +38,7 @@ export function unflatten(parsed, revivers, options) {
 	if (typeof parsed === 'number') return hydrate(parsed, true);
 
 	if (!Array.isArray(parsed) || parsed.length === 0) {
-		throw new Error('Invalid input');
+		invalid();
 	}
 
 	const values = /** @type {any[]} */ (parsed);
@@ -52,6 +56,18 @@ export function unflatten(parsed, revivers, options) {
 	 * @param {number} index
 	 * @returns {any}
 	 */
+	function get_raw(index) {
+		if (!is_valid_array_index(index) || index >= values.length) {
+			invalid();
+		}
+
+		return values[index];
+	}
+
+	/**
+	 * @param {number} index
+	 * @returns {any}
+	 */
 	function hydrate(index, standalone = false) {
 		if (index === UNDEFINED) return ops.fromPrimitive(undefined);
 		if (index === NAN) return ops.fromPrimitive(NaN);
@@ -60,13 +76,13 @@ export function unflatten(parsed, revivers, options) {
 		if (index === NEGATIVE_ZERO) return ops.fromPrimitive(-0);
 
 		if (standalone || typeof index !== 'number') {
-			throw new Error(`Invalid input`);
+			invalid();
 		}
 
 		if (index in hydrated) return hydrated[index];
 
 		if (index >= values.length) {
-			throw new Error(`Invalid input`);
+			invalid();
 		}
 
 		const value = values[index];
@@ -138,12 +154,25 @@ export function unflatten(parsed, revivers, options) {
 					case 'Object': {
 						const wrapped_index = value[1];
 
-						if (
-							typeof values[wrapped_index] === 'object' &&
-							values[wrapped_index][0] !== 'BigInt'
-						) {
-							// avoid infinite recusion in case of malformed input
-							throw new Error('Invalid input');
+						// Only a primitive can be boxed. The negative sentinels below are the
+						// ones `stringify` emits for boxed numbers; every other sentinel
+						// (`UNDEFINED`, `HOLE`, `SPARSE`) would box `undefined` into a plain
+						// `{}`, which is not a value `stringify` can produce.
+						const is_boxable_sentinel =
+							wrapped_index === NAN ||
+							wrapped_index === POSITIVE_INFINITY ||
+							wrapped_index === NEGATIVE_INFINITY ||
+							wrapped_index === NEGATIVE_ZERO;
+
+						if (!is_boxable_sentinel) {
+							const wrapped = get_raw(wrapped_index);
+
+							const is_bigint = Array.isArray(wrapped) && wrapped[0] === 'BigInt';
+
+							if ((wrapped === undefined || typeof wrapped === 'object') && !is_bigint) {
+								// avoid infinite recusion in case of malformed input
+								invalid();
+							}
 						}
 
 						hydrated[index] = ops.box(hydrate(wrapped_index));
@@ -184,14 +213,18 @@ export function unflatten(parsed, revivers, options) {
 					case 'BigInt64Array':
 					case 'BigUint64Array':
 					case 'DataView': {
-						if (values[value[1]][0] !== 'ArrayBuffer') {
+						const buffer_index = value[1];
+
+						const raw = get_raw(buffer_index);
+
+						if (!Array.isArray(raw) || raw[0] !== 'ArrayBuffer') {
 							// without this, if we receive malformed input we could
 							// end up trying to hydrate in a circle or allocate
 							// huge amounts of memory when we call `new TypedArrayConstructor(buffer)`
-							throw new Error('Invalid data');
+							invalid();
 						}
 
-						const buffer = hydrate(value[1]);
+						const buffer = hydrate(buffer_index);
 
 						hydrated[index] = ops.fromViewInfo(type, buffer, value[2], value[3]);
 
@@ -230,7 +263,7 @@ export function unflatten(parsed, revivers, options) {
 				const len = value[1];
 
 				if (!is_valid_array_len(len)) {
-					throw new Error('Invalid input');
+					invalid();
 				}
 
 				// `len` comes from the input rather than being bounded by it, so
@@ -243,7 +276,7 @@ export function unflatten(parsed, revivers, options) {
 					const idx = value[i];
 
 					if (!is_valid_array_index(idx) || idx >= len) {
-						throw new Error('Invalid input');
+						invalid();
 					}
 
 					ops.set(array, idx, hydrate(value[i + 1]));

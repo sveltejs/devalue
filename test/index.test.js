@@ -1750,7 +1750,52 @@ const invalid = [
 	{
 		name: 'typed array with non-ArrayBuffer input',
 		json: '[["Int8Array", 1], { "length": 2 }, 1000000000]',
-		message: 'Invalid data'
+		message: 'Invalid input'
+	},
+	{
+		name: 'typed array with out-of-bounds buffer index',
+		json: '[["Uint8Array", 9, 0, 1]]',
+		message: 'Invalid input'
+	},
+	{
+		name: 'typed array with negative buffer index',
+		json: '[["Uint8Array", -1, 0, 1]]',
+		message: 'Invalid input'
+	},
+	{
+		name: 'typed array with null buffer',
+		json: '[["Uint8Array", 1, 0, 1], null]',
+		message: 'Invalid input'
+	},
+	{
+		name: 'typed array with non-numeric buffer index',
+		json: '[["Uint8Array", "1", 0, 1], ["ArrayBuffer", "AQID"]]',
+		message: 'Invalid input'
+	},
+	{
+		name: 'DataView with out-of-bounds buffer index',
+		json: '[["DataView", 4, 0, 1]]',
+		message: 'Invalid input'
+	},
+	{
+		name: 'boxed primitive wrapping null',
+		json: '[["Object", 1], null]',
+		message: 'Invalid input'
+	},
+	{
+		name: 'boxed primitive with out-of-bounds index',
+		json: '[["Object", 9]]',
+		message: 'Invalid input'
+	},
+	{
+		name: 'boxed primitive with unboxable sentinel',
+		json: `[["Object", ${consts.UNDEFINED}]]`,
+		message: 'Invalid input'
+	},
+	{
+		name: 'boxed primitive with non-numeric index',
+		json: '[["Object", "1"], 1]',
+		message: 'Invalid input'
 	},
 	{
 		name: 'ArrayBuffer with non-string value',
@@ -1875,7 +1920,7 @@ const invalid = [
 	{
 		name: 'TypedArray self-reference',
 		json: '[["Uint8Array", 0]]',
-		message: 'Invalid data'
+		message: 'Invalid input'
 	},
 	{
 		name: 'custom reviver self-reference',
@@ -1886,7 +1931,7 @@ const invalid = [
 	{
 		name: 'mutual TypedArray reference',
 		json: '[["Uint8Array", 1], ["Uint8Array", 0]]',
-		message: 'Invalid data'
+		message: 'Invalid input'
 	}
 ];
 
@@ -1901,6 +1946,44 @@ test.each(invalid.map((t) => [t.name, t]))(
 		}
 	}
 );
+
+describe.each([{ tag: 'Object' }, { tag: 'Uint8Array' }, { tag: 'DataView' }])(
+	'$tag reference validation',
+	({ tag }) => {
+		test.each([parse, unflatten].map((fn) => ({ fn })))(
+			'$fn.name rejects an index that cannot be coerced to a property key',
+			({ fn }) => {
+				const input = [[tag, { toString: null }]];
+
+				assert.throws(() => fn(fn === parse ? JSON.stringify(input) : input), {
+					name: 'Error',
+					message: 'Invalid input'
+				});
+			}
+		);
+
+		test('unflatten rejects a fractional index even when the property exists', () => {
+			const input = Object.assign([[tag, 1.5], 0], {
+				1.5: tag === 'Object' ? 42 : ['ArrayBuffer', 'AQID']
+			});
+
+			assert.throws(() => unflatten(input), { name: 'Error', message: 'Invalid input' });
+		});
+
+		test('unflatten rejects a non-array object with an inherited type tag', () => {
+			const input = [[tag, 1], Object.create({ 0: tag === 'Object' ? 'BigInt' : 'ArrayBuffer' })];
+
+			assert.throws(() => unflatten(input), { name: 'Error', message: 'Invalid input' });
+		});
+	}
+);
+
+test.each(['undefined', 'array hole'])('unflatten rejects a boxed %s', (kind) => {
+	const input = [['Object', 1], undefined];
+	if (kind === 'array hole') delete input[1];
+
+	assert.throws(() => unflatten(input), { name: 'Error', message: 'Invalid input' });
+});
 
 test.each(['["__proto__"]', '[["__proto__"]]', '[]', '{}', '0', 'true', 'null'])(
 	'rejects null-prototype object key %s',
@@ -2588,6 +2671,26 @@ describe('stringifyAsync: errors', () => {
 		expect(error.message).toEqual('Cannot stringify a function');
 		expect(error.path).toEqual('');
 		expect(error.value).toBe(value);
+		expect(error.root).toBe(root);
+	});
+
+	test('populates error.path for a value inside a promise', async () => {
+		const value = function invalid() {};
+		const root = { foo: { array: [Promise.resolve(value)] } };
+		const error = await catch_async_error(() => stringifyAsync(root));
+		expect(error.name).toEqual('DevalueError');
+		expect(error.path).toEqual('.foo.array[0]');
+		expect(error.value).toBe(value);
+		expect(error.root).toBe(root);
+	});
+
+	test('populates error.path through chained promises', async () => {
+		const root = {
+			foo: Promise.resolve({ bar: Promise.resolve({ invalid() {} }) })
+		};
+		const error = await catch_async_error(() => stringifyAsync(root));
+		expect(error.name).toEqual('DevalueError');
+		expect(error.path).toEqual('.foo.bar.invalid');
 		expect(error.root).toBe(root);
 	});
 });

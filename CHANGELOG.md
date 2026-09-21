@@ -1,5 +1,19 @@
 # devalue changelog
 
+## 6.0.0
+### Major Changes
+
+- afb3cb4: breaking: use tagged template `js` for uneval replacers instead of nested `uneval`
+- 3100507: breaking: require Node 22.17 or newer
+
+### Minor Changes
+
+- afb3cb4: feat: support cyclic custom objects
+
+### Patch Changes
+
+- ac295fb: fix: escape unpaired surrogates so uneval/stringify output survives UTF-8 transport
+
 ## 5.9.4
 ### Patch Changes
 
