@@ -1,5 +1,15 @@
 # devalue changelog
 
+## 6.0.1
+### Patch Changes
+
+- c13cf6a: fix: populate `error.path` for values reached through a promise in `stringifyAsync`
+- 6156b2e: perf: `stringify` and `uneval` skip per-character escaping for strings with nothing to escape
+- e7a9a73: fix: throw `Invalid input` instead of a raw `TypeError` for malformed typed array and boxed primitive payloads
+- 6156b2e: perf: only format path when an error is raised
+- 6156b2e: perf: cache quoted property names
+- 9e44253: Fix `uneval` for typed array views whose backing buffer ends with a partial element
+
 ## 6.0.0
 ### Major Changes
 
