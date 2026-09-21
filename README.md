@@ -47,7 +47,7 @@ obj.self = obj;
 devalue.uneval(obj); // '(function(a){a.message="hello";a.self=a;return a}({}))'
 ```
 
-Use `uneval` when you want the most compact possible output and don't want to include any code for parsing the serialized value.
+Use `uneval` when you want the most compact possible output and don't want to include any code for parsing the serialized value. The result is suitable for embedding in a `<script>` element or a generated JavaScript module, for example.
 
 ### `stringify` and `parse`
 
@@ -67,7 +67,7 @@ stringified = devalue.stringify(obj); // '[{"message":1,"self":0},"hello"]'
 devalue.parse(stringified); // { message: 'hello', self: [Circular] }
 ```
 
-Use `stringify` and `parse` when evaluating JavaScript isn't an option.
+Use `stringify` and `parse` when evaluating JavaScript isn't an option (such as when sending untrusted data from client to server).
 
 ### `stringifyAsync`
 
