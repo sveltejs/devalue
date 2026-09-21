@@ -1,49 +1,87 @@
+/**
+ * @import { UnevalReplacer } from './types';
+ */
+import { js, JavaScriptSource } from './javascript-source.js';
 import {
 	DevalueError,
 	enumerable_symbols,
 	escaped,
+	get_name,
 	get_type,
+	is_buffer,
 	is_plain_object,
 	is_primitive,
 	stringify_key,
+	stringify_sparse_array,
 	stringify_string,
 	valid_array_indices
 } from './utils.js';
 
-const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$';
 const unsafe_chars = /[<\b\f\n\r\t\0\u2028\u2029]/g;
-const reserved =
-	/^(?:do|if|in|for|int|let|new|try|var|byte|case|char|else|enum|goto|long|this|void|with|await|break|catch|class|const|final|float|short|super|throw|while|yield|delete|double|export|import|native|return|switch|throws|typeof|boolean|default|extends|finally|package|private|abstract|continue|debugger|function|volatile|interface|protected|transient|implements|instanceof|synchronized)$/;
+// Short strings have bounded escaping/output costs per reference.
+const MIN_STRING_LENGTH = 128;
 
 /**
  * Turn a value into the JavaScript that creates an equivalent value
  * @param {any} value
- * @param {(value: any, uneval: (value: any) => string) => string | void} [replacer]
+ * @param {UnevalReplacer} [replacer]
  */
 export function uneval(value, replacer) {
-	const counts = new Map();
+	/** @type {Map<any, string>} */
+	const names = new Map();
+	const reserved = new Set();
+	const templates = new Set();
+	const seen = new Set();
 
 	/** @type {string[]} */
 	const keys = [];
 
+	/** @type {Map<any, JavaScriptSource>} */
 	const custom = new Map();
+	/** @type {Map<string | bigint, number> | undefined} */
+	let primitive_counts;
+	/** @type {Map<string | bigint, string> | undefined} */
+	let primitives;
+
+	/** @param {any} thing */
+	function stringify_cached_primitive(thing) {
+		if (
+			(typeof thing === 'string' && thing.length >= MIN_STRING_LENGTH) ||
+			typeof thing === 'bigint'
+		) {
+			primitives ??= new Map();
+			let literal = primitives.get(thing);
+			if (literal === undefined) {
+				literal = stringify_primitive(thing);
+				primitives.set(thing, literal);
+			}
+			return literal;
+		}
+		return stringify_primitive(thing);
+	}
 
 	/** @param {any} thing */
 	function walk(thing) {
 		if (!is_primitive(thing)) {
-			if (counts.has(thing)) {
-				counts.set(thing, counts.get(thing) + 1);
+			if (seen.has(thing)) {
+				if (!names.has(thing)) names.set(thing, '');
 				return;
 			}
 
-			counts.set(thing, 1);
+			seen.add(thing);
 
 			if (replacer) {
-				const str = replacer(thing, (value) => uneval(value, replacer));
+				const fragment = replacer(thing, js);
 
-				if (typeof str === 'string') {
-					custom.set(thing, str);
+				if (fragment) {
+					const source = JavaScriptSource.from(fragment);
+					custom.set(thing, source);
+					source.visit(walk, reserved, templates);
 					return;
+				}
+
+				if (fragment !== undefined && fragment !== null && fragment !== false) {
+					throw new TypeError('Invalid uneval replacer result');
 				}
 			}
 
@@ -54,9 +92,12 @@ export function uneval(value, replacer) {
 			const type = get_type(thing);
 
 			switch (type) {
-				case 'Number':
 				case 'BigInt':
 				case 'String':
+					walk(thing.valueOf());
+					return;
+
+				case 'Number':
 				case 'Boolean':
 				case 'Date':
 				case 'RegExp':
@@ -65,20 +106,21 @@ export function uneval(value, replacer) {
 					return;
 
 				case 'Array':
-					/** @type {any[]} */ (thing).forEach((value, i) => {
+					// Never scan the logical length of a dictionary-backed sparse array.
+					for (const i of valid_array_indices(thing)) {
 						keys.push(`[${i}]`);
-						walk(value);
+						walk(thing[i]);
 						keys.pop();
-					});
+					}
 					break;
 
 				case 'Set':
-					Array.from(thing).forEach(walk);
+					for (const value of thing) walk(value);
 					break;
 
 				case 'Map':
 					for (const [key, value] of thing) {
-						keys.push(`.get(${is_primitive(key) ? stringify_primitive(key) : '...'})`);
+						keys.push(`.get(${is_primitive(key) ? stringify_cached_primitive(key) : '...'})`);
 						walk(key);
 						walk(value);
 						keys.pop();
@@ -98,7 +140,8 @@ export function uneval(value, replacer) {
 				case 'BigInt64Array':
 				case 'BigUint64Array':
 				case 'DataView':
-					walk(thing.buffer);
+					// Buffer pools can contain unrelated, sensitive bytes.
+					if (!is_buffer(thing)) walk(thing.buffer);
 					return;
 
 				case 'ArrayBuffer':
@@ -140,35 +183,170 @@ export function uneval(value, replacer) {
 			}
 		} else if (typeof thing === 'symbol') {
 			throw new DevalueError(`Cannot stringify a Symbol primitive`, keys, thing, value);
+		} else if (
+			(typeof thing === 'string' && thing.length >= MIN_STRING_LENGTH) ||
+			typeof thing === 'bigint'
+		) {
+			primitive_counts ??= new Map();
+			primitive_counts.set(thing, (primitive_counts.get(thing) || 0) + 1);
 		}
 	}
 
 	walk(value);
 
-	const names = new Map();
+	let name_index = 0;
+	function next_name() {
+		let name;
+		do {
+			name = get_name(name_index++);
+		} while (reserved.has(name));
+		return name;
+	}
 
-	Array.from(counts)
-		.filter((entry) => entry[1] > 1)
-		.sort((a, b) => b[1] - a[1])
-		.forEach((entry, i) => {
-			names.set(entry[0], get_name(i));
-		});
+	// Wait until every custom source has been visited before assigning names.
+	for (const thing of names.keys()) names.set(thing, next_name());
+	if (primitive_counts) {
+		for (const [thing, count] of primitive_counts) {
+			if (count < 2) continue;
+			const name = next_name();
+			const length = stringify_cached_primitive(thing).length;
+			// Include the declaration and IIFE overhead even if one already exists.
+			if (length * count > length + (count + 1) * name.length + 40) names.set(thing, name);
+		}
+	}
+
+	// Reuse the traversal set to track declarations during serialization.
+	seen.clear();
+	const inlining = custom.size > 0 ? new Set() : null;
+
+	/** @type {Map<any, () => void>} */
+	const initializers = new Map();
+
+	/** @type {string[]} */
+	const statements = [];
 
 	/**
 	 * @param {any} thing
 	 * @returns {string}
 	 */
 	function stringify(thing) {
-		if (names.has(thing)) {
-			return names.get(thing);
+		const name = names.get(thing);
+
+		if (name) {
+			if (!seen.has(thing)) {
+				if (is_primitive(thing)) {
+					seen.add(thing);
+					statements.push(`let ${name}=${stringify_cached_primitive(thing)}`);
+					return name;
+				}
+				const type = custom.has(thing) ? null : get_type(thing);
+
+				switch (type) {
+					case 'Object':
+						seen.add(thing);
+						statements.push(
+							`let ${name}=${Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}'}`
+						);
+						Object.keys(thing).forEach((key) => {
+							statements.push(`${name}${safe_prop(key)}=${stringify(thing[key])}`);
+						});
+						break;
+
+					case 'Array': {
+						seen.add(thing);
+						const indices = valid_array_indices(thing);
+						const array =
+							thing.length > 32 + 2 * indices.length
+								? stringify_sparse_array(thing.length)
+								: `Array(${thing.length})`;
+						statements.push(`let ${name}=${array}`);
+						for (const i of indices) {
+							statements.push(`${name}[${i}]=${stringify(thing[i])}`);
+						}
+						break;
+					}
+
+					case 'Set':
+					case 'Map': {
+						seen.add(thing);
+						/** @type {string[]} */
+						const entries = [];
+						let initialized = false;
+						let statement_index = -1;
+
+						// Collect a ready prefix until a reference needs the collection.
+						// Emit subsequent entries eagerly, preserving insertion order.
+						const initialize = () => {
+							if (initialized) return;
+							initialized = true;
+							initializers.delete(thing);
+							statements.push(
+								`let ${name}=new ${type}${entries.length ? `([${entries.join(',')}])` : ''}`
+							);
+						};
+
+						initializers.set(thing, initialize);
+
+						for (const entry of thing) {
+							const args =
+								type === 'Map' ? `${stringify(entry[0])},${stringify(entry[1])}` : stringify(entry);
+
+							if (!initialized) {
+								entries.push(type === 'Map' ? `[${args}]` : args);
+							} else {
+								const call = `.${type === 'Map' ? 'set' : 'add'}(${args})`;
+								if (statement_index === statements.length - 1) {
+									statements[statement_index] += call;
+								} else {
+									statement_index = statements.push(name + call) - 1;
+								}
+							}
+						}
+
+						initialize();
+						break;
+					}
+
+					default:
+						const str = actually_stringify(thing);
+						if (!seen.has(thing)) statements.push(`let ${name}=${str}`);
+						seen.add(thing);
+				}
+			} else {
+				initializers.get(thing)?.();
+			}
+
+			return name;
 		}
 
 		if (is_primitive(thing)) {
-			return stringify_primitive(thing);
+			return stringify_cached_primitive(thing);
 		}
 
-		if (custom.has(thing)) {
-			return custom.get(thing);
+		if (inlining === null) return actually_stringify(thing);
+
+		// A singly referenced value can still be part of a custom constructor's
+		// cycle. If inlining it re-enters itself, hoist it to break the cycle.
+		if (inlining.has(thing)) {
+			names.set(thing, next_name());
+			return stringify(thing);
+		}
+
+		inlining.add(thing);
+		const str = actually_stringify(thing);
+		inlining.delete(thing);
+		return names.get(thing) || str;
+	}
+
+	/**
+	 * @param {any} thing
+	 * @returns {string}
+	 */
+	function actually_stringify(thing) {
+		const source = custom.get(thing);
+
+		if (source) {
+			return source.render(stringify);
 		}
 
 		const type = get_type(thing);
@@ -197,10 +375,10 @@ export function uneval(value, replacer) {
 
 			case 'Array': {
 				// For dense arrays (no holes), we iterate normally.
-				// When we encounter the first hole, we call Object.keys
+				// When we encounter the first hole, we collect own indices
 				// to determine the sparseness, then decide between:
 				//   - Array literal with holes: [,"a",,] (default)
-				//   - Object.assign: Object.assign(Array(n),{...}) (for very sparse arrays)
+				//   - Object.assign with a sparse-safe allocator (for very sparse arrays)
 				// Only the Object.assign path avoids iterating every slot, which
 				// is what protects against the DoS of e.g. `arr[1000000] = 1`.
 				let has_holes = false;
@@ -221,10 +399,10 @@ export function uneval(value, replacer) {
 						//
 						// Object.assign: populated indices are listed explicitly.
 						// For example, [, "a", ,] would be written as
-						// Object.assign(Array(3),{1:"a"}). This avoids paying
-						// per-hole, but has a large fixed overhead for the
-						// "Object.assign(Array(n),{...})" wrapper, and each
-						// element costs extra chars for its index and colon.
+						// Object.assign(sparse(3),{1:"a"}), where sparse(n) stands
+						// for the expression emitted by stringify_sparse_array(n).
+						// This avoids paying per-hole, but has fixed overhead for
+						// the allocator and wrapper, plus each index and colon.
 						//
 						// The serialized values are the same size either way, so
 						// the choice comes down to the structural overhead:
@@ -235,30 +413,31 @@ export function uneval(value, replacer) {
 						//     = L + 2
 						//
 						//   Object.assign overhead:
-						//     "Object.assign(Array(" — 20 chars
-						//     + length              — d chars
-						//     + "),{"               — 3 chars
+						//     "Object.assign("      — 14 chars
+						//     + allocator expression — A chars
+						//     + ",{"                 — 2 chars
 						//     + for each populated element:
 						//       index + ":" + ","   — (d + 2) chars
 						//     + "})"                — 2 chars
-						//     = (25 + d) + P * (d + 2)
+						//     = (18 + A) + P * (d + 2)
 						//
 						// where L is the array length, P is the number of
-						// populated elements, and d is the number of digits
-						// in L (an upper bound on the digits in any index).
+						// populated elements, A is the allocator length, and d
+						// is the number of digits in L (an upper bound per index).
 						//
 						// Object.assign is cheaper when:
-						//   (25 + d) + P * (d + 2) < L + 2
+						//   (18 + A) + P * (d + 2) < L + 2
 						const populated_keys = valid_array_indices(/** @type {any[]} */ (thing));
 						const population = populated_keys.length;
 						const d = String(thing.length).length;
+						const array = stringify_sparse_array(thing.length);
 
 						const hole_cost = thing.length + 2;
-						const sparse_cost = 25 + d + population * (d + 2);
+						const sparse_cost = array.length + 18 + population * (d + 2);
 
 						if (hole_cost > sparse_cost) {
 							const entries = populated_keys.map((k) => `${k}:${stringify(thing[k])}`).join(',');
-							return `Object.assign(Array(${thing.length}),{${entries}})`;
+							return `Object.assign(${array},{${entries}})`;
 						}
 
 						has_holes = true;
@@ -267,13 +446,17 @@ export function uneval(value, replacer) {
 					// (the comma separator is all we need — no content for this position)
 				}
 
-				const tail = thing.length === 0 || thing.length - 1 in thing ? '' : ',';
+				const tail = thing.length === 0 || Object.hasOwn(thing, thing.length - 1) ? '' : ',';
 				return result + tail + ']';
 			}
 
 			case 'Set':
-			case 'Map':
-				return `new ${type}([${Array.from(thing).map(stringify).join(',')}])`;
+				return `new Set([${Array.from(thing, stringify).join(',')}])`;
+
+			case 'Map': {
+				const entries = Array.from(thing, ([k, v]) => `[${stringify(k)},${stringify(v)}]`);
+				return `new Map([${entries.join(',')}])`;
+			}
 
 			case 'Int8Array':
 			case 'Uint8Array':
@@ -287,6 +470,12 @@ export function uneval(value, replacer) {
 			case 'Float64Array':
 			case 'BigInt64Array':
 			case 'BigUint64Array': {
+				if (is_buffer(thing)) thing = new Uint8Array(thing);
+
+				if (thing.buffer.byteLength % thing.BYTES_PER_ELEMENT !== 0) {
+					return `new ${type}(${stringify(thing.buffer)},${thing.byteOffset},${thing.length})`;
+				}
+
 				let str = `new ${type}`;
 
 				if (!names.has(thing.buffer)) {
@@ -351,182 +540,11 @@ export function uneval(value, replacer) {
 
 	const str = stringify(value);
 
-	if (names.size) {
-		/** @type {string[]} */
-		const params = [];
-
-		/** @type {string[]} */
-		const statements = [];
-
-		/** @type {string[]} */
-		const values = [];
-
-		// Reconstructions (e.g. `b = new Uint8Array(...)`) reassign a placeholder
-		// parameter. They must run before the `statements` that reference them,
-		// otherwise those statements capture the placeholder. They only depend on
-		// IIFE arguments (never on each other), so emitting them first is safe.
-		/** @type {string[]} */
-		const reconstructions = [];
-
-		names.forEach((name, thing) => {
-			params.push(name);
-
-			if (custom.has(thing)) {
-				values.push(/** @type {string} */ (custom.get(thing)));
-				return;
-			}
-
-			if (is_primitive(thing)) {
-				values.push(stringify_primitive(thing));
-				return;
-			}
-
-			const type = get_type(thing);
-
-			switch (type) {
-				case 'Number':
-				case 'String':
-				case 'Boolean':
-				case 'BigInt':
-					values.push(`Object(${stringify(thing.valueOf())})`);
-					break;
-
-				case 'RegExp':
-					const { source, flags } = thing;
-					const regexp = flags
-						? `new RegExp(${stringify_string(source)},"${flags}")`
-						: `new RegExp(${stringify_string(source)})`
-					values.push(regexp);
-					break;
-
-				case 'Date':
-					values.push(`new Date(${thing.getTime()})`);
-					break;
-
-				case 'URL':
-					values.push(`new URL(${stringify_string(thing.toString())})`);
-					break;
-
-				case 'URLSearchParams':
-					values.push(`new URLSearchParams(${stringify_string(thing.toString())})`);
-					break;
-
-				case 'Array':
-					values.push(`Array(${thing.length})`);
-					/** @type {any[]} */ (thing).forEach((v, i) => {
-						statements.push(`${name}[${i}]=${stringify(v)}`);
-					});
-					break;
-
-				case 'Set': {
-					values.push(`new Set`);
-					const adds = Array.from(thing).map((v) => `.add(${stringify(v)})`);
-					// An empty Set is fully built by `new Set`; a chained statement would
-					// otherwise be a dangling `name.`.
-					if (adds.length > 0) statements.push(name + adds.join(''));
-					break;
-				}
-
-				case 'Map': {
-					values.push(`new Map`);
-					const sets = Array.from(thing).map(
-						([k, v]) => `.set(${stringify(k)}, ${stringify(v)})`
-					);
-					if (sets.length > 0) statements.push(name + sets.join(''));
-					break;
-				}
-
-				case 'Int8Array':
-				case 'Uint8Array':
-				case 'Uint8ClampedArray':
-				case 'Int16Array':
-				case 'Uint16Array':
-				case 'Float16Array':
-				case 'Int32Array':
-				case 'Uint32Array':
-				case 'Float32Array':
-				case 'Float64Array':
-				case 'BigInt64Array':
-				case 'BigUint64Array': {
-					let str = `new ${type}`;
-
-					if (!names.has(thing.buffer)) {
-						str += `([${stringify_typed_array_elements(type, thing.buffer)}])`;
-					} else {
-						str += `(${stringify(thing.buffer)})`;
-					}
-
-					// handle subarrays
-					if (thing.byteLength !== thing.buffer.byteLength) {
-						const start = thing.byteOffset / thing.BYTES_PER_ELEMENT;
-						const end = start + thing.length;
-						str += `.subarray(${start},${end})`;
-					}
-
-					values.push(`{}`);
-					reconstructions.push(`${name}=${str}`);
-					break;
-				}
-
-				case 'DataView': {
-					let str = `new DataView`;
-
-					if (!names.has(thing.buffer)) {
-						str += `(new Uint8Array([${new Uint8Array(thing.buffer)}]).buffer`;
-					} else {
-						str += `(${stringify(thing.buffer)}`;
-					}
-
-					// handle subviews
-					if (thing.byteLength !== thing.buffer.byteLength) {
-						str += `,${thing.byteOffset},${thing.byteLength}`;
-					}
-
-					str += ')';
-
-					values.push(`{}`);
-					reconstructions.push(`${name}=${str}`);
-					break;
-				}
-
-				case 'ArrayBuffer':
-					values.push(`new Uint8Array([${new Uint8Array(thing)}]).buffer`);
-					break;
-
-				case 'Temporal.Duration':
-				case 'Temporal.Instant':
-				case 'Temporal.PlainDate':
-				case 'Temporal.PlainTime':
-				case 'Temporal.PlainDateTime':
-				case 'Temporal.PlainMonthDay':
-				case 'Temporal.PlainYearMonth':
-				case 'Temporal.ZonedDateTime':
-					values.push(`${type}.from(${stringify_string(thing.toString())})`);
-					break;
-
-				default:
-					values.push(Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}');
-					Object.keys(thing).forEach((key) => {
-						statements.push(`${name}${safe_prop(key)}=${stringify(thing[key])}`);
-					});
-			}
-		});
-
-		statements.push(`return ${str}`);
-
-		const body = [...reconstructions, ...statements].join(';');
-		// A function may have at most 65535 parameters (and a call at most that
-		// many arguments). For very large graphs, pass the hoisted values as a
-		// single array argument and destructure them into the placeholder names,
-		// so the emitted code stays within the engine limit (#93).
-		if (params.length > 65534) {
-			return `(function(){var[${params.join(',')}]=arguments[0];${body}}([${values.join(',')}]))`;
-		}
-
-		return `(function(${params.join(',')}){${body}}(${values.join(',')}))`;
-	} else {
+	if (statements.length === 0) {
 		return str;
 	}
+
+	return `(function(){${statements.join(';')};return ${str}}())`;
 }
 
 /**
@@ -540,7 +558,7 @@ export function uneval(value, replacer) {
  * @param {ArrayBufferLike} buffer
  */
 function stringify_typed_array_elements(type, buffer) {
-	const array = new (/** @type {any} */ (globalThis)[type])(buffer);
+	const array = new /** @type {any} */ (globalThis)[type](buffer);
 
 	if (type === 'BigInt64Array' || type === 'BigUint64Array') {
 		return Array.from(array, (element) => `${element}n`).join(',');
@@ -557,18 +575,6 @@ function stringify_typed_array_elements(type, buffer) {
 	}
 
 	return array.toString();
-}
-
-/** @param {number} num */
-function get_name(num) {
-	let name = '';
-
-	do {
-		name = chars[num % chars.length] + name;
-		num = ~~(num / chars.length) - 1;
-	} while (num >= 0);
-
-	return reserved.test(name) ? `${name}0` : name;
 }
 
 /** @param {string} c */

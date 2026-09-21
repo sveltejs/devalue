@@ -15,13 +15,27 @@ permissions:
   contents: read
 
 jobs:
+  Formatting:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check:format
+
   Tests:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        node-version: [18, 20, 22, 24, 25]
+        node-version: [22, 24, 26]
         os: [ubuntu-latest]
     steps:
       - run: git config --global core.autocrlf false
@@ -33,3 +47,4 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
+      - run: pnpm run test:types

@@ -1,5 +1,35 @@
 # devalue changelog
 
+## 6.0.0
+### Major Changes
+
+- afb3cb4: breaking: use tagged template `js` for uneval replacers instead of nested `uneval`
+- 3100507: breaking: require Node 22.17 or newer
+
+### Minor Changes
+
+- afb3cb4: feat: support cyclic custom objects
+
+### Patch Changes
+
+- ac295fb: fix: escape unpaired surrogates so uneval/stringify output survives UTF-8 transport
+
+## 5.9.4
+### Patch Changes
+
+- 067b125: perf: annotate module-level `Object.freeze` calls as pure so unused operation tables tree-shake
+
+## 5.9.3
+### Patch Changes
+
+- 6861dbb: fix: avoid scanning sparse array holes in `uneval` traversal and shared-array population
+- 9ec5130: fix: reject non-string null-prototype object keys in `parse` and `unflatten` to prevent bypassing the `__proto__` check
+- dae8153: fix: prevent unhandled internal rejections in `stringifyAsync` when serializing multiple promises
+- 84f6f67: fix: prevent quadratic `uneval` output expansion for repeated strings and bigints
+- 6861dbb: fix: avoid eager allocation when evaluating sparse arrays emitted by `uneval`
+- 8f8d78e: fix: validate revived backing buffers before constructing typed arrays
+- 46dc877: fix: serialize only the visible bytes of Node Buffers in `stringify`, `stringifyAsync` and `uneval`, preventing disclosure of unrelated data from their shared allocation pool
+
 ## 5.9.2
 ### Patch Changes
 

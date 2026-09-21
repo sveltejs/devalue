@@ -186,11 +186,16 @@ export function unflatten(parsed, revivers, options) {
 						const obj = ops.createNullPrototypeObject();
 						hydrated[index] = obj;
 						for (let i = 1; i < value.length; i += 2) {
-							if (value[i] === '__proto__') {
+							const key = value[i];
+							if (typeof key !== 'string') {
+								throw new Error('Cannot parse an object with a non-string key');
+							}
+
+							if (key === '__proto__') {
 								throw new Error('Cannot parse an object with a `__proto__` property');
 							}
 
-							ops.set(obj, value[i], hydrate(value[i + 1]));
+							ops.set(obj, key, hydrate(value[i + 1]));
 						}
 						break;
 

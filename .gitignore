@@ -2,3 +2,5 @@
 /node_modules
 /types
 .results
+.vitest
+coverage
