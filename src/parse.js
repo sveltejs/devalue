@@ -168,7 +168,7 @@ export function unflatten(parsed, revivers, options) {
 							// rather than being indexed into.
 							const is_bigint = Array.isArray(wrapped) && wrapped[0] === 'BigInt';
 
-							if ((wrapped === null || typeof wrapped === 'object') && !is_bigint) {
+							if ((wrapped == null || typeof wrapped === 'object') && !is_bigint) {
 								// avoid infinite recusion in case of malformed input
 								throw new Error('Invalid input');
 							}
