@@ -38,7 +38,7 @@ export function unflatten(parsed, revivers, options) {
 	if (typeof parsed === 'number') return hydrate(parsed, true);
 
 	if (!Array.isArray(parsed) || parsed.length === 0) {
-		invalid()
+		invalid();
 	}
 
 	const values = /** @type {any[]} */ (parsed);
@@ -58,7 +58,7 @@ export function unflatten(parsed, revivers, options) {
 	 */
 	function get_raw(index) {
 		if (!is_valid_array_index(index) || index >= values.length) {
-			invalid()
+			invalid();
 		}
 
 		return values[index];
@@ -171,7 +171,7 @@ export function unflatten(parsed, revivers, options) {
 
 							if ((wrapped === undefined || typeof wrapped === 'object') && !is_bigint) {
 								// avoid infinite recusion in case of malformed input
-								invalid()
+								invalid();
 							}
 						}
 
@@ -221,7 +221,7 @@ export function unflatten(parsed, revivers, options) {
 							// without this, if we receive malformed input we could
 							// end up trying to hydrate in a circle or allocate
 							// huge amounts of memory when we call `new TypedArrayConstructor(buffer)`
-							invalid()
+							invalid();
 						}
 
 						const buffer = hydrate(buffer_index);
@@ -263,7 +263,7 @@ export function unflatten(parsed, revivers, options) {
 				const len = value[1];
 
 				if (!is_valid_array_len(len)) {
-					invalid()
+					invalid();
 				}
 
 				// `len` comes from the input rather than being bounded by it, so
@@ -276,7 +276,7 @@ export function unflatten(parsed, revivers, options) {
 					const idx = value[i];
 
 					if (!is_valid_array_index(idx) || idx >= len) {
-						invalid()
+						invalid();
 					}
 
 					ops.set(array, idx, hydrate(value[i + 1]));
