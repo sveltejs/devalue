@@ -85,7 +85,7 @@ function run(async, value, reducers, options) {
 	}
 
 	/** @type {string[]} */
-	const keys = [];
+	let keys = [];
 
 	let p = 0;
 
@@ -148,7 +148,13 @@ function run(async, value, reducers, options) {
 				);
 			}
 
+			// the callback runs after the synchronous walk has unwound `keys`,
+			// so the path to the thenable has to be captured and reinstated
+			const prev_keys = keys.slice();
+
 			str = ops.toPromise(thing).then((value) => {
+				keys = prev_keys;
+
 				const i = flatten(value, index);
 				if (i < 0) stringified[index] = i;
 			});
