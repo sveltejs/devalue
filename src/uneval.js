@@ -46,10 +46,11 @@ export function uneval(value, replacer) {
 	/**
 	 * @param {string} message
 	 * @param {any} thing
+	 * @returns {never}
 	 */
 	function error(message, thing) {
 		const path = format_path(keys, (key) => (is_primitive(key) ? stringify_primitive(key) : '...'));
-		return new DevalueError(message, path, thing, value);
+		throw new DevalueError(message, path, thing, value);
 	}
 
 	/** @type {Map<string | bigint, number> | undefined} */
@@ -100,7 +101,7 @@ export function uneval(value, replacer) {
 			}
 
 			if (typeof thing === 'function') {
-				throw error(`Cannot stringify a function`, thing);
+				error(`Cannot stringify a function`, thing);
 			}
 
 			const type = get_type(thing);
@@ -174,16 +175,16 @@ export function uneval(value, replacer) {
 
 				default:
 					if (!is_plain_object(thing)) {
-						throw error(`Cannot stringify arbitrary non-POJOs`, thing);
+						error(`Cannot stringify arbitrary non-POJOs`, thing);
 					}
 
 					if (enumerable_symbols(thing).length > 0) {
-						throw error(`Cannot stringify POJOs with symbolic keys`, thing);
+						error(`Cannot stringify POJOs with symbolic keys`, thing);
 					}
 
 					for (const key of Object.keys(thing)) {
 						if (key === '__proto__') {
-							throw error(`Cannot stringify objects with __proto__ keys`, thing);
+							error(`Cannot stringify objects with __proto__ keys`, thing);
 						}
 
 						keys.push(key);
@@ -192,7 +193,7 @@ export function uneval(value, replacer) {
 					}
 			}
 		} else if (typeof thing === 'symbol') {
-			throw error(`Cannot stringify a Symbol primitive`, thing);
+			error(`Cannot stringify a Symbol primitive`, thing);
 		} else if (
 			(typeof thing === 'string' && thing.length >= MIN_STRING_LENGTH) ||
 			typeof thing === 'bigint'
