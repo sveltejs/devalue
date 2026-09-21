@@ -94,6 +94,7 @@ function run(async, value, reducers, options) {
 	/**
 	 * @param {string} message
 	 * @param {any} thing
+	 * @returns {never}
 	 */
 	function error(message, thing) {
 		const path = format_path(keys, (key) => {
@@ -103,7 +104,7 @@ function run(async, value, reducers, options) {
 			return key_is_primitive ? stringify_primitive(ops.toPrimitive(key)) : '...';
 		});
 
-		return new DevalueError(message, path, thing, value);
+		throw new DevalueError(message, path, thing, value);
 	}
 
 	/**
@@ -145,9 +146,9 @@ function run(async, value, reducers, options) {
 		}
 
 		if (type === 'function') {
-			throw error(`Cannot stringify a function`, thing);
+			error(`Cannot stringify a function`, thing);
 		} else if (type === 'symbol') {
-			throw error(`Cannot stringify a Symbol primitive`, thing);
+			error(`Cannot stringify a Symbol primitive`, thing);
 		}
 
 		/** @type {string | Promise<any>} */
@@ -157,7 +158,7 @@ function run(async, value, reducers, options) {
 			str = stringify_primitive(type === 'number' ? number : ops.toPrimitive(thing));
 		} else if (ops.isThenable(thing)) {
 			if (!async) {
-				throw error(`Cannot stringify a Promise or thenable — use stringifyAsync instead`, thing);
+				error(`Cannot stringify a Promise or thenable — use stringifyAsync instead`, thing);
 			}
 
 			// the callback runs after the synchronous walk has unwound `keys`,
@@ -372,18 +373,18 @@ function run(async, value, reducers, options) {
 					const shape = ops.shapeOf(thing);
 
 					if (shape.kind === 'not-plain') {
-						throw error(`Cannot stringify arbitrary non-POJOs`, thing);
+						error(`Cannot stringify arbitrary non-POJOs`, thing);
 					}
 
 					if (shape.kind === 'symbol-keys') {
-						throw error(`Cannot stringify POJOs with symbolic keys`, thing);
+						error(`Cannot stringify POJOs with symbolic keys`, thing);
 					}
 
 					if (shape.kind === 'null-proto') {
 						str = '["null"';
 						for (const key of shape.keys) {
 							if (key === '__proto__') {
-								throw error(`Cannot stringify objects with __proto__ keys`, thing);
+								error(`Cannot stringify objects with __proto__ keys`, thing);
 							}
 
 							keys.push(key);
@@ -396,7 +397,7 @@ function run(async, value, reducers, options) {
 						let started = false;
 						for (const key of shape.keys) {
 							if (key === '__proto__') {
-								throw error(`Cannot stringify objects with __proto__ keys`, thing);
+								error(`Cannot stringify objects with __proto__ keys`, thing);
 							}
 
 							if (started) str += ',';
