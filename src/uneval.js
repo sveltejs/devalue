@@ -472,6 +472,10 @@ export function uneval(value, replacer) {
 			case 'BigUint64Array': {
 				if (is_buffer(thing)) thing = new Uint8Array(thing);
 
+				if (thing.buffer.byteLength % thing.BYTES_PER_ELEMENT !== 0) {
+					return `new ${type}(${stringify(thing.buffer)},${thing.byteOffset},${thing.length})`;
+				}
+
 				let str = `new ${type}`;
 
 				if (!names.has(thing.buffer)) {
