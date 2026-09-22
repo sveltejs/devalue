@@ -8,6 +8,7 @@
 		"emitDeclarationOnly": true,
 		"diagnostics": true,
 		"noEmitOnError": true,
+		"noUnusedLocals": true,
 		"lib": ["es6", "esnext", "dom"],
 		"module": "esnext",
 		"target": "esnext",
