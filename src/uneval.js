@@ -13,7 +13,6 @@ import {
 	is_buffer,
 	is_plain_object,
 	is_primitive,
-	stringify_key,
 	stringify_sparse_array,
 	stringify_string,
 	valid_array_indices
