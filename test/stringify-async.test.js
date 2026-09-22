@@ -14,7 +14,7 @@ describe('stringifyAsync: rejection handling', () => {
 				`
 				import assert from 'node:assert/strict';
 				import { setTimeout as delay } from 'node:timers/promises';
-				import { stringifyAsync } from ${JSON.stringify(new URL('../index.js', import.meta.url).href)};
+				import { stringifyAsync } from ${JSON.stringify(new URL('../src/index.js', import.meta.url).href)};
 				await (${fn})({ assert, delay, stringifyAsync });
 			`
 			],

@@ -1,5 +1,7 @@
 import type { JavaScriptFragment } from './javascript-source.js';
 
+export * from './index.js';
+
 export type { JavaScriptFragment };
 
 export type StringValueTag =

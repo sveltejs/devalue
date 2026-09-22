@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { parse, stringify, stringifyAsync } from '../index.js';
+import { parse, stringify, stringifyAsync } from '../src/index.js';
 
 describe.each([
 	{ name: 'stringify', fn: stringify },

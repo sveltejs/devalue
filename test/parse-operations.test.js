@@ -7,7 +7,7 @@ import {
 	unflatten,
 	defaultParseOperations,
 	defaultStringifyOperations
-} from '../index.js';
+} from '../src/index.js';
 
 globalThis.Temporal ??= (await import('@js-temporal/polyfill')).Temporal;
 

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import assert from 'node:assert/strict';
 import { describe, test } from 'vitest';
-import { parse, stringify, stringifyAsync, uneval } from '../index.js';
+import { parse, stringify, stringifyAsync, uneval } from '../src/index.js';
 
 const serializers = [
 	[uneval, (source) => (0, eval)(`(${source})`)],
@@ -141,7 +141,7 @@ test('serializes typed arrays without Node globals', () => {
 			globalThis.Buffer = undefined;
 			globalThis.process = undefined;
 			const { parse, stringify, stringifyAsync, uneval } = await import(
-				${JSON.stringify(new URL('../index.js', import.meta.url).href)}
+				${JSON.stringify(new URL('../src/index.js', import.meta.url).href)}
 			);
 			const value = new Uint8Array([1, 2, 3]);
 			deepStrictEqual((0, eval)(uneval(value)), value);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { uneval } from '../index.js';
+import { uneval } from '../src/index.js';
 
 describe.each([
 	{ TypedArray: Int16Array },
