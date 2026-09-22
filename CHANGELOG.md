@@ -1,5 +1,10 @@
 # devalue changelog
 
+## 6.0.2
+### Patch Changes
+
+- 12ad9d6: chore: remove dts-buddy
+
 ## 6.0.1
 ### Patch Changes
 
