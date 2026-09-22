@@ -44,7 +44,7 @@ let obj = { message: 'hello' };
 devalue.uneval(obj); // '{message:"hello"}'
 
 obj.self = obj;
-devalue.uneval(obj); // '(function(a){a.message="hello";a.self=a;return a}({}))'
+devalue.uneval(obj); // '(function(){let a={};a.message="hello";a.self=a;return a}())'
 ```
 
 Use `uneval` when you want the most compact possible output and don't want to include any code for parsing the serialized value. The result is suitable for embedding in a `<script>` element or a generated JavaScript module, for example.
