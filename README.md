@@ -94,12 +94,13 @@ In the case where devalued data is one part of a larger JSON string, `unflatten`
 ```js
 import * as devalue from 'devalue';
 
+const input = { message: 'hello' };
 const json = `{
   "type": "data",
-  "data": ${devalue.stringify(data)}
+  "data": ${devalue.stringify(input)}
 }`;
 
-const data = devalue.unflatten(JSON.parse(json).data);
+const data = devalue.unflatten(JSON.parse(json).data); // { message: 'hello' }
 ```
 
 ### Binary data
