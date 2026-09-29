@@ -29,43 +29,50 @@ export function stringify(value, reducers, options) {
  * @param {import('./types.js').StringifyOptions} [options]
  */
 export async function stringifyAsync(value, reducers, options) {
-	const stringified = run(true, value, reducers, options);
+	const result = run(true, value, reducers, options);
 
-	if (typeof stringified === 'string') {
-		return stringified;
+	if (typeof result === 'string') {
+		return result;
 	}
 
-	let out = '[';
+	const { stringified, spans } = result;
 
 	for (let i = 0; i < stringified.length; i += 1) {
-		let value = stringified[i];
-
-		if (typeof value !== 'string') {
-			await value;
-			value = stringified[i];
-
-			if (i === 0 && value < 0) {
-				return `${value}`;
-			}
-		}
-
-		out += value;
-
-		if (i < stringified.length - 1) {
-			out += ',';
+		const slot = stringified[i];
+		if (slot && typeof slot.then === 'function') {
+			await slot;
 		}
 	}
 
-	out += ']';
+	if (typeof stringified[0] === 'number' && stringified[0] < 0) {
+		return `${stringified[0]}`;
+	}
 
-	return out;
+	return `[${materialize(stringified, spans).join(',')}]`;
 }
 
+/**
+ * @overload
+ * @param {false} async
+ * @param {any} value
+ * @param {Record<string, (value: any) => any>} [reducers]
+ * @param {import('./types.js').StringifyOptions} [options]
+ * @returns {string | any[]}
+ */
+/**
+ * @overload
+ * @param {true} async
+ * @param {any} value
+ * @param {Record<string, (value: any) => any>} [reducers]
+ * @param {import('./types.js').StringifyOptions} [options]
+ * @returns {string | { stringified: any[], spans: Array<Array<{ start: number, length: number, target: number }> | undefined> }}
+ */
 /**
  * @param {boolean} async
  * @param {any} value
  * @param {Record<string, (value: any) => any>} [reducers]
  * @param {import('./types.js').StringifyOptions} [options]
+ * @returns {string | any[] | { stringified: any[], spans: Array<Array<{ start: number, length: number, target: number }> | undefined> }}
  */
 function run(async, value, reducers, options) {
 	const ops = merge_operations(default_stringify_operations, options?.operations);
@@ -90,6 +97,28 @@ function run(async, value, reducers, options) {
 	let keys = [];
 
 	let p = 0;
+
+	/** @type {Array<Array<{ start: number, length: number, target: number }> | undefined>} */
+	const spans = [];
+
+	/**
+	 * @param {number} parent
+	 * @param {string} str
+	 * @param {number} ref
+	 */
+	function embed(parent, str, ref) {
+		const token = String(ref);
+
+		if (async && ref >= 0) {
+			(spans[parent] ??= []).push({
+				start: str.length,
+				length: token.length,
+				target: ref
+			});
+		}
+
+		return str + token;
+	}
 
 	/**
 	 * @param {string} message
@@ -140,7 +169,9 @@ function run(async, value, reducers, options) {
 		for (const { key, fn } of custom) {
 			const value = fn(thing);
 			if (value) {
-				stringified[index] = `["${key}",${flatten(value)}]`;
+				let encoded = `["${key}",`;
+				encoded = embed(index, encoded, flatten(value));
+				stringified[index] = encoded + ']';
 				return index;
 			}
 		}
@@ -184,7 +215,9 @@ function run(async, value, reducers, options) {
 				case 'String':
 				case 'Boolean':
 				case 'BigInt':
-					str = `["Object",${flatten(ops.unbox(thing))}]`;
+					str = '["Object",';
+					str = embed(index, str, flatten(ops.unbox(thing)));
+					str += ']';
 					break;
 
 				case 'Date':
@@ -225,7 +258,7 @@ function run(async, value, reducers, options) {
 
 						if (ops.hasOwn(thing, i)) {
 							keys.push(i);
-							str += flatten(ops.get(thing, i));
+							str = embed(index, str, flatten(ops.get(thing, i)));
 							keys.pop();
 						} else if (mostly_dense) {
 							// Use dense encoding. The heuristic guarantees the
@@ -272,11 +305,13 @@ function run(async, value, reducers, options) {
 							const sparse_cost = 4 + d + population * (d + 1);
 
 							if (hole_cost > sparse_cost) {
+								spans[index] = undefined;
 								str = '[' + SPARSE + ',' + length;
 								for (let j = 0; j < populated_keys.length; j++) {
 									const key = populated_keys[j];
 									keys.push(+key);
-									str += ',' + key + ',' + flatten(ops.get(thing, key));
+									str += ',' + key + ',';
+									str = embed(index, str, flatten(ops.get(thing, key)));
 									keys.pop();
 								}
 								break;
@@ -296,7 +331,8 @@ function run(async, value, reducers, options) {
 					str = '["Set"';
 
 					for (const value of ops.valuesOf(thing)) {
-						str += `,${flatten(value)}`;
+						str += ',';
+						str = embed(index, str, flatten(value));
 					}
 
 					str += ']';
@@ -307,7 +343,10 @@ function run(async, value, reducers, options) {
 
 					for (const [key, value] of ops.entriesOf(thing)) {
 						keys.push(MAP_KEY, key);
-						str += `,${flatten(key)},${flatten(value)}`;
+						str += ',';
+						str = embed(index, str, flatten(key));
+						str += ',';
+						str = embed(index, str, flatten(value));
 						keys.pop();
 						keys.pop();
 					}
@@ -328,7 +367,8 @@ function run(async, value, reducers, options) {
 				case 'BigInt64Array':
 				case 'BigUint64Array': {
 					const info = ops.viewInfo(thing);
-					str = '["' + tag + '",' + flatten(info.buffer);
+					str = '["' + tag + '",';
+					str = embed(index, str, flatten(info.buffer));
 
 					// handle subarrays
 					if (info.byteLength !== info.bufferByteLength) {
@@ -341,7 +381,8 @@ function run(async, value, reducers, options) {
 
 				case 'DataView': {
 					const info = ops.viewInfo(thing);
-					str = '["' + tag + '",' + flatten(info.buffer);
+					str = '["' + tag + '",';
+					str = embed(index, str, flatten(info.buffer));
 
 					if (info.byteLength !== info.bufferByteLength) {
 						str += `,${info.byteOffset},${info.byteLength}`;
@@ -388,7 +429,8 @@ function run(async, value, reducers, options) {
 							}
 
 							keys.push(key);
-							str += `,${quote_key(key)},${flatten(ops.get(thing, key))}`;
+							str += `,${quote_key(key)},`;
+							str = embed(index, str, flatten(ops.get(thing, key)));
 							keys.pop();
 						}
 						str += ']';
@@ -403,7 +445,8 @@ function run(async, value, reducers, options) {
 							if (started) str += ',';
 							started = true;
 							keys.push(key);
-							str += `${quote_key(key)}:${flatten(ops.get(thing, key))}`;
+							str += `${quote_key(key)}:`;
+							str = embed(index, str, flatten(ops.get(thing, key)));
 							keys.pop();
 						}
 						str += '}';
@@ -421,7 +464,69 @@ function run(async, value, reducers, options) {
 	// special case — value is represented as a negative index
 	if (index < 0) return `${index}`;
 
+	if (async) return { stringified, spans };
+
 	return stringified;
+}
+
+/**
+ * @param {any[]} stringified
+ * @param {Array<Array<{ start: number, length: number, target: number }> | undefined>} spans
+ */
+function materialize(stringified, spans) {
+	/** @type {Map<number, number>} */
+	const sentinel_of = new Map();
+
+	/** @type {number[]} */
+	const kept = [];
+
+	for (let i = 0; i < stringified.length; i += 1) {
+		const slot = stringified[i];
+
+		if (typeof slot === 'number' && slot < 0) {
+			sentinel_of.set(i, slot);
+		} else {
+			kept.push(i);
+		}
+	}
+
+	if (sentinel_of.size === 0) {
+		return stringified;
+	}
+
+	/** @type {Map<number, number>} */
+	const remap = new Map();
+
+	for (let i = 0; i < kept.length; i += 1) {
+		remap.set(kept[i], i);
+	}
+
+	return kept.map((old) => {
+		const slot = stringified[old];
+		const slot_spans = spans[old];
+
+		if (typeof slot !== 'string' || !slot_spans || slot_spans.length === 0) {
+			return slot;
+		}
+
+		let out = '';
+		let cursor = 0;
+
+		for (const span of slot_spans) {
+			out += slot.slice(cursor, span.start);
+
+			if (sentinel_of.has(span.target)) {
+				out += String(sentinel_of.get(span.target));
+			} else {
+				out += String(remap.get(span.target));
+			}
+
+			cursor = span.start + span.length;
+		}
+
+		out += slot.slice(cursor);
+		return out;
+	});
 }
 
 /**
