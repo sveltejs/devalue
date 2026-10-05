@@ -14,6 +14,7 @@ Like `JSON.stringify`, but handles
 - `Temporal`
 - custom types via replacers, reducers and revivers
 - promises (via `stringifyAsync`)
+- streamed promises (via `unevalStream`)
 
 Try it out [here](https://svelte.dev/repl/138d70def7a748ce9eda736ef1c71239?version=3.49.0).
 
@@ -86,6 +87,47 @@ devalue.parse(stringified); // { quick: 'data', slow: { ... } }
 ```
 
 Promises are awaited and their resolved values are serialized. The output format is identical to `stringify`, so `parse` and `unflatten` work unchanged.
+
+### `unevalStream`
+
+`unevalStream` is a streaming version of `uneval`. It synchronously returns a `head` expression that recreates the value with every promise _pending_, and a `tail` of statement blocks that settle those promises as they settle on the server:
+
+```js
+const { head, tail } = devalue.unevalStream({
+  quick: 'data',
+  slow: fetch('/api/slow').then((r) => r.json())
+});
+
+res.write(`<script>window.data = ${head}</script>`);
+for await (const block of tail) res.write(`<script>${block}</script>`);
+```
+
+Evaluate `head` once, then each block once, in order, in the same realm. Concatenating them into a single script also works. A settled value may contain further promises, which later blocks settle.
+
+- every promise is pending in `head`, regardless of timing
+- object identity is preserved across `head` and every block
+- the replacer is called at most once per object for the whole stream
+
+#### Options
+
+| Option    | Description                                                                                                                                                                                                           |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`      | Session key (returned as `id`). Random by default; pass a stable value when `head` must be byte-identical across runs.                                                                                                |
+| `scope`   | Trusted, assignable expression holding the client session table. Defaults to `globalThis.__d`.                                                                                                                        |
+| `signal`  | An `AbortSignal` that stops the tail. Pending and later `next()` calls reject once with `signal.reason`; if the signal is already aborted, or aborts during the head emission, `unevalStream` throws `signal.reason`. |
+| `onerror` | `(error, value) => void`, called when an outcome can't be serialized. The client promise rejects with a generic `Error`.                                                                                              |
+
+#### Constraints
+
+Don't mutate the input until the tail has finished, and don't mutate the revived value until every block has been evaluated — blocks address existing objects by path.
+
+Only native promises are streamed. Other thenables need a replacer that rebuilds them around a native promise:
+
+```js
+devalue.unevalStream(value, (v, js) => {
+  if (v instanceof MyThenable) return js`new MyThenable(${Promise.resolve(v)})`;
+});
+```
 
 ### `unflatten`
 
