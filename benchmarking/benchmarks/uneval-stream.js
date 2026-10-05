@@ -1,4 +1,4 @@
-import { unevalStream } from '../../index.js';
+import { unevalStream } from '../../src/index.js';
 import { median_test } from '../utils.js';
 
 let blackhole = 0;

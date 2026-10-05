@@ -68,7 +68,7 @@ async function run(count, unevalStream) {
 
 try {
 	globalThis.Map = InstrumentedMap;
-	const { unevalStream } = await import('../../index.js');
+	const { unevalStream } = await import('../../src/index.js');
 	const counts = process.argv.slice(2).map(Number);
 	if (counts.length === 0 || counts.some((count) => !Number.isSafeInteger(count) || count < 1)) {
 		throw new TypeError('pass one or more positive integer fixture sizes');

@@ -2,7 +2,7 @@ import { getEventListeners } from 'node:events';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { describe, test, expect } from 'vitest';
-import { unevalStream } from '../index.js';
+import { unevalStream } from '../src/index.js';
 
 describe('unevalStream lifecycle', () => {
 	const delay = () => new Promise((resolve) => setTimeout(resolve, 0));

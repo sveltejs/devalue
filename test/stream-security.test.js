@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { describe, test, expect } from 'vitest';
-import { parse, stringify, unevalStream } from '../index.js';
+import { parse, stringify, unevalStream } from '../src/index.js';
 import { client, drain } from './helpers/stream.js';
 
 // Exercise the same values in the head, a folded outcome, a tail outcome, and a
@@ -338,7 +338,7 @@ describe('unevalStream security regressions', () => {
 			import assert from 'node:assert/strict';
 			globalThis.Buffer = undefined;
 			globalThis.process = undefined;
-			const { unevalStream } = await import(${JSON.stringify(new URL('../index.js', import.meta.url).href)});
+			const { unevalStream } = await import(${JSON.stringify(new URL('../src/index.js', import.meta.url).href)});
 			const value = new Uint8Array([1,2,3]);
 			assert.deepStrictEqual((0,eval)((await unevalStream(value)).head), value);
 		`
@@ -385,7 +385,7 @@ describe('unevalStream security regressions', () => {
 				`
 			import assert from 'node:assert/strict';
 			import { setTimeout as delay } from 'node:timers/promises';
-			import { unevalStream } from ${JSON.stringify(new URL('../index.js', import.meta.url).href)};
+			import { unevalStream } from ${JSON.stringify(new URL('../src/index.js', import.meta.url).href)};
 			const result = await unevalStream({
 				slow: delay(30, 42), failing: Promise.reject('first'),
 				later: delay(10).then(() => { throw 'later'; }),

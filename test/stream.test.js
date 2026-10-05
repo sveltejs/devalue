@@ -2,7 +2,7 @@ import vm from 'node:vm';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { describe, test, expect } from 'vitest';
-import { unevalStream } from '../index.js';
+import { unevalStream } from '../src/index.js';
 import { client, drain } from './helpers/stream.js';
 
 describe('unevalStream', () => {

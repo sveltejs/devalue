@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { DevalueError, unevalStream } from '../index.js';
+import { DevalueError, unevalStream } from '../src/index.js';
 import { client } from './helpers/stream.js';
 
 describe('unevalStream transactions', () => {

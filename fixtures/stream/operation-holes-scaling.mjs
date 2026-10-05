@@ -145,7 +145,7 @@ async function run_overlapping(count, unevalStream) {
 
 try {
 	globalThis.Map = InstrumentedMap;
-	const { unevalStream } = await import('../../index.js');
+	const { unevalStream } = await import('../../src/index.js');
 	const args = process.argv.slice(2);
 	const events_mode = args.includes('--events');
 	const counts = args.filter((arg) => arg !== '--events').map(Number);

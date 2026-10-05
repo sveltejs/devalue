@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { uneval, unevalStream } from '../index.js';
+import { uneval, unevalStream } from '../src/index.js';
 import { client } from './helpers/stream.js';
 
 describe('unevalStream cross-feature invariants', () => {

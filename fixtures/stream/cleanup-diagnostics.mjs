@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { unevalStream } from '../../index.js';
+import { unevalStream } from '../../src/index.js';
 
 function deferred() {
 	let resolve;
