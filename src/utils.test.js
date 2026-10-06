@@ -77,6 +77,11 @@ describe('stringify_string', () => {
 		expect((0, eval)(source)).toBe(value);
 	});
 
+	test('leaves characters JSON.stringify leaves raw untouched', () => {
+		// `/`, DEL, non-ASCII and `>` all pass through on the escaping path too
+		expect(stringify_string('"a/b\u007f\u00e9>c')).toBe('"\\"a/b\u007f\u00e9>c"');
+	});
+
 	test('leaves well-formed surrogate pairs untouched', () => {
 		expect(stringify_string('\ud83d\ude00')).toBe('"\ud83d\ude00"');
 		expect((0, eval)(stringify_string('a\ud83d\ude00b'))).toBe('a\ud83d\ude00b');

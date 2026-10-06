@@ -127,14 +127,17 @@ const needs_escape = /["<\\\u0000-\u001f\u2028\u2029]/;
 
 // `JSON.stringify` already emits every escape we need except these three,
 // which it leaves raw: `<` (so output is safe inside a `<script>` tag) and
-// the line/paragraph separators (which older engines reject in string
-// literals). It also escapes unpaired surrogates as `\\udXXX`, so the result
-// survives UTF-8 transport
+// the line/paragraph separators (kept escaped for engines predating ES2019,
+// which rejected them in string literals). It also escapes unpaired
+// surrogates as `\\udXXX`, so the result survives UTF-8 transport
 const json_leaves_raw = /[<\u2028\u2029]/g;
+
+/** @type {Record<string, string>} */
+const raw_escapes = { '<': '\\u003C', '\u2028': '\\u2028', '\u2029': '\\u2029' };
 
 /** @param {string} char */
 function escape_raw(char) {
-	return char === '<' ? '\\u003C' : char === '\u2028' ? '\\u2028' : '\\u2029';
+	return raw_escapes[char];
 }
 
 /** @param {string} str */
