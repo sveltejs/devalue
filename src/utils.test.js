@@ -70,6 +70,13 @@ describe('stringify_string', () => {
 		}
 	);
 
+	test('escapes `<` and line/paragraph separators alongside JSON escapes', () => {
+		const value = '<\u2028"\\\n\t\u0001\u2029>\ud800';
+		const source = stringify_string(value);
+		expect(source).toBe('"\\u003C\\u2028\\"\\\\\\n\\t\\u0001\\u2029>\\ud800"');
+		expect((0, eval)(source)).toBe(value);
+	});
+
 	test('leaves well-formed surrogate pairs untouched', () => {
 		expect(stringify_string('\ud83d\ude00')).toBe('"\ud83d\ude00"');
 		expect((0, eval)(stringify_string('a\ud83d\ude00b'))).toBe('a\ud83d\ude00b');
