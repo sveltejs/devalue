@@ -1,4 +1,8 @@
+/**
+ * @import { UnevalReplacer } from './types';
+ */
 import { MAX_ARRAY_INDEX, MAX_ARRAY_LEN } from './constants.js';
+import { js, JavaScriptSource } from './javascript-source.js';
 
 const name_chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$';
 const reserved_names =
@@ -85,6 +89,24 @@ export function is_plain_object(thing) {
 		Object.getPrototypeOf(proto) === null ||
 		Object.getOwnPropertyNames(proto).sort().join('\0') === object_proto_names
 	);
+}
+
+/**
+ * Calls an `uneval` replacer and validates its result
+ * @param {any} thing
+ * @param {UnevalReplacer} replacer
+ * @returns {JavaScriptSource | null}
+ */
+export function call_replacer(thing, replacer) {
+	const fragment = replacer(thing, js);
+
+	if (fragment) return JavaScriptSource.from(fragment);
+
+	if (fragment !== undefined && fragment !== null && fragment !== false) {
+		throw new TypeError('Invalid uneval replacer result');
+	}
+
+	return null;
 }
 
 /** @param {any} thing */
