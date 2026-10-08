@@ -1,4 +1,4 @@
-import { uneval } from '../../index.js';
+import { uneval } from '../../src/index.js';
 import { records } from '../records.js';
 import { fastest_test } from '../utils.js';
 
