@@ -5,9 +5,7 @@ import { js, JavaScriptSource } from './javascript-source.js';
 import { analyze } from './uneval.js';
 import { call_replacer, get_type, stringify_string } from './utils.js';
 
-// `o` is reserved even when unused, since names are allocated before the binding is chosen
-const RESERVED = ['s', 'n', 'o'];
-const LOCAL_BINDING_COST = '(()=>{let o=s.o;return })()'.length;
+const RESERVED = ['s', 'n'];
 const FAILED = 'new Error("devalue: failed to serialize asynchronous value")';
 const DONE = Object.freeze({ done: /** @type {true} */ (true), value: undefined });
 const identifier = /^[_$a-zA-Z][_$a-zA-Z0-9]*$/;
@@ -129,14 +127,7 @@ class Session {
 	#known = new Map();
 
 	/**
-	 * Sometimes, paths are long enough that it makes sense to give them their own slot.
-	 * When this occurs, we map the location to that slot.
-	 * @type {Map<Location, number>}
-	 */
-	#aliases = new Map();
-
-	/**
-	 * This is like `#aliases`, but for primitives. We can vastly reduce the wire size of payloads
+	 * Slots for long strings and bigints. We can vastly reduce the wire size of payloads
 	 * containing repeated strings or bigints (whose textual length is essentially unbounded) by saving them
 	 * in a slot, which lets us reuse them with very short syntax.
 	 * @type {Map<string | bigint, number>}
@@ -187,7 +178,6 @@ class Session {
 	#emit_value(value, head) {
 		const known = this.#known;
 		const replacer_cache = this.#replacer_cache;
-		const aliases = this.#aliases;
 		const primitives = this.#primitives;
 		const replacer = this.#replacer;
 		const slot_start = this.#next_slot;
@@ -199,10 +189,6 @@ class Session {
 		const retained = new Map();
 		/** @type {Map<object, number>} */
 		const fresh = new Map();
-		/** @type {Map<Location, number>} */
-		const staged = new Map();
-		/** @type {Array<{ slot: number, location: Location }>} */
-		const assignments = [];
 
 		/** @type {Map<string | bigint, number>} */
 		const staged_primitives = new Map();
@@ -250,19 +236,11 @@ class Session {
 			// a head without promises needs no session at all
 			if (head && fresh.size === 0) return analysis.render();
 
-			this.#plan_aliases(analysis.references.values(), staged, assignments);
-
-			// Without a replacer there are no free custom identifiers to shadow, so a local
-			// `o` can stand in for `s.o` when the uses it shortens pay for the wrapper. The
-			// root, each retained object and reference, and each alias (twice) use a slot.
-			const slot_uses = 1 + retained.size + analysis.references.size + 2 * assignments.length;
-			const binding = !replacer && slot_uses * 2 > LOCAL_BINDING_COST ? 'o' : 's.o';
-
 			let code = analysis.render({
-				reference: (location) => expression(location, aliases, binding, staged),
+				reference: expression,
 				retain: (thing) => {
 					const slot = retained.get(thing);
-					return slot === undefined ? undefined : `${binding}[${slot}]`;
+					return slot === undefined ? undefined : `s.o[${slot}]`;
 				},
 				primitive: (thing, literal) => {
 					let slot = primitives.get(thing) ?? staged_primitives.get(thing);
@@ -271,24 +249,12 @@ class Session {
 						staged_primitives.set(thing, slot);
 						primitive_assignments.push({ slot, literal });
 					}
-					return `${binding}[${slot}]`;
+					return `s.o[${slot}]`;
 				}
 			});
 
 			const root = locations.get(value);
-			if (root !== undefined) code = `(${binding}[${root.key}]=${code})`;
-			if (assignments.length) {
-				/** @type {Map<Location, number>} */
-				const initialized = new Map();
-				const initializers = assignments.map(({ slot, location }) => {
-					const prefix = expression(location, aliases, binding, initialized);
-					initialized.set(location, slot);
-					return `${binding}[${slot}]=${prefix}`;
-				});
-				code = `(${initializers.join(',')},${code})`;
-			}
-			if (binding === 'o') code = `(()=>{let o=s.o;return ${code}})()`;
-
+			if (root !== undefined) code = `(s.o[${root.key}]=${code})`;
 			if (primitive_assignments.length) {
 				const initializers = primitive_assignments.map(
 					({ slot, literal }) => `s.o[${slot}]=${literal}`
@@ -299,7 +265,6 @@ class Session {
 			// request state or attach new delivery after terminal cleanup.
 			if (!this.#done) {
 				for (const [thing, slot] of staged_primitives) primitives.set(thing, slot);
-				for (const [location, slot] of staged) aliases.set(location, slot);
 				for (const [thing, location] of locations) known.set(thing, location);
 				for (const [promise, index] of fresh) {
 					this.#pending += 1;
@@ -312,38 +277,6 @@ class Session {
 			this.#next_slot = slot_start;
 			this.#next_promise = promise_start;
 			throw error;
-		}
-	}
-
-	/**
-	 * Gives a slot to each shared path prefix that is used often enough to pay for
-	 * its initialization. Each existing object is rendered once, because the emitter
-	 * hoists repeated uses. Shared ancestors count as well as leaves, in
-	 * ancestor-first order. Every walk is bounded by MAX_PATH_COST, not by the depth
-	 * of the input graph.
-	 * @param {Iterable<Location>} references
-	 * @param {Map<Location, number>} staged
-	 * @param {Array<{ slot: number, location: Location }>} assignments
-	 */
-	#plan_aliases(references, staged, assignments) {
-		const aliases = this.#aliases;
-		/** @type {Map<Location, number>} */
-		const demand = new Map();
-		for (const location of references) {
-			const path = [];
-			for (let node = location; node.up && !aliases.has(node); node = node.up) path.push(node);
-			for (const node of path.reverse()) demand.set(node, (demand.get(node) ?? 0) + 1);
-		}
-		for (const [location, count] of demand) {
-			const prefix = expression(location, aliases, 's.o', staged);
-			const slot = `s.o[${this.#next_slot}]`;
-			const prefix_cost = path_cost(prefix);
-			// Includes initialization, assignment, comma, and the first alias wrapper.
-			const assignment_cost = prefix_cost + slot.length + 2 + (assignments.length ? 0 : 2);
-			if (count * (prefix_cost - slot.length) > assignment_cost) {
-				assignments.push({ slot: this.#next_slot, location });
-				staged.set(location, this.#next_slot++);
-			}
 		}
 	}
 
@@ -383,7 +316,6 @@ class Session {
 		this.#signal?.removeEventListener('abort', this.#on_abort);
 		this.#known.clear();
 		this.#replacer_cache.clear();
-		this.#aliases.clear();
 		this.#primitives.clear();
 		this.#queue.length = 0;
 		this.#replacer = undefined;
@@ -490,18 +422,15 @@ function is_promise(thing) {
 
 /**
  * @param {Location} location
- * @param {Map<Location, number>} aliases
- * @param {string} [binding]
- * @param {Map<Location, number>} [staged]
  * @returns {string}
  */
-function expression(location, aliases, binding = 's.o', staged) {
+function expression(location) {
 	const segments = [];
-	while (location.up !== null && !aliases.has(location) && !staged?.has(location)) {
+	while (location.up !== null) {
 		segments.push(location.key);
 		location = location.up;
 	}
-	return `${binding}[${staged?.get(location) ?? aliases.get(location) ?? location.key}]${segments.reverse().join('')}`;
+	return `s.o[${location.key}]${segments.reverse().join('')}`;
 }
 
 /**

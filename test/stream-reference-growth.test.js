@@ -103,37 +103,9 @@ test('cheap single-use and repeated leaf paths do not create lazy slots', async 
 	// Only the new outcome array is retained, not its already-known leaf.
 	expect(slots).toHaveLength(2);
 	expect(blocks.join('')).toContain('s.o[0].leaf');
-	expect(blocks.join('')).not.toContain('let o=');
 });
 
-test.each([15, 16])('prefix length %i accounts for alias wrapper punctuation', async (length) => {
-	const key = 'x'.repeat(length);
-	const nodes = [{ i: 0 }, { i: 1 }];
-	const stream = unevalStream(
-		{ [key]: nodes, outcome: Promise.resolve(nodes.slice()) },
-		undefined,
-		{
-			id: 'cost'
-		}
-	);
-	const c = client();
-	const root = c.head(stream.head);
-	const slots = c.context.__d.cost.o;
-	let tail = '';
-	for await (const block of stream.tail) {
-		tail += block;
-		c.block(block);
-	}
-	const outcome = await root.outcome;
-	for (let i = 0; i < nodes.length; i += 1) expect(outcome[i]).toBe(root[key][i]);
-	// At 15 the alias breaks even; at 16 it saves exactly one byte, including
-	// the first comma-expression wrapper. Neither scope pays for a local binding.
-	expect(slots).toHaveLength(length === 15 ? 2 : 3);
-	expect(tail.split(key)).toHaveLength(length === 15 ? 3 : 2);
-	expect(tail).not.toContain('let o=');
-});
-
-test('one long but bounded leaf read avoids an unprofitable alias', async () => {
+test('a long but bounded leaf read is repeated rather than given a slot', async () => {
 	const key = 'x'.repeat(80);
 	const leaf = { value: 1 };
 	const stream = unevalStream({ [key]: leaf, outcome: Promise.resolve(leaf) }, undefined, {
@@ -147,7 +119,7 @@ test('one long but bounded leaf read avoids an unprofitable alias', async () => 
 	expect(slots).toHaveLength(1);
 });
 
-test('profitable distinct descendants share an alias and a numeric local slot table', async () => {
+test('distinct descendants are reached by bounded paths from a numeric slot table', async () => {
 	const key = 'x'.repeat(80);
 	const nodes = Array.from({ length: 32 }, (_, i) => ({ i }));
 	const stream = unevalStream(
@@ -170,11 +142,10 @@ test('profitable distinct descendants share an alias and a numeric local slot ta
 	}
 	const outcome = await root.outcome;
 	for (let i = 0; i < nodes.length; i += 1) expect(outcome[i]).toBe(root[key][i]);
-	expect(tail.split(key)).toHaveLength(2); // one bounded alias initialization
-	expect(tail).toContain('let o=s.o;');
-	expect(tail).toMatch(/o\[\d+\]=o\[\d+\]/);
+	// Each reference repeats a path of at most MAX_PATH_COST bytes; compression absorbs the repeats.
+	expect(tail.split(key)).toHaveLength(nodes.length + 1);
 	expect(Object.keys(slots)).toEqual(Array.from({ length: slots.length }, (_, i) => String(i)));
-	expect(source.length).toBeLessThan(2500);
+	expect(source.length).toBeLessThan(nodes.length * 128 + 1024);
 });
 
 test.each(['escaped segment', 'unicode segment', 'enormous segment', 'independent chains'])(
@@ -363,7 +334,7 @@ test.each(['typed view', 'DataView'])(
 	}
 );
 
-test('replaced containers retain identity without shadowing free replacer identifiers', async () => {
+test('replaced containers retain identity', async () => {
 	class Box {
 		constructor(value) {
 			this.value = value;
@@ -371,12 +342,8 @@ test('replaced containers retain identity without shadowing free replacer identi
 	}
 	const key = 'x'.repeat(80);
 	const nodes = Array.from({ length: 32 }, (_, i) => new Box({ i }));
-	const result = await expect_roundtrip(
-		(schedule) => ({ [key]: nodes, outcome: schedule.later(nodes.slice()) }),
-		{
-			replacer: (value, js) => value instanceof Box && js`new o(${value.value})`,
-			globals: { o: Box }
-		}
-	);
-	expect(result.blocks.join('')).not.toContain('let o=');
+	await expect_roundtrip((schedule) => ({ [key]: nodes, outcome: schedule.later(nodes.slice()) }), {
+		replacer: (value, js) => value instanceof Box && js`new Box(${value.value})`,
+		globals: { Box }
+	});
 });
