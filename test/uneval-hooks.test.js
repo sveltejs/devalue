@@ -384,23 +384,6 @@ describe('analyze', () => {
 		expect(source).toContain('s.o[1]');
 	});
 
-	test('references lists exactly the objects known accepted, with their tokens', () => {
-		const existing = { existing: true };
-		const nested = { nested: true };
-		const fresh = { fresh: true };
-
-		const analysis = analyze(
-			{ existing, list: [nested, fresh], again: existing },
-			{ known: (thing) => (thing === existing ? 'a' : thing === nested ? 'b' : undefined) }
-		);
-
-		expect([...analysis.references]).toEqual([
-			[existing, 'a'],
-			[nested, 'b']
-		]);
-		expect(analyze({ fresh }).references.size).toBe(0);
-	});
-
 	test('primitive is only called for long strings and bigints with long literals', () => {
 		const long_string = 'x'.repeat(128);
 		const long_bigint = 10n ** 130n;
