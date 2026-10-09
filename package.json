@@ -17,7 +17,7 @@
   ],
   "types": "./types/types.d.ts",
   "engines": {
-    "node": ">=22.17"
+    "node": ">=18"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.6",
