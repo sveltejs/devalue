@@ -127,10 +127,10 @@ async function callback_retention({ assert, vm, turn, unevalStream, data: callba
 			graph.visits += 1;
 			return undefined;
 		};
-		const onerror = () => {
+		const transformError = () => {
 			reports += graph.nodes.length;
 		};
-		const options = callback === 'onerror' ? { onerror } : {};
+		const options = callback === 'transformError' ? { transformError } : {};
 		// The graph is callback-only data, never an input node or cached replacement.
 		const result = unevalStream(
 			callback === 'replacer' ? { value: 42 } : Promise.resolve(42),
@@ -148,7 +148,7 @@ async function callback_retention({ assert, vm, turn, unevalStream, data: callba
 	for await (const block of fixture.result.tail) vm.runInContext(block, context);
 	if (callback === 'replacer') assert.equal(root.value, 42);
 	else assert.equal(await root, 42);
-	assert.equal(reports, 0, 'supported outcomes must not invoke onerror');
+	assert.equal(reports, 0, 'supported outcomes must not invoke transformError');
 
 	// No reporter is active; a retained terminal result must release its callbacks.
 	// As above, do not deref until all GCs have run in separate jobs.
@@ -163,7 +163,7 @@ async function callback_retention({ assert, vm, turn, unevalStream, data: callba
 	);
 }
 
-test.each(['replacer', 'onerror'])(
+test.each(['replacer', 'transformError'])(
 	'a retained terminal result releases graph-capturing %s callbacks',
 	(callback) => in_subprocess(callback_retention, { expose_gc: true, data: callback })
 );

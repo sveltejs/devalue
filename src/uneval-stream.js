@@ -7,6 +7,8 @@ import { call_replacer, get_type, stringify_string } from './utils.js';
 
 const RESERVED = ['s', 'n'];
 const FAILED = 'new Error("devalue: failed to serialize asynchronous value")';
+// Stands in for an outcome that is sent as FAILED rather than serialized
+const FAILURE = Symbol();
 const DONE = Object.freeze({ done: /** @type {true} */ (true), value: undefined });
 const identifier = /^[_$a-zA-Z][_$a-zA-Z0-9]*$/;
 const then = Promise.prototype.then;
@@ -53,7 +55,7 @@ class Session {
 	 */
 	constructor(replacer, options, table) {
 		this.#replacer = replacer;
-		this.#onerror = options.onerror;
+		this.#transform_error = options.transformError;
 		this.#signal = options.signal;
 		this.#table = table;
 		this.#on_abort = this.#abort_stream.bind(this);
@@ -61,8 +63,8 @@ class Session {
 
 	/** @type {UnevalReplacer | undefined} */
 	#replacer;
-	/** @type {UnevalStreamOptions['onerror']} */
-	#onerror;
+	/** @type {UnevalStreamOptions['transformError']} */
+	#transform_error;
 	/** @type {AbortSignal | undefined} */
 	#signal;
 	/** @type {string} */
@@ -295,15 +297,43 @@ class Session {
 	 * @param {unknown} value
 	 */
 	#settle(index, ok, value) {
+		if (value === FAILURE) return `s.r(${index},1,${FAILED})`;
 		try {
 			return `s.r(${index},${ok ? 0 : 1},${this.#emit_value(value, false)})`;
 		} catch (error) {
-			try {
-				this.#onerror?.(error, value);
-			} catch {
-				// a failing error handler must not break the session
-			}
-			return `s.r(${index},1,${FAILED})`;
+			// A transformed error that can't be serialized is not transformed again.
+			if (!ok) return `s.r(${index},1,${FAILED})`;
+			this.#fail(index, error);
+			return null;
+		}
+	}
+
+	/**
+	 * Queues the rejection of promise `index` with `error` (its rejection reason, or the
+	 * error that kept its value from serializing) passed through `transformError`.
+	 * Without one, when it fails, or when it opts out like a replacer (`undefined`,
+	 * `null` or `false`), the client receives FAILED.
+	 * @param {number} index
+	 * @param {unknown} error
+	 */
+	#fail(index, error) {
+		let result;
+		try {
+			result = this.#transform_error?.(error);
+		} catch {
+			return this.#enqueue(index, false, FAILURE);
+		}
+
+		if (result instanceof Promise) {
+			// As in #subscribe, the reaction only holds the detachable delivery cell.
+			const delivery = this.#delivery;
+			then.call(
+				result,
+				(value) => Session.#deliver(delivery, index, false, or_failure(value)),
+				() => Session.#deliver(delivery, index, false, FAILURE)
+			);
+		} else {
+			this.#enqueue(index, false, or_failure(result));
 		}
 	}
 
@@ -317,7 +347,7 @@ class Session {
 		this.#primitives.clear();
 		this.#queue.length = 0;
 		this.#replacer = undefined;
-		this.#onerror = undefined;
+		this.#transform_error = undefined;
 		this.#signal = undefined;
 		this.#on_abort = noop;
 		const wake = this.#wake;
@@ -333,33 +363,44 @@ class Session {
 
 	/** @returns {Promise<IteratorResult<string, undefined>>} */
 	async #step() {
-		while (!this.#done && this.#queue.length === 0) {
-			await new Promise((resolve) => (this.#wake = resolve));
-			this.#wake = noop;
+		for (;;) {
+			while (!this.#done && this.#queue.length === 0) {
+				await new Promise((resolve) => (this.#wake = resolve));
+				this.#wake = noop;
+			}
+
+			if (this.#abort) {
+				const { reason } = this.#abort;
+				this.#abort = null;
+				throw reason;
+			}
+
+			if (this.#done) return DONE;
+
+			const statements = [];
+			// Synchronously transformed failures are queued behind and join this block.
+			const queue = this.#queue;
+			for (let i = 0; i < queue.length; i += 1) {
+				const { index, ok, value } = queue[i];
+				const statement = this.#settle(index, ok, value);
+				if (statement === null) continue;
+				this.#pending -= 1;
+				statements.push(statement);
+			}
+			queue.length = 0;
+
+			// Every outcome is waiting on an asynchronous transformError
+			if (statements.length === 0) continue;
+
+			const complete = this.#pending === 0;
+			if (complete) {
+				statements.push(`delete ${this.#table}`);
+			}
+
+			const value = `((s)=>{${statements.join(';')}})(${this.#table});`;
+			if (complete) this.#finish();
+			return { done: false, value };
 		}
-
-		if (this.#abort) {
-			const { reason } = this.#abort;
-			this.#abort = null;
-			throw reason;
-		}
-
-		if (this.#done) return DONE;
-
-		const statements = [];
-		for (const { index, ok, value } of this.#queue.splice(0)) {
-			this.#pending -= 1;
-			statements.push(this.#settle(index, ok, value));
-		}
-
-		const complete = this.#pending === 0;
-		if (complete) {
-			statements.push(`delete ${this.#table}`);
-		}
-
-		const value = `((s)=>{${statements.join(';')}})(${this.#table});`;
-		if (complete) this.#finish();
-		return { done: false, value };
 	}
 
 	/** @returns {Promise<IteratorResult<string, undefined>>} */
@@ -386,20 +427,34 @@ class Session {
 	 * @param {{ current: Session | null }} delivery
 	 */
 	static #subscribe(promise, index, delivery) {
-		/**
-		 * @param {boolean} ok
-		 * @param {unknown} value
-		 */
-		const deliver = (ok, value) => {
-			const session = delivery.current;
-			if (session) session.#enqueue(index, ok, value);
-		};
 		then.call(
 			promise,
-			(value) => deliver(true, value),
-			(error) => deliver(false, error)
+			(value) => Session.#deliver(delivery, index, true, value),
+			(error) => {
+				const session = delivery.current;
+				if (session) session.#fail(index, error);
+			}
 		);
 	}
+
+	/**
+	 * @param {{ current: Session | null }} delivery
+	 * @param {number} index
+	 * @param {boolean} ok
+	 * @param {unknown} value
+	 */
+	static #deliver(delivery, index, ok, value) {
+		const session = delivery.current;
+		if (session) session.#enqueue(index, ok, value);
+	}
+}
+
+/**
+ * `transformError` opts out with the same values as a replacer
+ * @param {unknown} value
+ */
+function or_failure(value) {
+	return value === undefined || value === null || value === false ? FAILURE : value;
 }
 
 /** @param {object} thing */

@@ -76,8 +76,14 @@ export interface UnevalStreamOptions {
 	 * throws `signal.reason`.
 	 */
 	signal?: AbortSignal;
-	/** Receives outcomes that could not be serialized; the client promise rejects with a generic Error. */
-	onerror?: (error: unknown, value: unknown) => void;
+	/**
+	 * Turns a rejection reason, or the error that kept a resolved value from serializing,
+	 * into the value the client promise rejects with. May return a promise. Like a
+	 * replacer, returning `undefined`, `null` or `false` keeps the default: the client
+	 * promise rejects with a generic Error. So does throwing, rejecting, or returning
+	 * something that can't be serialized.
+	 */
+	transformError?: (error: unknown) => unknown;
 }
 
 /** The result of `unevalStream`. */
