@@ -78,14 +78,9 @@ export function uneval(value, replacer) {
  * The result of walking a value, ready to be rendered once.
  * @template T
  * @typedef {object} Analysis
- * @property {Map<object, T>} references
- * Every object `known` accepted, with its token. Must not be mutated.
  * @property {(hooks?: RenderHooks<T>) => string} render
  * Renders the value. Can only be called once.
  */
-
-/** @type {Map<any, any>} */
-const NO_REFERENCES = new Map();
 
 const NO_HOOKS = Object.freeze({});
 
@@ -697,7 +692,6 @@ export function analyze(value, hooks = NO_HOOKS) {
 	let rendered = false;
 
 	return {
-		references: references ?? NO_REFERENCES,
 		render(hooks = NO_HOOKS) {
 			if (rendered) throw new Error('render() can only be called once');
 			rendered = true;
