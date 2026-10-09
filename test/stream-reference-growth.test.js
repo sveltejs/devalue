@@ -142,7 +142,7 @@ test('distinct descendants are reached by bounded paths from a numeric slot tabl
 	}
 	const outcome = await root.outcome;
 	for (let i = 0; i < nodes.length; i += 1) expect(outcome[i]).toBe(root[key][i]);
-	// Each reference repeats a path of at most MAX_PATH_COST bytes; compression absorbs the repeats.
+	// Each reference repeats a path of at most MAX_PATH_LENGTH characters; compression absorbs the repeats.
 	expect(tail.split(key)).toHaveLength(nodes.length + 1);
 	expect(Object.keys(slots)).toEqual(Array.from({ length: slots.length }, (_, i) => String(i)));
 	expect(source.length).toBeLessThan(nodes.length * 128 + 1024);
@@ -159,7 +159,7 @@ test.each(['escaped segment', 'unicode segment', 'enormous segment', 'independen
 		} else {
 			const key =
 				kind === 'unicode segment'
-					? 'é'.repeat(64)
+					? 'é'.repeat(129)
 					: '<'.repeat(kind === 'escaped segment' ? 24 : 4096);
 			data = { [key]: leaf };
 		}

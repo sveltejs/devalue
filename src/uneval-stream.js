@@ -11,8 +11,9 @@ const DONE = Object.freeze({ done: /** @type {true} */ (true), value: undefined 
 const identifier = /^[_$a-zA-Z][_$a-zA-Z0-9]*$/;
 const then = Promise.prototype.then;
 const noop = () => {};
-// Bounds UTF-8 serialized property/bracket text, independently of numeric slot width.
-const MAX_PATH_COST = 128;
+// Bounds the length of a path's property/bracket text (at most 3 UTF-8 bytes per unit),
+// independently of numeric slot width.
+const MAX_PATH_LENGTH = 128;
 
 /**
  * Turn a value containing promises into a JavaScript expression (`head`) that
@@ -183,8 +184,9 @@ class Session {
 		const slot_start = this.#next_slot;
 		const promise_start = this.#next_promise;
 
+		// A failed head ends the session, so only tails need to stage their locations.
 		/** @type {Map<object, Location>} */
-		const locations = new Map();
+		const locations = head ? known : new Map();
 		/** @type {Map<object, number>} */
 		const retained = new Map();
 		/** @type {Map<object, number>} */
@@ -197,24 +199,20 @@ class Session {
 
 		try {
 			const analysis = analyze(value, {
-				known: (thing) => known.get(thing),
+				known: head ? undefined : (thing) => known.get(thing),
 				enter: (thing, parent, key) => {
-					let up = null;
-					let segment = '';
-					if (parent !== undefined) {
-						up = /** @type {Location} */ (locations.get(parent));
-						if (typeof key === 'number') segment = `[${key}]`;
-						else if (key !== undefined && key.length <= MAX_PATH_COST) segment = prop(key);
+					if (parent !== undefined && key !== undefined) {
+						const up = /** @type {Location} */ (locations.get(parent));
+						const length = up.length + segment_length(key);
+						if (length <= MAX_PATH_LENGTH) {
+							locations.set(thing, { up, key, length });
+							return;
+						}
 					}
-					const cost = path_cost(segment);
-					if (up && segment && up.cost + cost <= MAX_PATH_COST) {
-						locations.set(thing, { up, key: segment, cost: up.cost + cost });
-					} else {
-						const slot = this.#next_slot++;
-						locations.set(thing, { up: null, key: slot, cost: 0 });
-						// The root is assigned around the whole expression instead.
-						if (thing !== value) retained.set(thing, slot);
-					}
+					const slot = this.#next_slot++;
+					locations.set(thing, { up: null, key: slot, length: 0 });
+					// The root is assigned around the whole expression instead.
+					if (thing !== value) retained.set(thing, slot);
 				},
 				replace: (thing) => {
 					if (replacer) {
@@ -265,7 +263,7 @@ class Session {
 			// request state or attach new delivery after terminal cleanup.
 			if (!this.#done) {
 				for (const [thing, slot] of staged_primitives) primitives.set(thing, slot);
-				for (const [thing, location] of locations) known.set(thing, location);
+				if (!head) for (const [thing, location] of locations) known.set(thing, location);
 				for (const [promise, index] of fresh) {
 					this.#pending += 1;
 					Session.#subscribe(promise, index, this.#delivery);
@@ -415,9 +413,9 @@ function is_promise(thing) {
 }
 
 /**
- * A slot (`up` is null and `key` is its expression) or a property of another location
- * Property keys are already serialized, bounded segments; root keys are slot indices.
- * @typedef {{ up: Location | null, key: string | number, cost: number }} Location
+ * A slot (`up` is null and `key` is its index) or a property `key` of another location.
+ * `length` is the length of the path text from the nearest slot.
+ * @typedef {{ up: Location | null, key: string | number, length: number }} Location
  */
 
 /**
@@ -427,24 +425,21 @@ function is_promise(thing) {
 function expression(location) {
 	const segments = [];
 	while (location.up !== null) {
-		segments.push(location.key);
+		const key = location.key;
+		segments.push(typeof key === 'number' ? `[${key}]` : prop(key));
 		location = location.up;
 	}
 	return `s.o[${location.key}]${segments.reverse().join('')}`;
 }
 
 /**
- * Count UTF-8 bytes of an already bounded segment or path. Never called on an
- * unbounded property key; slot width is the only uncapped part of a path.
- * @param {string} source
+ * Length of the path segment for `key`, or Infinity past the cap
+ * @param {string | number} key
  */
-function path_cost(source) {
-	let cost = 0;
-	for (const character of source) {
-		const code = /** @type {number} */ (character.codePointAt(0));
-		cost += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
-	}
-	return cost;
+function segment_length(key) {
+	if (typeof key === 'number') return String(key).length + 2;
+	if (key.length > MAX_PATH_LENGTH) return Infinity;
+	return identifier.test(key) ? key.length + 1 : prop(key).length;
 }
 
 /** @param {string} key */
