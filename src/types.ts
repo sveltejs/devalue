@@ -64,6 +64,38 @@ export type UnevalReplacer = (
 	js: JavaScriptTag
 ) => JavaScriptFragment | false | null | void;
 
+/** Options for `unevalStream`. */
+export interface UnevalStreamOptions {
+	/** Session key. Pass a stable value when heads must be byte-identical across runs. */
+	id?: string;
+	/** Trusted assignable expression holding the client session table. Default `globalThis.__d`. */
+	scope?: string;
+	/**
+	 * Stops the tail; pending and later `next()` calls reject once with `signal.reason`.
+	 * If the signal is already aborted, or aborts during the head emission, `unevalStream`
+	 * throws `signal.reason`.
+	 */
+	signal?: AbortSignal;
+	/**
+	 * Turns a rejection reason, or the error that kept a resolved value from serializing,
+	 * into the value the client promise rejects with. May return a promise. Like a
+	 * replacer, returning `undefined`, `null` or `false` keeps the default: the client
+	 * promise rejects with a generic Error. So does throwing, rejecting, or returning
+	 * something that can't be serialized.
+	 */
+	transformError?: (error: unknown) => unknown;
+}
+
+/** The result of `unevalStream`. */
+export interface UnevalStreamResult {
+	/** A JavaScript expression that recreates the value, with every promise pending. */
+	head: string;
+	/** Statement blocks that settle the promises created by `head` and earlier blocks. */
+	tail: AsyncIterableIterator<string, void>;
+	/** The session key. */
+	id: string;
+}
+
 /**
  * The introspection/extraction operations `stringify` performs on the value
  * being serialized. Every dynamic operation — property reads, prototype
