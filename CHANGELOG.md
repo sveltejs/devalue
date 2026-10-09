@@ -1,5 +1,12 @@
 # devalue changelog
 
+## 6.0.3
+### Patch Changes
+
+- 5cd712a: perf: use native `JSON.stringify` for strings that need escaping, instead of a per-character loop
+- b49ae34: chore: lower required node version to >=18
+- c411e5e: fix: use explicit `.js` extension in type imports for `nodenext` compatibility
+
 ## 6.0.2
 ### Patch Changes
 
