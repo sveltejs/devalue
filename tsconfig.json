@@ -10,7 +10,7 @@
 		"noEmitOnError": true,
 		"noUnusedLocals": true,
 		"lib": ["es6", "esnext", "dom"],
-		"module": "esnext",
+		"module": "nodenext",
 		"target": "esnext",
 		"types": ["node"],
 		"rootDir": "./src"

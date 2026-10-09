@@ -1,5 +1,5 @@
 /**
- * @import { UnevalReplacer } from './types';
+ * @import { UnevalReplacer } from './types.js';
  */
 import { js, JavaScriptSource } from './javascript-source.js';
 import {
