@@ -1,10 +1,11 @@
 /**
+ * @import { JavaScriptSource } from './javascript-source.js';
  * @import { UnevalReplacer } from './types';
  */
-import { js, JavaScriptSource } from './javascript-source.js';
 import {
 	DevalueError,
 	MAP_KEY,
+	call_replacer,
 	enumerable_symbols,
 	escaped,
 	format_path,
@@ -28,9 +29,82 @@ const MIN_STRING_LENGTH = 128;
  * @param {UnevalReplacer} [replacer]
  */
 export function uneval(value, replacer) {
+	return analyze(
+		value,
+		replacer ? { replace: (thing) => call_replacer(thing, replacer) } : NO_HOOKS
+	).render(NO_HOOKS);
+}
+
+/**
+ * Walk hooks for the internal emitter behind `uneval`, used by streaming sessions.
+ * Not part of the public API.
+ * @template T
+ * @typedef {object} AnalyzeHooks
+ * @property {(thing: object) => JavaScriptSource | null} [replace]
+ * Returns the cached replacement for an object, or `null` for none. When present,
+ * it replaces the direct replacer call; the caller guarantees it invokes the user
+ * replacer at most once per identity.
+ * @property {(thing: object) => T | undefined} [known]
+ * Returns a token for an object that already exists on the client, or `undefined`.
+ * Such an object is not walked, the replacer is not consulted, and every use emits
+ * the expression `reference` returns for the token.
+ * @property {(thing: object, parent?: object, key?: string | number) => void} [enter]
+ * Called when the walk enters an object this emission creates: once per object,
+ * before its contents are walked. When `parent` is given, the client object is reachable as
+ * `parent[key]` once the emitted code has run. Otherwise (the root, Map and
+ * Set entries, replacer interpolations) there is no such path. Not called for
+ * objects `known` accepts.
+ * @property {string[]} [reserved]
+ * Identifiers generated names must never use.
+ */
+
+/**
+ * Render hooks for the internal emitter behind `uneval`. Not part of the public API.
+ * @template T
+ * @typedef {object} RenderHooks
+ * @property {(token: T) => string} [reference]
+ * Client expression for an object `known` accepted, given the token `known` returned.
+ * @property {(thing: object) => string | undefined} [retain]
+ * Client slot expression (e.g. `s.o[3]`) that is assigned exactly once, when the
+ * object is first created in this emission.
+ * @property {(thing: string | bigint, literal: string) => string | undefined} [primitive]
+ * Optional expression for a rendered primitive and its escaped literal. Only called
+ * for strings of at least `MIN_STRING_LENGTH` characters and bigints whose literal is
+ * at least that long, including for interpolations and local declarations, never for
+ * hoisting cost estimates. Return `undefined` to keep the literal.
+ */
+
+/**
+ * The result of walking a value, ready to be rendered once.
+ * @template T
+ * @typedef {object} Analysis
+ * @property {(hooks?: RenderHooks<T>) => string} render
+ * Renders the value. Can only be called once.
+ */
+
+const NO_HOOKS = Object.freeze({});
+
+/**
+ * Internal emitter behind `uneval`: walks the value and allocates names. With no
+ * hooks, `analyze(value).render()` is identical to `uneval(value)`.
+ * @template T
+ * @param {any} value
+ * @param {AnalyzeHooks<T>} [hooks]
+ * @returns {Analysis<T>}
+ */
+export function analyze(value, hooks = NO_HOOKS) {
+	const { replace, known, enter } = hooks;
+
+	/** @type {RenderHooks<T>['reference']} */
+	let reference;
+	/** @type {RenderHooks<T>['retain']} */
+	let retain;
+	/** @type {RenderHooks<T>['primitive']} */
+	let primitive;
+
 	/** @type {Map<any, string>} */
 	const names = new Map();
-	const reserved = new Set();
+	const reserved = new Set(hooks.reserved);
 	const templates = new Set();
 	const seen = new Set();
 
@@ -41,6 +115,12 @@ export function uneval(value, replacer) {
 
 	/** @type {Map<any, JavaScriptSource>} */
 	const custom = new Map();
+
+	/**
+	 * Objects the `known` hook says already exist on the client, with their tokens
+	 * @type {Map<any, T> | null}
+	 */
+	let references = null;
 
 	/**
 	 * @param {string} message
@@ -75,7 +155,25 @@ export function uneval(value, replacer) {
 	}
 
 	/** @param {any} thing */
-	function walk(thing) {
+	function render_primitive(thing) {
+		const literal = stringify_cached_primitive(thing);
+		if (
+			primitive !== undefined &&
+			(typeof thing === 'string'
+				? thing.length >= MIN_STRING_LENGTH
+				: typeof thing === 'bigint' && literal.length >= MIN_STRING_LENGTH)
+		) {
+			return primitive(thing, literal) ?? literal;
+		}
+		return literal;
+	}
+
+	/**
+	 * @param {any} thing
+	 * @param {any} [parent]
+	 * @param {string | number} [key]
+	 */
+	function walk(thing, parent, key) {
 		if (!is_primitive(thing)) {
 			if (seen.has(thing)) {
 				if (!names.has(thing)) names.set(thing, '');
@@ -84,18 +182,20 @@ export function uneval(value, replacer) {
 
 			seen.add(thing);
 
-			if (replacer) {
-				const fragment = replacer(thing, js);
+			const token = known?.(thing);
+			if (token !== undefined) {
+				(references ??= new Map()).set(thing, token);
+				return;
+			}
 
-				if (fragment) {
-					const source = JavaScriptSource.from(fragment);
+			if (enter) enter(thing, parent, key);
+
+			if (replace) {
+				const source = replace(thing);
+				if (source) {
 					custom.set(thing, source);
 					source.visit(walk, reserved, templates);
 					return;
-				}
-
-				if (fragment !== undefined && fragment !== null && fragment !== false) {
-					throw new TypeError('Invalid uneval replacer result');
 				}
 			}
 
@@ -123,7 +223,7 @@ export function uneval(value, replacer) {
 					// Never scan the logical length of a dictionary-backed sparse array.
 					for (const i of valid_array_indices(thing)) {
 						keys.push(+i);
-						walk(thing[i]);
+						walk(thing[i], thing, +i);
 						keys.pop();
 					}
 					break;
@@ -156,7 +256,7 @@ export function uneval(value, replacer) {
 				case 'BigUint64Array':
 				case 'DataView':
 					// Buffer pools can contain unrelated, sensitive bytes.
-					if (!is_buffer(thing)) walk(thing.buffer);
+					if (!is_buffer(thing)) walk(thing.buffer, thing, 'buffer');
 					return;
 
 				case 'ArrayBuffer':
@@ -187,7 +287,7 @@ export function uneval(value, replacer) {
 						}
 
 						keys.push(key);
-						walk(thing[key]);
+						walk(thing[key], thing, key);
 						keys.pop();
 					}
 			}
@@ -225,15 +325,48 @@ export function uneval(value, replacer) {
 		}
 	}
 
-	// Reuse the traversal set to track declarations during serialization.
-	seen.clear();
-	const inlining = custom.size > 0 ? new Set() : null;
+	/** @type {Set<any> | null} */
+	let inlining = null;
 
 	/** @type {Map<any, () => void>} */
 	const initializers = new Map();
 
 	/** @type {string[]} */
 	const statements = [];
+
+	/**
+	 * Assign `expression` to the object's client slot, if it has one. Only called
+	 * where the object is created: in its single `let` declaration when named, or
+	 * at its only position when inlined. Discarded renderings may also call it, so
+	 * tracking "already assigned" here would be wrong.
+	 * @param {any} thing
+	 * @param {string} expression
+	 */
+	function retained(thing, expression) {
+		if (retain === undefined) return expression;
+		const slot = retain(thing);
+		return slot === undefined ? expression : `(${slot}=${expression})`;
+	}
+
+	/**
+	 * Whether a view's buffer must be emitted by `stringify` rather than copied
+	 * inline, because the client already has it or it needs a slot.
+	 * @param {any} buffer
+	 */
+	function is_shared(buffer) {
+		return (
+			(references !== null && references.has(buffer)) ||
+			(retain !== undefined && retain(buffer) !== undefined)
+		);
+	}
+
+	/**
+	 * @param {any} thing
+	 * @returns {boolean}
+	 */
+	function is_opaque(thing) {
+		return custom.has(thing) || (references !== null && references.has(thing));
+	}
 
 	/**
 	 * @param {any} thing
@@ -246,16 +379,16 @@ export function uneval(value, replacer) {
 			if (!seen.has(thing)) {
 				if (is_primitive(thing)) {
 					seen.add(thing);
-					statements.push(`let ${name}=${stringify_cached_primitive(thing)}`);
+					statements.push(`let ${name}=${render_primitive(thing)}`);
 					return name;
 				}
-				const type = custom.has(thing) ? null : get_type(thing);
+				const type = is_opaque(thing) ? null : get_type(thing);
 
 				switch (type) {
 					case 'Object':
 						seen.add(thing);
 						statements.push(
-							`let ${name}=${Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}'}`
+							`let ${name}=${retained(thing, Object.getPrototypeOf(thing) === null ? 'Object.create(null)' : '{}')}`
 						);
 						Object.keys(thing).forEach((key) => {
 							statements.push(`${name}${safe_prop(key)}=${stringify(thing[key])}`);
@@ -269,7 +402,7 @@ export function uneval(value, replacer) {
 							thing.length > 32 + 2 * indices.length
 								? stringify_sparse_array(thing.length)
 								: `Array(${thing.length})`;
-						statements.push(`let ${name}=${array}`);
+						statements.push(`let ${name}=${retained(thing, array)}`);
 						for (const i of indices) {
 							statements.push(`${name}[${i}]=${stringify(thing[i])}`);
 						}
@@ -291,7 +424,7 @@ export function uneval(value, replacer) {
 							initialized = true;
 							initializers.delete(thing);
 							statements.push(
-								`let ${name}=new ${type}${entries.length ? `([${entries.join(',')}])` : ''}`
+								`let ${name}=${retained(thing, `new ${type}${entries.length ? `([${entries.join(',')}])` : ''}`)}`
 							);
 						};
 
@@ -319,7 +452,7 @@ export function uneval(value, replacer) {
 
 					default:
 						const str = actually_stringify(thing);
-						if (!seen.has(thing)) statements.push(`let ${name}=${str}`);
+						if (!seen.has(thing)) statements.push(`let ${name}=${retained(thing, str)}`);
 						seen.add(thing);
 				}
 			} else {
@@ -330,10 +463,12 @@ export function uneval(value, replacer) {
 		}
 
 		if (is_primitive(thing)) {
-			return stringify_cached_primitive(thing);
+			return render_primitive(thing);
 		}
 
-		if (inlining === null) return actually_stringify(thing);
+		// An unnamed object occurs once in the output, so every rendering of it is
+		// its first use. Renderings discarded below never carry the only assignment.
+		if (inlining === null) return retained(thing, actually_stringify(thing));
 
 		// A singly referenced value can still be part of a custom constructor's
 		// cycle. If inlining it re-enters itself, hoist it to break the cycle.
@@ -345,7 +480,7 @@ export function uneval(value, replacer) {
 		inlining.add(thing);
 		const str = actually_stringify(thing);
 		inlining.delete(thing);
-		return names.get(thing) || str;
+		return names.get(thing) || retained(thing, str);
 	}
 
 	/**
@@ -353,6 +488,12 @@ export function uneval(value, replacer) {
 	 * @returns {string}
 	 */
 	function actually_stringify(thing) {
+		if (references !== null && references.has(thing)) {
+			return /** @type {NonNullable<RenderHooks<T>['reference']>} */ (reference)(
+				/** @type {T} */ (references.get(thing))
+			);
+		}
+
 		const source = custom.get(thing);
 
 		if (source) {
@@ -488,7 +629,7 @@ export function uneval(value, replacer) {
 
 				let str = `new ${type}`;
 
-				if (!names.has(thing.buffer)) {
+				if (!names.has(thing.buffer) && !is_shared(thing.buffer)) {
 					str += `([${stringify_typed_array_elements(type, thing.buffer)}])`;
 				} else {
 					str += `(${stringify(thing.buffer)})`;
@@ -507,7 +648,7 @@ export function uneval(value, replacer) {
 			case 'DataView': {
 				let str = `new DataView`;
 
-				if (!names.has(thing.buffer)) {
+				if (!names.has(thing.buffer) && !is_shared(thing.buffer)) {
 					str += `(new Uint8Array([${new Uint8Array(thing.buffer)}]).buffer`;
 				} else {
 					str += `(${stringify(thing.buffer)}`;
@@ -548,13 +689,27 @@ export function uneval(value, replacer) {
 		}
 	}
 
-	const str = stringify(value);
+	let rendered = false;
 
-	if (statements.length === 0) {
-		return str;
-	}
+	return {
+		render(hooks = NO_HOOKS) {
+			if (rendered) throw new Error('render() can only be called once');
+			rendered = true;
+			({ reference, retain, primitive } = hooks);
 
-	return `(function(){${statements.join(';')};return ${str}}())`;
+			// Reuse the traversal set to track declarations during serialization.
+			seen.clear();
+			if (custom.size > 0) inlining = new Set();
+
+			const str = stringify(value);
+
+			if (statements.length === 0) {
+				return str;
+			}
+
+			return `(function(){${statements.join(';')};return ${str}}())`;
+		}
+	};
 }
 
 /**
