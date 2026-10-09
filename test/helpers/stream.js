@@ -245,7 +245,11 @@ export async function expect_roundtrip(make, { replacer, globals, orders = DEFAU
 			return replacer?.(v, js);
 		};
 
-		const { head, tail } = unevalStream(value, counted, { id: 'roundtrip' });
+		// Rejections are checked like resolutions, so send their reasons as they are.
+		const { head, tail } = unevalStream(value, counted, {
+			id: 'roundtrip',
+			transformError: (error) => error
+		});
 		heads.add(head);
 
 		/** @type {string[]} */

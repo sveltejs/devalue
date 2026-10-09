@@ -269,7 +269,7 @@ test('calls the replacer once per identity, even after a failed outcome', async 
 	const x = new X();
 	/** @type {unknown[]} */
 	const seen = [];
-	const onerror = vi.fn();
+	const transformError = vi.fn(() => undefined);
 
 	const a = Promise.withResolvers();
 	const b = Promise.withResolvers();
@@ -279,7 +279,7 @@ test('calls the replacer once per identity, even after a failed outcome', async 
 			seen.push(value);
 			if (value instanceof X) return js`{value:${value.value}}`;
 		},
-		{ onerror }
+		{ transformError }
 	);
 
 	const c = client();
@@ -293,7 +293,7 @@ test('calls the replacer once per identity, even after a failed outcome', async 
 	expect(seen.filter((v) => v === x)).toHaveLength(1);
 	await expect(root.p1).rejects.toThrow('devalue: failed to serialize asynchronous value');
 	expect(await root.p2).toEqual({ value: 42 });
-	expect(onerror).toHaveBeenCalledOnce();
+	expect(transformError).toHaveBeenCalledOnce();
 	expect((await stream.tail.next()).done).toBe(true);
 });
 
@@ -422,4 +422,111 @@ test('concurrent next() calls settle in order', async () => {
 	for (const r of results.slice(0, 2)) c.block(/** @type {string} */ (r.value));
 	expect(await root.a).toBe('a');
 	expect(await root.b).toBe('b');
+});
+
+test('rejection reasons never reach the client by default', async () => {
+	const stream = unevalStream({
+		error: Promise.reject(new Error('db password=hunter2')),
+		object: Promise.reject({ secret: 'internal detail' }),
+		string: Promise.reject('stack trace')
+	});
+	let source = stream.head;
+	const c = client();
+	const root = c.head(stream.head);
+	for await (const block of stream.tail) {
+		source += block;
+		c.block(block);
+	}
+	for (const key of ['error', 'object', 'string']) {
+		await expect(root[key]).rejects.toThrow('devalue: failed to serialize asynchronous value');
+	}
+	expect(source).not.toMatch(/hunter2|secret|internal|stack/);
+});
+
+test.each(['sync', 'async'])('transformError (%s) shapes rejections and failures', async (mode) => {
+	const shared = { shared: true };
+	/** @param {unknown} error */
+	const shape = (error) => ({
+		message: error instanceof Error ? error.message : String(error),
+		shared
+	});
+	const stream = unevalStream(
+		{
+			shared,
+			rejected: Promise.reject(new Error('nope')),
+			unserializable: Promise.resolve({ fn() {} }),
+			resolved: Promise.resolve(1)
+		},
+		undefined,
+		{
+			transformError: (error) => (mode === 'sync' ? shape(error) : Promise.resolve(shape(error)))
+		}
+	);
+	const c = client();
+	const root = c.head(stream.head);
+	for await (const block of stream.tail) c.block(block);
+
+	await expect(root.rejected).rejects.toEqual({ message: 'nope', shared: root.shared });
+	const reason = await root.unserializable.catch((/** @type {any} */ e) => e);
+	expect(reason.message).toMatch(/Cannot stringify/);
+	expect(reason.shared).toBe(root.shared);
+	expect(await root.resolved).toBe(1);
+	expect(c.context.__d).toEqual({});
+});
+
+test.each([
+	[
+		'throws',
+		() => {
+			throw new Error('transform failed');
+		}
+	],
+	['rejects', () => Promise.reject(new Error('transform failed'))],
+	['returns something unserializable', () => ({ fn() {} })],
+	['resolves to something unserializable', () => Promise.resolve(Symbol())],
+	['returns undefined', () => undefined],
+	['returns null', () => null],
+	['returns false', () => false],
+	['resolves to null', () => Promise.resolve(null)]
+])('falls back to the generic error when transformError %s', async (_, transformError) => {
+	const stream = unevalStream({ p: Promise.reject(new Error('secret')) }, undefined, {
+		transformError
+	});
+	const c = client();
+	const root = c.head(stream.head);
+	let source = '';
+	for await (const block of stream.tail) {
+		source += block;
+		c.block(block);
+	}
+	await expect(root.p).rejects.toThrow('devalue: failed to serialize asynchronous value');
+	expect(source).not.toContain('secret');
+	expect(c.context.__d).toEqual({});
+});
+
+test('a pending async transformError does not hold back other settlements', async () => {
+	const transform = Promise.withResolvers();
+	const stream = unevalStream(
+		{ failed: Promise.reject(new Error('x')), ok: Promise.resolve(1) },
+		undefined,
+		{ transformError: () => transform.promise }
+	);
+	const c = client();
+	const root = c.head(stream.head);
+	c.block(/** @type {string} */ ((await stream.tail.next()).value));
+	expect(await root.ok).toBe(1);
+	transform.resolve('shaped');
+	c.block(/** @type {string} */ ((await stream.tail.next()).value));
+	await expect(root.failed).rejects.toBe('shaped');
+	expect((await stream.tail.next()).done).toBe(true);
+});
+
+test('return() during an async transformError ends the stream', async () => {
+	const stream = unevalStream({ p: Promise.reject(new Error('x')) }, undefined, {
+		transformError: () => new Promise(() => {})
+	});
+	const next = stream.tail.next();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	await stream.tail.return();
+	expect(await next).toEqual({ done: true, value: undefined });
 });

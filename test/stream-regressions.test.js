@@ -26,7 +26,7 @@ test('survives UTF-8 byte boundaries and separate or concatenated VM evaluation'
 		resolved: resolved.promise,
 		rejected: failed.promise
 	};
-	const result = unevalStream(value, undefined, { id });
+	const result = unevalStream(value, undefined, { id, transformError: (error) => error });
 	expect(result.id).toBe(id);
 	resolved.resolve({ shared, again: shared });
 	const sources = [result.head, /** @type {string} */ ((await result.tail.next()).value)];

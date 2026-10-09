@@ -211,7 +211,13 @@ test('a failed emission rolls back forced slots, lazy aliases and promise indice
 	const stream = unevalStream(
 		{ [key]: nodes, first: first.promise, second: second.promise },
 		undefined,
-		{ id: 'rollback', onerror: (error) => errors.push(error) }
+		{
+			id: 'rollback',
+			transformError: (error) => {
+				errors.push(error);
+				throw error;
+			}
+		}
 	);
 	const c = client();
 	const root = c.head(stream.head);
