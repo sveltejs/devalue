@@ -2555,6 +2555,38 @@ describe('stringifyAsync: promises', () => {
 		expect(result).toEqual(stringify(NaN));
 	});
 
+	test('round-trips special values from nested promises', async () => {
+		const plain = { a: undefined, b: [NaN, -0, Infinity, -Infinity], c: 1 };
+		const promised = {
+			a: Promise.resolve(undefined),
+			b: [
+				Promise.resolve(NaN),
+				Promise.resolve(-0),
+				Promise.resolve(Infinity),
+				Promise.resolve(-Infinity)
+			],
+			c: Promise.resolve(1)
+		};
+
+		const result = await stringifyAsync(promised);
+
+		expect(result).toEqual(stringify(plain));
+
+		const parsed = parse(result);
+		expect(parsed.a).toBeUndefined();
+		expect(Number.isNaN(parsed.b[0])).toBeTruthy();
+		expect(Object.is(parsed.b[1], -0)).toBeTruthy();
+		expect(parsed.b[2]).toBe(Infinity);
+		expect(parsed.b[3]).toBe(-Infinity);
+		expect(parsed.c).toBe(1);
+
+		const nested = await stringifyAsync({
+			a: Promise.resolve({ b: Promise.resolve(undefined) })
+		});
+		expect(nested).toEqual(stringify({ a: { b: undefined } }));
+		expect(parse(nested).a.b).toBeUndefined();
+	});
+
 	test('resolves nested promises in objects', async () => {
 		const result = await stringifyAsync({
 			a: Promise.resolve(1),
