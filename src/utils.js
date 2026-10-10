@@ -66,7 +66,10 @@ export function format_path(keys, format_map_key) {
 	return path;
 }
 
-/** @param {any} thing */
+/**
+ * @param {unknown} thing
+ * @returns {thing is null | undefined | boolean | number | string | bigint | symbol}
+ */
 export function is_primitive(thing) {
 	return thing === null || (typeof thing !== 'object' && typeof thing !== 'function');
 }
@@ -173,6 +176,21 @@ export function quote_key(key) {
 	return quoted;
 }
 
+/**
+ * Emits executable source for a primitive value.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function stringify_primitive(value) {
+	if (typeof value === 'string') return stringify_string(value);
+	if (value === undefined) return 'void 0';
+	if (value === 0 && 1 / value < 0) return '-0';
+	if (typeof value === 'number') return String(value).replace(/^(-)?0\./, '$1.');
+	if (typeof value === 'bigint') return `${value}n`;
+	return String(value);
+}
+
 /** @param {Record<string | symbol, any>} object */
 export function enumerable_symbols(object) {
 	const symbols = Object.getOwnPropertySymbols(object);
@@ -186,7 +204,7 @@ export function enumerable_symbols(object) {
 const is_identifier = /^[a-zA-Z_$][a-zA-Z_$0-9]*$/;
 
 /** @param {string} key */
-function stringify_key(key) {
+export function stringify_key(key) {
 	return is_identifier.test(key) ? '.' + key : '[' + JSON.stringify(key) + ']';
 }
 
@@ -233,8 +251,9 @@ function array_index_cut(keys) {
 }
 
 /**
- * Finds the populated indices of an array.
+ * Finds the populated indices of an array, as index strings in ascending order.
  * @param {unknown[]} array
+ * @returns {string[]}
  */
 export function valid_array_indices(array) {
 	const keys = Object.keys(array);
