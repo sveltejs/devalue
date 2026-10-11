@@ -1715,6 +1715,22 @@ describe.each(Object.entries(fixtures))('stringify: %s', (_name, tests) => {
 });
 
 describe('parse wrapper', () => {
+	test.each(['quote"', 'backslash\\', 'line\nfeed', '</script>'])(
+		'round-trips custom reducer name %j',
+		async (name) => {
+			const value = new Foo(42);
+			const reducers = { [name]: (value) => value instanceof Foo && value.value };
+			const revivers = { [name]: (value) => new Foo(value) };
+			for (const serialized of [
+				stringify(value, reducers),
+				await stringifyAsync(value, reducers)
+			]) {
+				expect(parse(serialized, revivers)).toEqual(value);
+				expect(serialized.includes('</script>')).toBe(false);
+			}
+		}
+	);
+
 	test('parses normal input', () => {
 		expect(parse('[{"answer":1},42]')).toEqual({ answer: 42 });
 	});
