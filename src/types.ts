@@ -71,9 +71,10 @@ export interface UnevalStreamOptions {
 	/** Trusted assignable expression holding the client session table. Default `globalThis.__d`. */
 	scope?: string;
 	/**
-	 * Stops the tail; pending and later `next()` calls reject once with `signal.reason`.
-	 * If the signal is already aborted, or aborts during the head emission, `unevalStream`
-	 * throws `signal.reason`.
+	 * Stops the tail: the next `next()` yields a final block that rejects every promise
+	 * still pending on the client with a generic Error and deletes the client session,
+	 * then the tail is done. If the signal is already aborted, or aborts during the head
+	 * emission, `unevalStream` throws `signal.reason`.
 	 */
 	signal?: AbortSignal;
 	/**

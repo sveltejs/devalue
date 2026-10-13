@@ -36,9 +36,10 @@ async function retention({ assert, turn, unevalStream, data: mode }) {
 			assert.deepEqual(await fixture.result.tail.return(), { done: true, value: undefined });
 			assert.deepEqual(await next, { done: true, value: undefined });
 		} else {
-			const reason = new Error('abort stream');
-			fixture.controller.abort(reason);
-			await assert.rejects(next, (error) => error === reason);
+			fixture.controller.abort(new Error('abort stream'));
+			const last = await next;
+			assert.equal(last.done, false);
+			assert.match(last.value, /devalue: stream aborted/);
 		}
 		if (!mode.endsWith('retained')) fixture.result = null;
 		fixture.controller = null;
@@ -219,17 +220,18 @@ test.each(['return', 'abort'])(
 				}
 				const controller = new AbortController();
 				const fixture = create_result(controller.signal);
-				// Use a separate pending stream to check ordered wakeup and exact reason,
-				// while the first stream has an undelivered graph-bearing outcome.
+				// Use a separate pending stream to check ordered wakeup, while the first
+				// stream has an undelivered graph-bearing outcome.
 				const waiting = unevalStream(fixture.pending.promise, undefined, {
 					signal: controller.signal
 				});
 				const readers = [waiting.tail.next(), waiting.tail.next(), waiting.tail.next()];
 				await turn();
 				if (mode === 'abort') {
-					const reason = { message: 'exact abort reason' };
-					controller.abort(reason);
-					await assert.rejects(readers[0], (error) => error === reason);
+					controller.abort();
+					const last = await readers[0];
+					assert.equal(last.done, false);
+					assert.match(last.value, /devalue: stream aborted/);
 				} else {
 					await fixture.result.tail.return();
 					await waiting.tail.return();
@@ -239,10 +241,10 @@ test.each(['return', 'abort'])(
 					assert.deepEqual(await reader, { done: true, value: undefined });
 				}
 				if (mode === 'abort') {
-					await assert.rejects(
-						fixture.result.tail.next(),
-						(error) => error === controller.signal.reason
-					);
+					const last = await fixture.result.tail.next();
+					assert.equal(last.done, false);
+					assert.match(last.value, /devalue: stream aborted/);
+					assert.doesNotMatch(last.value, /node/, 'the queued outcome is dropped');
 				}
 				for (let i = 0; i < 20; i += 1) {
 					await turn();
@@ -285,9 +287,10 @@ test.each(['return', 'abort'])(
 					return { result, pending, weak: new WeakRef(graph) };
 				}
 				const fixture = create_result();
-				await fixture.result.tail.next();
+				const block = await fixture.result.tail.next();
 				if (mode === 'abort') {
-					await assert.rejects(fixture.result.tail.next(), (error) => error === 0);
+					// The block being emitted when the abort happened carries the final rejections
+					assert.match(block.value, /devalue: stream aborted/);
 				}
 				assert.deepEqual(await fixture.result.tail.next(), { done: true, value: undefined });
 				for (let i = 0; i < 20; i += 1) {

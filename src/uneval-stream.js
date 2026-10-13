@@ -7,6 +7,7 @@ import { call_replacer, get_type, stringify_string } from './utils.js';
 
 const RESERVED = ['s', 'n'];
 const FAILED = 'new Error("devalue: failed to serialize asynchronous value")';
+const ABORTED = 'new Error("devalue: stream aborted")';
 // Stands in for an outcome that is sent as FAILED rather than serialized
 const FAILURE = Symbol();
 const DONE = Object.freeze({ done: /** @type {true} */ (true), value: undefined });
@@ -171,7 +172,11 @@ class Session {
 	 */
 	#wake = noop;
 
-	/** @type {{ reason: unknown } | null} */
+	/**
+	 * Set by an abort and cleared once the final block that rejects the remaining
+	 * client promises has been emitted
+	 * @type {{ reason: unknown } | null}
+	 */
 	#abort = null;
 
 	/**
@@ -369,13 +374,7 @@ class Session {
 				this.#wake = noop;
 			}
 
-			if (this.#abort) {
-				const { reason } = this.#abort;
-				this.#abort = null;
-				throw reason;
-			}
-
-			if (this.#done) return DONE;
+			if (this.#done && !this.#abort) return DONE;
 
 			const statements = [];
 			// Synchronously transformed failures are queued behind and join this block.
@@ -389,10 +388,19 @@ class Session {
 			}
 			queue.length = 0;
 
-			// Every outcome is waiting on an asynchronous transformError
-			if (statements.length === 0) continue;
+			// Checked after settling, since a replacer can abort while this block is emitted.
+			// Rejects everything still pending on the client, including any promises this
+			// block itself created after the abort.
+			const aborted = this.#abort !== null;
+			if (aborted) {
+				this.#abort = null;
+				statements.push(`s.p.forEach((p)=>p[1](${ABORTED}))`);
+			} else if (statements.length === 0) {
+				// Every outcome is waiting on an asynchronous transformError
+				continue;
+			}
 
-			const complete = this.#pending === 0;
+			const complete = aborted || this.#pending === 0;
 			if (complete) {
 				statements.push(`delete ${this.#table}`);
 			}

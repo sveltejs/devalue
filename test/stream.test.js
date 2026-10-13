@@ -361,15 +361,94 @@ test('return() completes a pending next()', async () => {
 	expect(await next).toEqual({ done: true, value: undefined });
 });
 
-test('abort rejects a pending next() with the exact reason', async () => {
+test('abort emits a final block that rejects pending client promises', async () => {
 	const controller = new AbortController();
-	const stream = unevalStream({ p: new Promise(() => {}) }, undefined, {
+	const settled = Promise.withResolvers();
+	const stream = unevalStream(
+		{ a: settled.promise, b: new Promise(() => {}), c: new Promise(() => {}) },
+		undefined,
+		{ signal: controller.signal }
+	);
+	const c = client();
+	const root = c.head(stream.head);
+
+	settled.resolve(1);
+	const first = await stream.tail.next();
+	c.block(/** @type {string} */ (first.value));
+	expect(await root.a).toBe(1);
+
+	const next = stream.tail.next();
+	const later = stream.tail.next();
+	controller.abort(new Error('server-only reason'));
+
+	const last = await next;
+	expect(last.done).toBe(false);
+	c.block(/** @type {string} */ (last.value));
+	for (const p of [root.b, root.c]) {
+		await expect(p).rejects.toThrow('devalue: stream aborted');
+	}
+	expect(last.value).not.toContain('server-only reason');
+	expect(Object.keys(c.context.__d)).toEqual([]);
+	expect(await later).toEqual({ done: true, value: undefined });
+	expect(await stream.tail.next()).toEqual({ done: true, value: undefined });
+});
+
+test('abort with no pending next() emits the final block on the next read', async () => {
+	const controller = new AbortController();
+	const queued = Promise.withResolvers();
+	const stream = unevalStream({ q: queued.promise, p: new Promise(() => {}) }, undefined, {
 		signal: controller.signal
 	});
-	const next = stream.tail.next();
-	controller.abort(0);
+	const c = client();
+	const root = c.head(stream.head);
 
-	await expect(next).rejects.toBe(0);
+	// An outcome queued but not yet emitted is rejected along with the rest.
+	queued.resolve(1);
+	await new Promise((r) => setTimeout(r, 0));
+	controller.abort();
+
+	const last = await stream.tail.next();
+	c.block(/** @type {string} */ (last.value));
+	await expect(root.q).rejects.toThrow('devalue: stream aborted');
+	await expect(root.p).rejects.toThrow('devalue: stream aborted');
+	expect(Object.keys(c.context.__d)).toEqual([]);
+	expect(await stream.tail.next()).toEqual({ done: true, value: undefined });
+});
+
+test('abort after completion or return() emits nothing', async () => {
+	for (const mode of ['complete', 'return']) {
+		const controller = new AbortController();
+		const stream = unevalStream({ p: Promise.resolve(1) }, undefined, {
+			signal: controller.signal
+		});
+		if (mode === 'complete') expect((await stream.tail.next()).done).toBe(false);
+		else await stream.tail.return();
+		controller.abort();
+		expect(await stream.tail.next()).toEqual({ done: true, value: undefined });
+	}
+});
+
+test('abort during a tail block rejects the promises that block creates', async () => {
+	const controller = new AbortController();
+	const source = Promise.withResolvers();
+	const graph = { nested: new Promise(() => {}) };
+	const stream = unevalStream(
+		source.promise,
+		(thing) => {
+			if (thing === graph) controller.abort();
+		},
+		{ signal: controller.signal }
+	);
+	const c = client();
+	const root = c.head(stream.head);
+
+	source.resolve(graph);
+	const block = await stream.tail.next();
+	c.block(/** @type {string} */ (block.value));
+
+	const revived = await root;
+	await expect(revived.nested).rejects.toThrow('devalue: stream aborted');
+	expect(Object.keys(c.context.__d)).toEqual([]);
 	expect(await stream.tail.next()).toEqual({ done: true, value: undefined });
 });
 
