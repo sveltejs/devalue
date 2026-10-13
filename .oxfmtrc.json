@@ -3,18 +3,22 @@
 	"singleQuote": true,
 	"trailingComma": "none",
 	"printWidth": 100,
+	"sortPackageJson": false,
+	"ignorePatterns": [
+		"CHANGELOG.md",
+		"pnpm-lock.yaml",
+		"**/node_modules",
+		"**/dist",
+		"**/build",
+		"**/test-results",
+		"**/vite.config.js.timestamp-*"
+	],
 	"overrides": [
 		{
 			"files": ["README.md", "**/README.md", "**/package.json"],
 			"options": {
 				"useTabs": false,
 				"tabWidth": 2
-			}
-		},
-		{
-			"files": ["**/CHANGELOG.md", "**/vite.config.js.timestamp-*", "**/test-results/**"],
-			"options": {
-				"rangeEnd": 0
 			}
 		}
 	]
