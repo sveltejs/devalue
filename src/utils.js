@@ -1,5 +1,5 @@
 /**
- * @import { UnevalReplacer } from './types';
+ * @import { UnevalReplacer } from './types.js';
  */
 import { MAX_ARRAY_INDEX, MAX_ARRAY_LEN } from './constants.js';
 import { js, JavaScriptSource } from './javascript-source.js';
