@@ -1,5 +1,5 @@
 /**
- * @import { UnevalReplacer, UnevalStreamOptions, UnevalStreamResult } from './types';
+ * @import { UnevalReplacer, UnevalStreamOptions, UnevalStreamResult } from './types.js';
  */
 import { js, JavaScriptSource } from './javascript-source.js';
 import { analyze } from './uneval.js';
