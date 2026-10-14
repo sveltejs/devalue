@@ -35,30 +35,43 @@ export async function stringifyAsync(value, reducers, options) {
 		return stringified;
 	}
 
-	let out = '[';
-
 	for (let i = 0; i < stringified.length; i += 1) {
-		let value = stringified[i];
-
-		if (typeof value !== 'string') {
-			await value;
-			value = stringified[i];
-
-			if (i === 0 && value < 0) {
-				return `${value}`;
-			}
-		}
-
-		out += value;
-
-		if (i < stringified.length - 1) {
-			out += ',';
+		if (typeof stringified[i] !== 'string') {
+			await stringified[i];
 		}
 	}
 
-	out += ']';
+	/** @param {number} index */
+	function resolve_index(index) {
+		while (index >= 0 && typeof stringified[index] === 'number') {
+			index = stringified[index];
+		}
+		return index;
+	}
 
-	return out;
+	const root = resolve_index(0);
+	if (root < 0) return `${root}`;
+
+	// Resolved promises can alias a sentinel or an existing value. Omit those
+	// slots and remap references only after every promise has settled.
+	const indexes = new Map();
+	/** @type {string[]} */
+	const values = [];
+	for (let i = 0; i < stringified.length; i += 1) {
+		if (typeof stringified[i] === 'string') {
+			indexes.set(i, values.length);
+			values.push(stringified[i]);
+		}
+	}
+
+	return `[${values
+		.map((value) =>
+			value.replace(/\0(-?\d+)\0/g, (_, index) => {
+				const resolved = resolve_index(+index);
+				return String(resolved < 0 ? resolved : indexes.get(resolved));
+			})
+		)
+		.join(',')}]`;
 }
 
 /**
@@ -90,6 +103,14 @@ function run(async, value, reducers, options) {
 	let keys = [];
 
 	let p = 0;
+
+	/** @param {any} thing */
+	function reference(thing) {
+		const index = flatten(thing);
+		// JSON strings escape NUL, so these internal tokens cannot collide with
+		// serialized string values or keys.
+		return async ? `\0${index}\0` : index;
+	}
 
 	/**
 	 * @param {string} message
@@ -140,7 +161,7 @@ function run(async, value, reducers, options) {
 		for (const { key, fn } of custom) {
 			const value = fn(thing);
 			if (value) {
-				stringified[index] = `["${key}",${flatten(value)}]`;
+				stringified[index] = `[${stringify_string(key)},${reference(value)}]`;
 				return index;
 			}
 		}
@@ -169,7 +190,7 @@ function run(async, value, reducers, options) {
 				keys = prev_keys;
 
 				const i = flatten(value, index);
-				if (i < 0) stringified[index] = i;
+				if (i !== index) stringified[index] = i;
 			});
 
 			// Promises are awaited sequentially, and traversal may throw before
@@ -184,7 +205,7 @@ function run(async, value, reducers, options) {
 				case 'String':
 				case 'Boolean':
 				case 'BigInt':
-					str = `["Object",${flatten(ops.unbox(thing))}]`;
+					str = `["Object",${reference(ops.unbox(thing))}]`;
 					break;
 
 				case 'Date':
@@ -225,7 +246,7 @@ function run(async, value, reducers, options) {
 
 						if (ops.hasOwn(thing, i)) {
 							keys.push(i);
-							str += flatten(ops.get(thing, i));
+							str += reference(ops.get(thing, i));
 							keys.pop();
 						} else if (mostly_dense) {
 							// Use dense encoding. The heuristic guarantees the
@@ -276,7 +297,7 @@ function run(async, value, reducers, options) {
 								for (let j = 0; j < populated_keys.length; j++) {
 									const key = populated_keys[j];
 									keys.push(+key);
-									str += ',' + key + ',' + flatten(ops.get(thing, key));
+									str += ',' + key + ',' + reference(ops.get(thing, key));
 									keys.pop();
 								}
 								break;
@@ -296,7 +317,7 @@ function run(async, value, reducers, options) {
 					str = '["Set"';
 
 					for (const value of ops.valuesOf(thing)) {
-						str += `,${flatten(value)}`;
+						str += `,${reference(value)}`;
 					}
 
 					str += ']';
@@ -307,7 +328,7 @@ function run(async, value, reducers, options) {
 
 					for (const [key, value] of ops.entriesOf(thing)) {
 						keys.push(MAP_KEY, key);
-						str += `,${flatten(key)},${flatten(value)}`;
+						str += `,${reference(key)},${reference(value)}`;
 						keys.pop();
 						keys.pop();
 					}
@@ -328,7 +349,7 @@ function run(async, value, reducers, options) {
 				case 'BigInt64Array':
 				case 'BigUint64Array': {
 					const info = ops.viewInfo(thing);
-					str = '["' + tag + '",' + flatten(info.buffer);
+					str = '["' + tag + '",' + reference(info.buffer);
 
 					// handle subarrays
 					if (info.byteLength !== info.bufferByteLength) {
@@ -341,7 +362,7 @@ function run(async, value, reducers, options) {
 
 				case 'DataView': {
 					const info = ops.viewInfo(thing);
-					str = '["' + tag + '",' + flatten(info.buffer);
+					str = '["' + tag + '",' + reference(info.buffer);
 
 					if (info.byteLength !== info.bufferByteLength) {
 						str += `,${info.byteOffset},${info.byteLength}`;
@@ -388,7 +409,7 @@ function run(async, value, reducers, options) {
 							}
 
 							keys.push(key);
-							str += `,${quote_key(key)},${flatten(ops.get(thing, key))}`;
+							str += `,${quote_key(key)},${reference(ops.get(thing, key))}`;
 							keys.pop();
 						}
 						str += ']';
@@ -403,7 +424,7 @@ function run(async, value, reducers, options) {
 							if (started) str += ',';
 							started = true;
 							keys.push(key);
-							str += `${quote_key(key)}:${flatten(ops.get(thing, key))}`;
+							str += `${quote_key(key)}:${reference(ops.get(thing, key))}`;
 							keys.pop();
 						}
 						str += '}';
