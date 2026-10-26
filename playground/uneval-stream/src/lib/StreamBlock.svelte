@@ -21,7 +21,7 @@
 	let open = $state(true);
 	let copied = $state(false);
 	let title = $derived(
-		block.kind === 'head' ? 'HEAD / expression' : `TAIL ${String(block.index).padStart(2, '0')}`
+		block.kind === 'head' ? 'HEAD' : `TAIL ${String(block.index).padStart(2, '0')}`
 	);
 	let prettySource = $derived(formatSource(block.source));
 

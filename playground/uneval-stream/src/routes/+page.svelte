@@ -188,7 +188,7 @@ export const graph = {
 										<span>∿</span>
 										<h2>Awaiting protocol blocks</h2>
 										<p>
-											Run <code>example.ts</code> to emit the head expression and asynchronous tails.
+											Run <code>example.ts</code> to emit the head and asynchronous tails.
 										</p>
 										<Button variant="outline" onclick={run}>Run example</Button>
 									</div>{/each}

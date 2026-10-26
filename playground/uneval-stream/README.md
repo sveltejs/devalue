@@ -19,7 +19,7 @@ pnpm --dir playground/uneval-stream build
 
 - `+page.svelte` owns immutable worker-message snapshots and the block timeline.
 - `CodeEditor.svelte` embeds CodeMirror 6 with TypeScript mode and Mod-Enter execution.
-- `stream.worker.ts` transpiles TypeScript to CommonJS, evaluates the user module, calls workspace `unevalStream`, and evaluates head/tail source in order in the worker realm.
+- `stream.worker.ts` transpiles TypeScript to CommonJS, evaluates the user module, calls workspace `unevalStream`, installs `devalue/uneval-stream/client` to receive the revived root, and evaluates head/tail source in order in the worker realm.
 - `snapshot.ts` turns the reconstructed graph into a structured-cloneable identity/reference tree without JSON serialization.
 - `ObjectTree.svelte` renders recursive expandable nodes and aliases.
 

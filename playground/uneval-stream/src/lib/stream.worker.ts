@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 import { unevalStream } from 'devalue';
+import { install } from 'devalue/uneval-stream/client';
 import ts from 'typescript';
 import { createSnapshotContext, snapshotGraph } from './snapshot';
 import type { WorkerPayload } from './stream-types';
@@ -61,7 +62,14 @@ scope.onmessage = async ({ data }: MessageEvent<{ runId: number; source: string 
 			source: stream.head,
 			bytes: new Blob([stream.head]).size
 		});
-		const root = new Function(`return (${stream.head})`)();
+		// Re-installing replaces the callbacks, so each run receives its own root
+		let root: unknown;
+		install({
+			receive: (_id, value) => {
+				root = value;
+			}
+		});
+		new Function(stream.head)();
 		const snapshotContext = createSnapshotContext();
 		const discover = createTrackerDiscovery();
 		discover(root);
