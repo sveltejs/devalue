@@ -43,7 +43,7 @@ export const replacer = (value: unknown, js: Js) => {
     return js\`Promise.resolve(\${settled.get(value)})\`;
 };
 
-const graph = {
+export const graph = {
   protocol: 'uneval-stream',
   shared,
   alias: shared,
@@ -54,9 +54,7 @@ const graph = {
   heading: wait(1900, new Vector(3, 4)),
   view: new Uint16Array([21, 34, 55]),
   generatedAt: new Date()
-};
-
-export default graph;`;
+};`;
 
 	let source = $state(defaultSource);
 	let status = $state<RunStatus>('idle');
@@ -82,7 +80,6 @@ export default graph;`;
 		error = '';
 		elapsed = 0;
 		status = 'compiling';
-		activeTab = 'stream';
 		worker = createWorker();
 		const current = runId;
 		worker.onmessage = ({ data }: MessageEvent<WorkerMessage>) => {
@@ -147,7 +144,7 @@ export default graph;`;
 				</div>
 				<div class="editor-wrap"><CodeEditor bind:value={source} onrun={run} /></div>
 				<footer class="editor-footer">
-					<span>TypeScript · ES2022</span><span>export default graph · optional replacer</span><span
+					<span>TypeScript · ES2022</span><span>export const graph · optional replacer</span><span
 						>isolated worker</span
 					>
 				</footer>

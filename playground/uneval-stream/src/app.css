@@ -354,7 +354,7 @@ kbd {
 }
 .cm-content {
 	padding: 12px 0;
-	caret-color: #e0a558;
+	caret-color: #e0a558 !important;
 }
 .cm-selectionBackground {
 	background: #37424b !important;

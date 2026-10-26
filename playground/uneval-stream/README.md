@@ -25,7 +25,7 @@ pnpm --dir playground/uneval-stream build
 
 ## User file contract
 
-The editor is a single TypeScript CommonJS-transpiled module. It must provide a graph as its default export, and may provide an `unevalStream` replacer as a named `replacer` export. The replacer receives the value and a `js` template tag; interpolated values are serialized by devalue (preserving identity), and returning `undefined` falls back to the default serialization:
+The editor is a single TypeScript CommonJS-transpiled module. It must provide the graph as a named `graph` export, and may provide an `unevalStream` replacer as a named `replacer` export. The replacer receives the value and a `js` template tag; interpolated values are serialized by devalue (preserving identity), and returning `undefined` falls back to the default serialization:
 
 ```ts
 export class Point {
@@ -42,11 +42,10 @@ export const replacer = (
   if (value instanceof Point) return js`new Point(${value.x},${value.y})`;
 };
 
-const graph = { answer: Promise.resolve(new Point(3, 4)) };
-export default graph;
+export const graph = { answer: Promise.resolve(new Point(3, 4)) };
 ```
 
-All other named exports are promoted onto the worker's global scope before head/tail blocks are evaluated, so custom constructor source emitted by the replacer (e.g. `new Point(…)`) can revive. The worker is discarded after every run, so promoted globals never leak across runs.
+All named exports other than `graph` and `replacer` are promoted onto the worker's global scope before head/tail blocks are evaluated, so custom constructor source emitted by the replacer (e.g. `new Point(…)`) can revive. The worker is discarded after every run, so promoted globals never leak across runs.
 
 Static/dynamic imports and dependencies are not exposed to the user module.
 

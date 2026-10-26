@@ -36,8 +36,8 @@ scope.onmessage = async ({ data }: MessageEvent<{ runId: number; source: string 
 			module,
 			module.exports
 		);
-		const graph = module.exports.default;
-		if (graph === undefined) throw new Error('example.ts must export a default graph');
+		const graph = module.exports.graph;
+		if (graph === undefined) throw new Error('example.ts must export a `graph` const');
 		const replacer = module.exports.replacer;
 		if (replacer !== undefined && typeof replacer !== 'function')
 			throw new Error('example.ts `replacer` export must be a function');
@@ -46,7 +46,7 @@ scope.onmessage = async ({ data }: MessageEvent<{ runId: number; source: string 
 		// promoted onto it, letting users revive custom sources by exporting their classes.
 		// The worker is discarded after every run, so this cannot leak across runs.
 		for (const [key, value] of Object.entries(module.exports)) {
-			if (key !== 'default' && key !== 'replacer')
+			if (key !== 'graph' && key !== 'replacer')
 				(scope as unknown as Record<string, unknown>)[key] = value;
 		}
 
