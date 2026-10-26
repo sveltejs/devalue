@@ -157,7 +157,7 @@ test('short strings and inexpensive bigints do not acquire primitive slots', asy
 	const stream = unevalStream({ short, bigint, later: deferred.promise });
 	const c = client();
 	const root = c.head(stream.head);
-	const session = c.context.__d[stream.id];
+	const session = c.state(stream.id);
 	expect(
 		session.o.filter((value) => typeof value === 'string' || typeof value === 'bigint')
 	).toEqual([]);
@@ -169,14 +169,16 @@ test('short strings and inexpensive bigints do not acquire primitive slots', asy
 	).toEqual([]);
 });
 
-test.each(primitives)('a no-promise $kind head preserves standalone output', async ({ make }) => {
+test.each(primitives)('a no-promise $kind head wraps standalone output', async ({ make }) => {
 	const primitive = make(128);
 	const value = { primitive, repeated: [primitive, primitive] };
 	const stream = unevalStream(value);
-	expect(stream.head).toBe(uneval(value));
+	expect(stream.head).toBe(
+		`(globalThis.__d??=[]).push([${JSON.stringify(stream.id)},(s,n)=>(n(${uneval(value)}),1)]);`
+	);
 	const c = client();
 	expect(c.head(stream.head)).toEqual(value);
-	expect(c.context.__d).toBeUndefined();
+	expect(c.done_ids).toEqual([stream.id]);
 	expect(await stream.tail.next()).toEqual({ done: true, value: undefined });
 });
 

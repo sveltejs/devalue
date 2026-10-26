@@ -90,7 +90,7 @@ test('cheap single-use and repeated leaf paths do not create lazy slots', async 
 	});
 	const c = client();
 	const root = c.head(stream.head);
-	const slots = c.context.__d.cheap.o;
+	const slots = c.state(stream.id).o;
 	expect(slots).toHaveLength(1);
 	const blocks = [];
 	for await (const block of stream.tail) {
@@ -113,7 +113,7 @@ test('a long but bounded leaf read is repeated rather than given a slot', async 
 	});
 	const c = client();
 	const root = c.head(stream.head);
-	const slots = c.context.__d.single.o;
+	const slots = c.state(stream.id).o;
 	for await (const block of stream.tail) c.block(block);
 	expect(await root.outcome).toBe(root[key]);
 	expect(slots).toHaveLength(1);
@@ -131,7 +131,7 @@ test('distinct descendants are reached by bounded paths from a numeric slot tabl
 	);
 	const c = client();
 	const root = c.head(stream.head);
-	const slots = c.context.__d.shared.o;
+	const slots = c.state(stream.id).o;
 	expect(slots).toHaveLength(1); // below the ceiling: no speculative head slots
 	let source = stream.head;
 	let tail = '';
@@ -168,7 +168,7 @@ test.each(['escaped segment', 'unicode segment', 'enormous segment', 'independen
 		});
 		const c = client();
 		const root = c.head(stream.head);
-		const slots = c.context.__d.ceiling.o;
+		const slots = c.state(stream.id).o;
 		const before = slots.length;
 		expect(before).toBeGreaterThan(1);
 		let tail = '';
@@ -193,10 +193,12 @@ test.each(['escaped segment', 'unicode segment', 'enormous segment', 'independen
 	}
 );
 
-test('no-promise heads remain byte-compatible even when paths exceed the ceiling', async () => {
+test('no-promise heads wrap the uneval output even when paths exceed the ceiling', async () => {
 	const data = { ['<'.repeat(4096)]: { value: 1 } };
 	const stream = unevalStream(data);
-	expect(stream.head).toBe(uneval(data));
+	expect(stream.head).toBe(
+		`(globalThis.__d??=[]).push([${JSON.stringify(stream.id)},(s,n)=>(n(${uneval(data)}),1)]);`
+	);
 	expect(stream.head).not.toContain('s.o');
 	expect(await stream.tail.next()).toEqual({ done: true, value: undefined });
 });
@@ -221,7 +223,7 @@ test('a failed emission rolls back forced slots, lazy aliases and promise indice
 	);
 	const c = client();
 	const root = c.head(stream.head);
-	const slots = c.context.__d.rollback.o;
+	const slots = c.state(stream.id).o;
 	// Fail during rendering (the second read), after demand planning has staged aliases.
 	let reads = 0;
 	const failing = {

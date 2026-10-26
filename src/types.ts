@@ -66,15 +66,21 @@ export type UnevalReplacer = (
 
 /** Options for `unevalStream`. */
 export interface UnevalStreamOptions {
-	/** Session key. Pass a stable value when heads must be byte-identical across runs. */
+	/**
+	 * Session key. Pass a stable value when heads must be byte-identical across runs. It must
+	 * be unique on the page while its stream is running.
+	 */
 	id?: string;
-	/** Trusted assignable expression holding the client session table. Default `globalThis.__d`. */
+	/**
+	 * Trusted assignable expression that holds the client queue. Default `globalThis.__d`.
+	 * Must be the same location as `install`'s `target[key]` on the client.
+	 */
 	scope?: string;
 	/**
 	 * Stops the tail: the next `next()` yields a final block that rejects every promise
-	 * still pending on the client with a generic Error and deletes the client session,
-	 * then the tail is done. If the signal is already aborted, or aborts during the head
-	 * emission, `unevalStream` throws `signal.reason`.
+	 * still pending on the client with a generic Error and ends the stream, so `install`'s
+	 * `done` is called, then the tail is done. If the signal is already aborted, or aborts
+	 * during the head emission, `unevalStream` throws `signal.reason`.
 	 */
 	signal?: AbortSignal;
 	/**
@@ -89,12 +95,33 @@ export interface UnevalStreamOptions {
 
 /** The result of `unevalStream`. */
 export interface UnevalStreamResult {
-	/** A JavaScript expression that recreates the value, with every promise pending. */
+	/**
+	 * A statement that pushes the head message onto the client queue. Once handled, the value
+	 * (with every promise pending) is passed to `install`'s `receive`.
+	 */
 	head: string;
-	/** Statement blocks that settle the promises created by `head` and earlier blocks. */
+	/**
+	 * Statements that each push a block message, settling the promises created by `head` and
+	 * earlier blocks. The last one ends the stream, and `install`'s `done` is called.
+	 */
 	tail: AsyncIterableIterator<string, void>;
 	/** The session key. */
 	id: string;
+}
+
+/** Options for `install` from `devalue/uneval-stream/client`. */
+export interface InstallOptions {
+	/** The object that holds the queue. Defaults to `globalThis` */
+	target?: object;
+	/** The property of `target` that holds the queue. Defaults to `'__d'` */
+	key?: PropertyKey;
+	/** Receives each stream's revived value, as soon as its head is handled. Called once per stream */
+	receive(id: string, value: unknown): void;
+	/**
+	 * Called once per stream, after its last message has been handled (including after an abort): every
+	 * promise in it has settled, and devalue has dropped its state, so nothing more will arrive for it
+	 */
+	done?(id: string): void;
 }
 
 /**

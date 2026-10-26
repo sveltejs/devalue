@@ -1,30 +1,102 @@
+import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { expect } from 'vitest';
 import { unevalStream } from '../../src/index.js';
 
 const DEFAULT_ORDERS = ['fifo', 'lifo', 'all-at-once', 'seeded-shuffle'];
 
+/** The source of `devalue/uneval-stream/client` */
+export const client_module = readFileSync(
+	new URL('../../src/uneval-stream/client.js', import.meta.url),
+	'utf8'
+);
+
 /**
- * A fresh VM realm, with optional injected globals (e.g. classes used by a replacer)
- * @param {Record<string, unknown>} [globals]
+ * The client module as a script that evaluates to its `install`. Stripping `export` is safe
+ * because the module has no imports.
  */
-export function client(globals = {}) {
+export const client_script = `(()=>{${client_module.replace(/^export /gm, '')}\nreturn install})()`;
+
+/**
+ * Evaluates a fresh copy of the client module in `context`, so promises and values come
+ * from that realm
+ * @param {vm.Context} context
+ * @returns {(options: import('../../src/types.js').InstallOptions) => void}
+ */
+export function load_install(context) {
+	return vm.runInContext(client_script, context);
+}
+
+/**
+ * A fresh VM realm, with optional injected globals (e.g. classes used by a replacer), and
+ * the client runtime installed on its `globalThis.__d` unless `install` is false
+ * @param {Record<string, unknown>} [globals]
+ * @param {{ install?: boolean }} [options]
+ */
+export function client(globals = {}, { install = true } = {}) {
 	const context = vm.createContext({ ...globals });
 	context.globalThis = context;
-	return {
+
+	/** @type {Map<string, any>} */
+	const states = new Map();
+	/** @type {Array<[string, any]>} */
+	const receive_calls = [];
+	/** @type {string[]} */
+	const done_ids = [];
+
+	const run = (/** @type {string} */ source) => {
+		const before = receive_calls.length;
+		vm.runInContext(source, context);
+		return receive_calls[before]?.[1];
+	};
+
+	const c = {
 		context,
-		/** @param {string} source */
-		head: (source) => vm.runInContext(`(${source})`, context),
+		states,
+		receive_calls,
+		done_ids,
+		/**
+		 * Installs the client (again) with recording callbacks, and wraps the installed `push`
+		 * so tests can reach the state of streams pushed afterwards
+		 * @param {Partial<import('../../src/types.js').InstallOptions>} [options]
+		 */
+		install(options = {}) {
+			load_install(context)({
+				receive: (id, value) => receive_calls.push([id, value]),
+				done: (id) => done_ids.push(id),
+				...options
+			});
+			const queue = context[options.key ?? '__d'];
+			const push = queue.push;
+			queue.push = (/** @type {any[]} */ ...messages) =>
+				push(
+					...messages.map(([id, fn]) => [
+						id,
+						(/** @type {any} */ s, /** @type {any} */ n) => (states.set(id, s), fn(s, n))
+					])
+				);
+		},
+		/** @param {string} id */
+		state: (id) => states.get(id),
+		/** @param {string} id */
+		received: (id) => receive_calls.find(([i]) => i === id)?.[1],
+		/**
+		 * Evaluates a head, returning the value it delivered to `receive`
+		 * @param {string} source
+		 */
+		head: run,
 		/** @param {string} source */
 		block: (source) => vm.runInContext(source, context),
 		/**
-		 * Evaluates the head and every block as one script
+		 * Evaluates the head and every block as one script, returning the value the head delivered
 		 * @param {string} head
 		 * @param {string[]} blocks
 		 */
-		combined: (head, blocks) =>
-			vm.runInContext(`(function(){const root=(${head});${blocks.join('')}return root})()`, context)
+		combined: (head, blocks) => run(head + blocks.join(''))
 	};
+
+	if (install) c.install();
+	return c;
 }
 
 /** @param {number} seed */
@@ -269,8 +341,8 @@ export async function expect_roundtrip(make, { replacer, globals, orders = DEFAU
 		await compare_topology(value, concatenated.combined(head, blocks), `${order} (concatenated)`);
 
 		for (const [v, n] of calls) expect(n, `${order}: replacer calls for ${type_of(v)}`).toBe(1);
-		for (const { context } of [separate, concatenated]) {
-			expect(Object.keys(context.__d ?? {}), `${order}: session not deleted`).toEqual([]);
+		for (const { done_ids } of [separate, concatenated]) {
+			expect(done_ids, `${order}: stream not ended`).toEqual(['roundtrip']);
 		}
 
 		result = { head, blocks, root };

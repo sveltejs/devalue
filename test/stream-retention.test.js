@@ -39,7 +39,7 @@ async function retention({ assert, turn, unevalStream, data: mode }) {
 			fixture.controller.abort(new Error('abort stream'));
 			const last = await next;
 			assert.equal(last.done, false);
-			assert.match(last.value, /devalue: stream aborted/);
+			assert.match(last.value, /s\.a\(\)/);
 		}
 		if (!mode.endsWith('retained')) fixture.result = null;
 		fixture.controller = null;
@@ -117,7 +117,7 @@ test('control: a live stream with an externally held input keeps its graph', () 
 	in_subprocess(retention, { expose_gc: true, data: 'live' });
 });
 
-async function callback_retention({ assert, vm, turn, unevalStream, data: callback }) {
+async function callback_retention({ assert, vm, turn, unevalStream, client, data: callback }) {
 	assert.equal(typeof global.gc, 'function');
 	let reports = 0;
 
@@ -145,7 +145,9 @@ async function callback_retention({ assert, vm, turn, unevalStream, data: callba
 
 	const fixture = create_result();
 	const context = vm.createContext({});
-	const root = vm.runInContext(`(${fixture.result.head})`, context);
+	const { received } = client(context);
+	vm.runInContext(fixture.result.head, context);
+	const root = received.get(fixture.result.id);
 	for await (const block of fixture.result.tail) vm.runInContext(block, context);
 	if (callback === 'replacer') assert.equal(root.value, 42);
 	else assert.equal(await root, 42);
@@ -175,7 +177,7 @@ test('control: a retained terminal result does not retain an unrelated helper gr
 
 test('a live stream retains identities until the final delivery', () => {
 	in_subprocess(
-		async ({ assert, vm, turn, unevalStream }) => {
+		async ({ assert, vm, turn, unevalStream, client }) => {
 			function create_result() {
 				const source = Promise.withResolvers();
 				const graph = { node: {}, pending: source.promise };
@@ -183,7 +185,9 @@ test('a live stream retains identities until the final delivery', () => {
 			}
 			const fixture = create_result();
 			const context = vm.createContext({});
-			const root = vm.runInContext(`(${fixture.result.head})`, context);
+			const { received, done } = client(context);
+			vm.runInContext(fixture.result.head, context);
+			const root = received.get(fixture.result.id);
 			for (let i = 0; i < 20; i += 1) {
 				await turn();
 				global.gc();
@@ -195,7 +199,7 @@ test('a live stream retains identities until the final delivery', () => {
 			const delivered = await root.pending;
 			assert.equal(delivered.root, root);
 			assert.equal(delivered.node, root.node);
-			assert.equal(Object.keys(context.__d).length, 0, 'final block deletes the client session');
+			assert.ok(done.has(fixture.result.id), 'final block ends the client stream');
 		},
 		{ expose_gc: true }
 	);
@@ -231,7 +235,7 @@ test.each(['return', 'abort'])(
 					controller.abort();
 					const last = await readers[0];
 					assert.equal(last.done, false);
-					assert.match(last.value, /devalue: stream aborted/);
+					assert.match(last.value, /s\.a\(\)/);
 				} else {
 					await fixture.result.tail.return();
 					await waiting.tail.return();
@@ -243,7 +247,7 @@ test.each(['return', 'abort'])(
 				if (mode === 'abort') {
 					const last = await fixture.result.tail.next();
 					assert.equal(last.done, false);
-					assert.match(last.value, /devalue: stream aborted/);
+					assert.match(last.value, /s\.a\(\)/);
 					assert.doesNotMatch(last.value, /node/, 'the queued outcome is dropped');
 				}
 				for (let i = 0; i < 20; i += 1) {
@@ -290,7 +294,7 @@ test.each(['return', 'abort'])(
 				const block = await fixture.result.tail.next();
 				if (mode === 'abort') {
 					// The block being emitted when the abort happened carries the final rejections
-					assert.match(block.value, /devalue: stream aborted/);
+					assert.match(block.value, /s\.a\(\)/);
 				}
 				assert.deepEqual(await fixture.result.tail.next(), { done: true, value: undefined });
 				for (let i = 0; i < 20; i += 1) {

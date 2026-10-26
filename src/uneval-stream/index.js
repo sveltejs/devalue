@@ -1,13 +1,12 @@
 /**
- * @import { UnevalReplacer, UnevalStreamOptions, UnevalStreamResult } from './types.js';
+ * @import { UnevalReplacer, UnevalStreamOptions, UnevalStreamResult } from '../types.js';
  */
-import { js, JavaScriptSource } from './javascript-source.js';
-import { analyze } from './uneval.js';
-import { call_replacer, get_type, stringify_string } from './utils.js';
+import { js, JavaScriptSource } from '../javascript-source.js';
+import { analyze } from '../uneval.js';
+import { call_replacer, get_type, stringify_string } from '../utils.js';
 
 const RESERVED = ['s', 'n'];
-const FAILED = 'new Error("devalue: failed to serialize asynchronous value")';
-const ABORTED = 'new Error("devalue: stream aborted")';
+const FAILED = 's.f()';
 // Stands in for an outcome that is sent as FAILED rather than serialized
 const FAILURE = Symbol();
 const DONE = Object.freeze({ done: /** @type {true} */ (true), value: undefined });
@@ -19,9 +18,10 @@ const noop = () => {};
 const MAX_PATH_LENGTH = 128;
 
 /**
- * Turn a value containing promises into a JavaScript expression (`head`) that
- * recreates it with pending promises, and a stream of statement blocks (`tail`)
- * that settle them as they settle on the server.
+ * Turn a value containing promises into a statement (`head`) that recreates it with
+ * pending promises, and a stream of statements (`tail`) that settle them as they
+ * settle on the server. Each one pushes a message onto the queue at `scope`, which
+ * `install` from `devalue/uneval-stream/client` handles.
  * @param {any} value
  * @param {UnevalReplacer} [replacer]
  * @param {UnevalStreamOptions} [options]
@@ -32,33 +32,35 @@ export function unevalStream(value, replacer, options = {}) {
 	const scope = options.scope ?? 'globalThis.__d';
 	const id = options.id ?? random_id();
 	const key = stringify_string(id);
-	const session = new Session(replacer, options, `${scope}[${key}]`);
-	const head = start(session, value, scope, key);
+	const session = new Session(replacer, options, scope, key);
+	const head = start(session, value);
 	return { head, tail: session, id };
 }
 
 /**
  * Emits the head for a new session. Assigned inside `Session` so it can reach private state.
- * @type {(session: Session, value: any, scope: string, key: string) => string}
+ * @type {(session: Session, value: any) => string}
  */
 let start;
 
 /** Persistent request state is owned here, never by the input-bearing setup scope. */
 class Session {
 	static {
-		start = (session, value, scope, key) => session.#start(value, scope, key);
+		start = (session, value) => session.#start(value);
 	}
 
 	/**
 	 * @param {UnevalReplacer | undefined} replacer
 	 * @param {UnevalStreamOptions} options
-	 * @param {string} table
+	 * @param {string} scope
+	 * @param {string} key
 	 */
-	constructor(replacer, options, table) {
+	constructor(replacer, options, scope, key) {
 		this.#replacer = replacer;
 		this.#transform_error = options.transformError;
 		this.#signal = options.signal;
-		this.#table = table;
+		this.#scope = scope;
+		this.#key = key;
 		this.#on_abort = this.#abort_stream.bind(this);
 	}
 
@@ -68,18 +70,24 @@ class Session {
 	#transform_error;
 	/** @type {AbortSignal | undefined} */
 	#signal;
-	/** @type {string} */
-	#table;
+	/**
+	 * The trusted expression holding the client queue
+	 * @type {string}
+	 */
+	#scope;
+	/**
+	 * The session key, as a string literal
+	 * @type {string}
+	 */
+	#key;
 	/** @type {() => void} */
 	#on_abort;
 
 	/**
 	 * @param {any} value
-	 * @param {string} scope
-	 * @param {string} key
 	 * @returns {string}
 	 */
-	#start(value, scope, key) {
+	#start(value) {
 		this.#signal?.addEventListener('abort', this.#on_abort);
 
 		let head;
@@ -93,29 +101,25 @@ class Session {
 		// Aborted mid-emission: the head is dead on arrival, so fail like a pre-aborted signal
 		if (this.#abort) throw this.#abort.reason;
 
-		if (this.#pending === 0) {
-			this.#finish();
-			return head;
-		}
-
 		/**
-		 * Wrap the head in an IIFE that sets up this stream's client-side state:
-		 * - `n` is the shared `scope` table, created with a null prototype if missing
-		 * - `s` is this stream's entry in `n`, keyed by `id`:
+		 * Every payload pushes one `[id, fn]` message onto the queue at `scope`: an array
+		 * until `install` (from `devalue/uneval-stream/client`) replaces it with an object
+		 * whose `push` handles messages as they arrive. The head may be the first payload
+		 * on the page, so it creates the queue if missing. `fn` is called as `fn(s, n)`:
+		 * - `s` is this stream's state, created by the client for the first message of an `id`:
 		 *   - `s.o` holds slots for objects and primitives that later tail blocks reference
 		 *   - `s.p` holds the `[resolve, reject]` pair for each pending promise
-		 * - `s.d(i)` creates deferred pending promise `i`, saving its resolvers in `s.p`. The
-		 *   no-op `catch` prevents unhandled rejections before user code attaches handlers
-		 * - `s.r(i, k, v)` settles promise `i` with `v`, resolving when `k` is 0 and
-		 *   rejecting when `k` is 1, then drops its resolvers
-		 * The head expression is then evaluated with `s` in scope
+		 *   - `s.d(i)` creates pending promise `i`, saving its resolvers in `s.p`
+		 *   - `s.r(i, k, v)` settles promise `i` with `v`, resolving when `k` is 0 and
+		 *     rejecting when `k` is 1, then drops its resolvers
+		 *   - `s.f()` creates the generic error for a failed settlement
+		 *   - `s.a()` rejects every promise still pending, after an abort
+		 * - `n` passes the revived value to `install`'s `receive`; only the head calls it
+		 * A message that returns 1 is the stream's last.
 		 */
-		return (
-			`(()=>{let n=${scope}||(${scope}={__proto__:null}),s=(n[${key}]={o:[],p:[]});` +
-			`s.d=(i)=>{let p=new Promise((a,b)=>{s.p[i]=[a,b]});p.catch(()=>{});return p};` +
-			`s.r=(i,k,v)=>{s.p[i][k](v);delete s.p[i]};` +
-			`return ${head}})()`
-		);
+		const done = this.#pending === 0;
+		if (done) this.#finish();
+		return `(${this.#scope}??=[]).push([${this.#key},(s,n)=>${done ? `(n(${head}),1)` : `n(${head})`}]);`;
 	}
 
 	/**
@@ -238,7 +242,7 @@ class Session {
 				reserved: RESERVED
 			});
 
-			// a head without promises needs no session at all
+			// a head without promises needs no slots, so it renders like `uneval`
 			if (head && fresh.size === 0) return analysis.render();
 
 			let code = analysis.render({
@@ -394,18 +398,17 @@ class Session {
 			const aborted = this.#abort !== null;
 			if (aborted) {
 				this.#abort = null;
-				statements.push(`s.p.forEach((p)=>p[1](${ABORTED}))`);
+				statements.push('s.a()');
 			} else if (statements.length === 0) {
 				// Every outcome is waiting on an asynchronous transformError
 				continue;
 			}
 
 			const complete = aborted || this.#pending === 0;
-			if (complete) {
-				statements.push(`delete ${this.#table}`);
-			}
+			if (complete) statements.push('return 1');
 
-			const value = `((s)=>{${statements.join(';')}})(${this.#table});`;
+			// The head has created the queue (or `install` has replaced it) by now
+			const value = `${this.#scope}.push([${this.#key},(s)=>{${statements.join(';')}}]);`;
 			if (complete) this.#finish();
 			return { done: false, value };
 		}

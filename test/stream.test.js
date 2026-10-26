@@ -1,6 +1,6 @@
 import vm from 'node:vm';
 import { expect, test, vi } from 'vitest';
-import { unevalStream } from '../src/index.js';
+import { uneval, unevalStream } from '../src/index.js';
 import { client, expect_roundtrip, seeded_random, shuffle } from './helpers/stream.js';
 
 test.each([
@@ -343,14 +343,17 @@ test('folds settled promises via the replacer', async () => {
 	}
 });
 
-test('emits a plain expression when there are no promises', async () => {
-	const stream = unevalStream({ x: 1 });
+test('wraps the uneval output in a final head when there are no promises', async () => {
+	const value = { x: 1 };
+	const stream = unevalStream(value);
 	const c = client();
 
-	expect(stream.head).not.toContain('__d');
+	expect(stream.head).toBe(
+		`(globalThis.__d??=[]).push([${JSON.stringify(stream.id)},(s,n)=>(n(${uneval(value)}),1)]);`
+	);
 	expect(c.head(stream.head)).toEqual({ x: 1 });
+	expect(c.done_ids).toEqual([stream.id]);
 	expect((await stream.tail.next()).done).toBe(true);
-	expect(c.context.__d).toBeUndefined();
 });
 
 test('return() completes a pending next()', async () => {
@@ -388,7 +391,7 @@ test('abort emits a final block that rejects pending client promises', async () 
 		await expect(p).rejects.toThrow('devalue: stream aborted');
 	}
 	expect(last.value).not.toContain('server-only reason');
-	expect(Object.keys(c.context.__d)).toEqual([]);
+	expect(c.done_ids).toEqual([stream.id]);
 	expect(await later).toEqual({ done: true, value: undefined });
 	expect(await stream.tail.next()).toEqual({ done: true, value: undefined });
 });
@@ -411,7 +414,7 @@ test('abort with no pending next() emits the final block on the next read', asyn
 	c.block(/** @type {string} */ (last.value));
 	await expect(root.q).rejects.toThrow('devalue: stream aborted');
 	await expect(root.p).rejects.toThrow('devalue: stream aborted');
-	expect(Object.keys(c.context.__d)).toEqual([]);
+	expect(c.done_ids).toEqual([stream.id]);
 	expect(await stream.tail.next()).toEqual({ done: true, value: undefined });
 });
 
@@ -448,7 +451,7 @@ test('abort during a tail block rejects the promises that block creates', async 
 
 	const revived = await root;
 	await expect(revived.nested).rejects.toThrow('devalue: stream aborted');
-	expect(Object.keys(c.context.__d)).toEqual([]);
+	expect(c.done_ids).toEqual([stream.id]);
 	expect(await stream.tail.next()).toEqual({ done: true, value: undefined });
 });
 
@@ -550,7 +553,7 @@ test.each(['sync', 'async'])('transformError (%s) shapes rejections and failures
 	expect(reason.message).toMatch(/Cannot stringify/);
 	expect(reason.shared).toBe(root.shared);
 	expect(await root.resolved).toBe(1);
-	expect(c.context.__d).toEqual({});
+	expect(c.done_ids).toEqual([stream.id]);
 });
 
 test.each([
@@ -580,7 +583,7 @@ test.each([
 	}
 	await expect(root.p).rejects.toThrow('devalue: failed to serialize asynchronous value');
 	expect(source).not.toContain('secret');
-	expect(c.context.__d).toEqual({});
+	expect(c.done_ids).toEqual([stream.id]);
 });
 
 test('a pending async transformError does not hold back other settlements', async () => {
