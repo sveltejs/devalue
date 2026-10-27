@@ -104,7 +104,7 @@ export interface UnevalStreamResult {
 	 * Statements that each push a block message, settling the promises created by `head` and
 	 * earlier blocks. The last one ends the stream, and `install`'s `done` is called.
 	 */
-	tail: AsyncIterableIterator<string, void>;
+	tail: AsyncIterableIterator<string>;
 	/** The session key. */
 	id: string;
 }
