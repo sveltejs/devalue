@@ -15,6 +15,6 @@
 		"types": ["node"],
 		"rootDir": "./src"
 	},
-	"include": ["src/index.js", "src/types.ts"],
+	"include": ["src/index.js", "src/types.ts", "src/uneval-stream/client.js"],
 	"exclude": ["node_modules", "src/*.test.js"]
 }

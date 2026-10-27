@@ -64,6 +64,66 @@ export type UnevalReplacer = (
 	js: JavaScriptTag
 ) => JavaScriptFragment | false | null | void;
 
+/** Options for `unevalStream`. */
+export interface UnevalStreamOptions {
+	/**
+	 * Session key. Pass a stable value when heads must be byte-identical across runs. It must
+	 * be unique on the page while its stream is running.
+	 */
+	id?: string;
+	/**
+	 * Trusted assignable expression that holds the client queue. Default `globalThis.__d`.
+	 * Must be the same location as `install`'s `target[key]` on the client.
+	 */
+	scope?: string;
+	/**
+	 * Stops the tail: the next `next()` yields a final block that rejects every promise
+	 * still pending on the client with a generic Error and ends the stream, so `install`'s
+	 * `done` is called, then the tail is done. If the signal is already aborted, or aborts
+	 * during the head emission, `unevalStream` throws `signal.reason`.
+	 */
+	signal?: AbortSignal;
+	/**
+	 * Turns a rejection reason, or the error that kept a resolved value from serializing,
+	 * into the value the client promise rejects with. May return a promise. Like a
+	 * replacer, returning `undefined`, `null` or `false` keeps the default: the client
+	 * promise rejects with a generic Error. So does throwing, rejecting, or returning
+	 * something that can't be serialized.
+	 */
+	transformError?: (error: unknown) => unknown;
+}
+
+/** The result of `unevalStream`. */
+export interface UnevalStreamResult {
+	/**
+	 * A statement that pushes the head message onto the client queue. Once handled, the value
+	 * (with every promise pending) is passed to `install`'s `receive`.
+	 */
+	head: string;
+	/**
+	 * Statements that each push a block message, settling the promises created by `head` and
+	 * earlier blocks. The last one ends the stream, and `install`'s `done` is called.
+	 */
+	tail: AsyncIterableIterator<string>;
+	/** The session key. */
+	id: string;
+}
+
+/** Options for `install` from `devalue/uneval-stream/client`. */
+export interface InstallOptions {
+	/** The object that holds the queue. Defaults to `globalThis` */
+	target?: object;
+	/** The property of `target` that holds the queue. Defaults to `'__d'` */
+	key?: PropertyKey;
+	/** Receives each stream's revived value, as soon as its head is handled. Called once per stream */
+	receive(id: string, value: unknown): void;
+	/**
+	 * Called once per stream, after its last message has been handled (including after an abort): every
+	 * promise in it has settled, and devalue has dropped its state, so nothing more will arrive for it
+	 */
+	done?(id: string): void;
+}
+
 /**
  * The introspection/extraction operations `stringify` performs on the value
  * being serialized. Every dynamic operation — property reads, prototype
