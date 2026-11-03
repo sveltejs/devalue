@@ -1,0 +1,614 @@
+import vm from 'node:vm';
+import { expect, test, vi } from 'vitest';
+import { uneval, unevalStream } from '../src/index.js';
+import { client, expect_roundtrip, seeded_random, shuffle } from './helpers/stream.js';
+
+test.each([
+	{
+		name: 'cycle',
+		make: () => {
+			const a = {};
+			a.self = a;
+			return a;
+		}
+	},
+	{
+		name: 'head → outcome identity',
+		make: ({ later }) => {
+			const s = {};
+			return { s, p: later(s) };
+		}
+	},
+	{
+		name: 'outcome → outcome identity',
+		make: ({ later }) => {
+			const s = {};
+			return [later(s), later({ s })];
+		}
+	},
+	{ name: 'nested promises', make: ({ later }) => ({ p: later({ q: later({ r: later(1) }) }) }) },
+	{
+		name: 'cycle through outcome',
+		make: ({ later }) => {
+			const root = {};
+			root.p = later({ root });
+			return root;
+		}
+	},
+	{
+		name: 'rejection identity',
+		make: ({ later_reject }) => {
+			const e = { code: 1 };
+			return { e, p: later_reject(e) };
+		}
+	},
+	{
+		name: 'map key identity',
+		make: ({ later }) => {
+			const k = {};
+			return { m: new Map([[k, 1]]), p: later(k) };
+		}
+	},
+	{
+		name: 'set member identity',
+		make: ({ later }) => {
+			const k = {};
+			return { s: new Set([k]), p: later(k) };
+		}
+	},
+	{
+		name: 'typed view buffer identity',
+		make: ({ later }) => {
+			const b = new ArrayBuffer(4);
+			return { v: new Uint8Array(b), p: later(b) };
+		}
+	},
+	{
+		name: 'sparse + null-proto',
+		make: ({ later }) => {
+			const a = Array(5);
+			a[3] = 'x';
+			return { p: later(Object.assign(Object.create(null), { a })) };
+		}
+	},
+	{ name: 'promise inside map value', make: ({ later }) => ({ m: new Map([['k', later(2)]]) }) },
+	{
+		name: 'same promise twice',
+		make: ({ later }) => {
+			const p = later(1);
+			return [p, p, { p }];
+		}
+	}
+])('$name', ({ make }) => expect_roundtrip(make));
+
+class Box {
+	/** @param {unknown} value */
+	constructor(value) {
+		this.value = value;
+	}
+}
+
+class Job {
+	/** @param {Promise<unknown>} completion */
+	constructor(completion) {
+		this.completion = completion;
+	}
+}
+
+class Cyclic {
+	/** @param {unknown} [meta] */
+	constructor(meta) {
+		this.meta = meta;
+	}
+}
+
+class MyThenable {
+	/** @param {Promise<unknown>} promise */
+	constructor(promise) {
+		this.promise = promise;
+	}
+	/** @type {Promise<unknown>['then']} */
+	then(resolve, reject) {
+		return this.promise.then(resolve, reject);
+	}
+}
+
+/** @type {import('../src/types.js').UnevalReplacer} */
+const replacer = (v, js) => {
+	if (v instanceof Box) return js`new Box(${v.value})`;
+	if (v instanceof Job) return js`new Job(${v.completion})`;
+	if (v instanceof Cyclic) return js`new Cyclic(${v.meta})`;
+	if (v instanceof MyThenable) return js`new MyThenable(${Promise.resolve(v)})`;
+};
+
+test.each([
+	{
+		name: 'replaced object in head',
+		make: ({ later }) => {
+			const b = new Box({ x: 1 });
+			return { b, p: later(b) };
+		}
+	},
+	{ name: 'replaced object in outcome', make: ({ later }) => ({ p: later(new Box({ x: 1 })) }) },
+	{ name: 'replaced object wrapping a promise', make: ({ later }) => [new Job(later({ ok: 1 }))] },
+	{
+		name: 'replaced object whose hole is a head object',
+		make: ({ later }) => {
+			const s = {};
+			return { s, p: later(new Box(s)) };
+		}
+	},
+	{
+		name: 'cycle through a replaced object',
+		make: ({ later }) => {
+			const c = new Cyclic();
+			c.meta = { parent: c };
+			return { c, p: later(c.meta), q: later(new Cyclic([1])) };
+		}
+	},
+	{
+		name: 'custom thenable rebuilt on the client',
+		make: ({ later }) => {
+			const t = new MyThenable(later({ y: 2 }));
+			return { t, again: t, p: later(t) };
+		}
+	}
+])('replacer: $name', ({ make }) =>
+	expect_roundtrip(make, { replacer, globals: { Box, Job, Cyclic, MyThenable } })
+);
+
+class MatrixWrapper {
+	/** @param {string} kind @param {unknown} value */
+	constructor(kind, value) {
+		this.kind = kind;
+		this.value = value;
+	}
+}
+
+/**
+ * @param {number} seed
+ * @param {(value: unknown) => Promise<unknown>} later
+ */
+function build_matrix_case(seed, later) {
+	const random = seeded_random(seed);
+	const nodes = Array.from({ length: 8 }, (_, index) => ({
+		index,
+		label: `node-${seed}-${index}`,
+		/** @type {unknown} */
+		next: null
+	}));
+	for (let i = 0; i < nodes.length; i += 1) {
+		nodes[i].next = nodes[(i + 1 + Math.floor(random() * 3)) % nodes.length];
+	}
+
+	const shared = nodes[Math.floor(random() * nodes.length)];
+	const distinct = { index: shared.index, label: shared.label, next: shared.next };
+	const null_object = Object.assign(Object.create(null), { kind: 'null', shared, distinct });
+	const sparse = Array(7);
+	sparse[1] = shared;
+	sparse[4] = null_object;
+	const buffer = new ArrayBuffer(12);
+	const bytes = new Uint8Array(buffer);
+	for (let i = 0; i < bytes.length; i += 1) bytes[i] = (seed * 17 + i * 29) & 255;
+	const view = new Uint16Array(buffer, 2, 4);
+	const wrapped = new MatrixWrapper(`wrapper-${seed}`, shared);
+	const map = new Map(
+		shuffle(
+			[
+				[shared, view],
+				[null_object, sparse],
+				[distinct, buffer]
+			],
+			random
+		)
+	);
+	const set = new Set(shuffle([view, shared, null_object, distinct], random));
+
+	const outcome_a = {
+		kind: 'outcome-a',
+		shared,
+		wrapped,
+		map: new Map([[shared, nodes[(seed + 3) % nodes.length]]])
+	};
+	const outcome_b = Object.assign(Object.create(null), {
+		kind: 'outcome-b',
+		items: [outcome_a, shared, view],
+		set: new Set([distinct, outcome_a, buffer]),
+		inner: later(new MatrixWrapper('late', nodes[seed % nodes.length]))
+	});
+	const entries = shuffle(
+		[
+			['seed', seed],
+			['numeric', { 0: '0', 12: '12', '001': '001' }],
+			['nodes', nodes],
+			['shared', shared],
+			['distinct', distinct],
+			['null_object', null_object],
+			['sparse', sparse],
+			['map', map],
+			['set', set],
+			['buffer', buffer],
+			['view', view],
+			['wrapped', wrapped],
+			['promises', [outcome_a, outcome_b, outcome_a].map((o) => later(o))]
+		],
+		random
+	);
+	return Object.fromEntries(entries);
+}
+
+test.each(Array.from({ length: 20 }, (_, i) => ({ seed: i + 1 })))(
+	'random graph (seed $seed)',
+	({ seed }) =>
+		expect_roundtrip(({ later }) => build_matrix_case(seed, later), {
+			replacer: (v, js) =>
+				v instanceof MatrixWrapper ? js`new MatrixWrapper(${v.kind},${v.value})` : undefined,
+			globals: { MatrixWrapper }
+		})
+);
+
+test('recognizes only branded native promises across realms and subclasses', async () => {
+	class SubPromise extends Promise {}
+	await expect_roundtrip(() => [
+		Promise.resolve(1),
+		vm.runInNewContext('Promise.resolve(2)'),
+		SubPromise.resolve(3)
+	]);
+
+	expect(() => unevalStream({ [Symbol.toStringTag]: 'Promise', then() {} })).toThrow(
+		/Cannot stringify/
+	);
+});
+
+test('calls the replacer once per identity, even after a failed outcome', async () => {
+	class X {
+		constructor() {
+			this.value = 42;
+		}
+	}
+	const x = new X();
+	/** @type {unknown[]} */
+	const seen = [];
+	const transformError = vi.fn(() => undefined);
+
+	const a = Promise.withResolvers();
+	const b = Promise.withResolvers();
+	const stream = unevalStream(
+		{ p1: a.promise, p2: b.promise },
+		(value, js) => {
+			seen.push(value);
+			if (value instanceof X) return js`{value:${value.value}}`;
+		},
+		{ transformError }
+	);
+
+	const c = client();
+	const root = c.head(stream.head);
+
+	a.resolve({ x, fn: () => {} });
+	c.block(/** @type {string} */ ((await stream.tail.next()).value));
+	b.resolve(x);
+	c.block(/** @type {string} */ ((await stream.tail.next()).value));
+
+	expect(seen.filter((v) => v === x)).toHaveLength(1);
+	await expect(root.p1).rejects.toThrow('devalue: failed to serialize asynchronous value');
+	expect(await root.p2).toEqual({ value: 42 });
+	expect(transformError).toHaveBeenCalledOnce();
+	expect((await stream.tail.next()).done).toBe(true);
+});
+
+test('head is deterministic regardless of settlement timing', () => {
+	const settled = unevalStream({ a: [1], p: Promise.resolve(1) }, undefined, { id: 'x' });
+	const unsettled = unevalStream({ a: [1], p: new Promise(() => {}) }, undefined, { id: 'x' });
+
+	expect(settled.head).toBe(unsettled.head);
+});
+
+test('folds settled promises via the replacer', async () => {
+	const unhandled = vi.fn();
+	process.on('unhandledRejection', unhandled);
+
+	try {
+		const shared = { x: 1 };
+		const ok = Promise.resolve(shared);
+		const bad = Promise.reject(shared);
+		bad.catch(() => {});
+
+		/** @type {Map<unknown, { ok: boolean, value?: unknown, reason?: unknown }>} */
+		const settled = new Map([
+			[ok, { ok: true, value: shared }],
+			[bad, { ok: false, reason: shared }]
+		]);
+		/**
+		 * This is just a simple helper to create a rejected promise that doesn't throw an unhandled rejection
+		 * @type {(reason: unknown, js: import('../src/types.js').JavaScriptTag) => any}
+		 */
+		const rejected = (reason, js) => js`(p => (p.catch(() => {}), p))(Promise.reject(${reason}))`;
+
+		const { root, blocks } = await expect_roundtrip(() => ({ shared, ok, bad }), {
+			replacer: (v, js) => {
+				const r = settled.get(v);
+				if (r) return r.ok ? js`Promise.resolve(${r.value})` : rejected(r.reason, js);
+			},
+			orders: ['fifo']
+		});
+
+		expect(blocks).toHaveLength(0);
+		await new Promise((r) => setTimeout(r, 10));
+		expect(unhandled).not.toHaveBeenCalled();
+		const revived = /** @type {any} */ (root);
+		expect(await revived.ok).toBe(revived.shared);
+	} finally {
+		process.off('unhandledRejection', unhandled);
+	}
+});
+
+test('wraps the uneval output in a final head when there are no promises', async () => {
+	const value = { x: 1 };
+	const stream = unevalStream(value);
+	const c = client();
+
+	expect(stream.head).toBe(
+		`(globalThis.__d??=[]).push([${JSON.stringify(stream.id)},(s,n)=>(n(${uneval(value)}),1)]);`
+	);
+	expect(c.head(stream.head)).toEqual({ x: 1 });
+	expect(c.done_ids).toEqual([stream.id]);
+	expect((await stream.tail.next()).done).toBe(true);
+});
+
+test('return() completes a pending next()', async () => {
+	const stream = unevalStream({ p: new Promise(() => {}) });
+	const next = stream.tail.next();
+
+	expect(await stream.tail.return()).toEqual({ done: true, value: undefined });
+	expect(await next).toEqual({ done: true, value: undefined });
+});
+
+test('abort emits a final block that rejects pending client promises', async () => {
+	const controller = new AbortController();
+	const settled = Promise.withResolvers();
+	const stream = unevalStream(
+		{ a: settled.promise, b: new Promise(() => {}), c: new Promise(() => {}) },
+		undefined,
+		{ signal: controller.signal }
+	);
+	const c = client();
+	const root = c.head(stream.head);
+
+	settled.resolve(1);
+	const first = await stream.tail.next();
+	c.block(/** @type {string} */ (first.value));
+	expect(await root.a).toBe(1);
+
+	const next = stream.tail.next();
+	const later = stream.tail.next();
+	controller.abort(new Error('server-only reason'));
+
+	const last = await next;
+	expect(last.done).toBe(false);
+	c.block(/** @type {string} */ (last.value));
+	for (const p of [root.b, root.c]) {
+		await expect(p).rejects.toThrow('devalue: stream aborted');
+	}
+	expect(last.value).not.toContain('server-only reason');
+	expect(c.done_ids).toEqual([stream.id]);
+	expect(await later).toEqual({ done: true, value: undefined });
+	expect(await stream.tail.next()).toEqual({ done: true, value: undefined });
+});
+
+test('abort with no pending next() emits the final block on the next read', async () => {
+	const controller = new AbortController();
+	const queued = Promise.withResolvers();
+	const stream = unevalStream({ q: queued.promise, p: new Promise(() => {}) }, undefined, {
+		signal: controller.signal
+	});
+	const c = client();
+	const root = c.head(stream.head);
+
+	// An outcome queued but not yet emitted is rejected along with the rest.
+	queued.resolve(1);
+	await new Promise((r) => setTimeout(r, 0));
+	controller.abort();
+
+	const last = await stream.tail.next();
+	c.block(/** @type {string} */ (last.value));
+	await expect(root.q).rejects.toThrow('devalue: stream aborted');
+	await expect(root.p).rejects.toThrow('devalue: stream aborted');
+	expect(c.done_ids).toEqual([stream.id]);
+	expect(await stream.tail.next()).toEqual({ done: true, value: undefined });
+});
+
+test('abort after completion or return() emits nothing', async () => {
+	for (const mode of ['complete', 'return']) {
+		const controller = new AbortController();
+		const stream = unevalStream({ p: Promise.resolve(1) }, undefined, {
+			signal: controller.signal
+		});
+		if (mode === 'complete') expect((await stream.tail.next()).done).toBe(false);
+		else await stream.tail.return();
+		controller.abort();
+		expect(await stream.tail.next()).toEqual({ done: true, value: undefined });
+	}
+});
+
+test('abort during a tail block rejects the promises that block creates', async () => {
+	const controller = new AbortController();
+	const source = Promise.withResolvers();
+	const graph = { nested: new Promise(() => {}) };
+	const stream = unevalStream(
+		source.promise,
+		(thing) => {
+			if (thing === graph) controller.abort();
+		},
+		{ signal: controller.signal }
+	);
+	const c = client();
+	const root = c.head(stream.head);
+
+	source.resolve(graph);
+	const block = await stream.tail.next();
+	c.block(/** @type {string} */ (block.value));
+
+	const revived = await root;
+	await expect(revived.nested).rejects.toThrow('devalue: stream aborted');
+	expect(c.done_ids).toEqual([stream.id]);
+	expect(await stream.tail.next()).toEqual({ done: true, value: undefined });
+});
+
+test.each([{ promises: true }, { promises: false }])(
+	'abort during head emission throws the exact reason (promises: $promises)',
+	({ promises }) => {
+		const controller = new AbortController();
+		const reason = new Error('abort during head');
+		const value = {
+			...(promises ? { p: new Promise(() => {}) } : {}),
+			get tripwire() {
+				controller.abort(reason);
+				return 1;
+			}
+		};
+
+		let result;
+		let thrown;
+		try {
+			result = unevalStream(value, undefined, { signal: controller.signal });
+		} catch (error) {
+			thrown = error;
+		}
+
+		expect(thrown).toBe(reason);
+		expect(result).toBeUndefined();
+	}
+);
+
+test('concurrent next() calls settle in order', async () => {
+	const a = Promise.withResolvers();
+	const b = Promise.withResolvers();
+	const stream = unevalStream({ a: a.promise, b: b.promise });
+	const c = client();
+	const root = c.head(stream.head);
+
+	/** @type {string[]} */
+	const order = [];
+	const first = stream.tail.next().then((r) => (order.push('first'), r));
+	const second = stream.tail.next().then((r) => (order.push('second'), r));
+	const third = stream.tail.next().then((r) => (order.push('third'), r));
+
+	b.resolve('b');
+	await new Promise((r) => setTimeout(r, 0));
+	a.resolve('a');
+
+	const results = await Promise.all([first, second, third]);
+	expect(order).toEqual(['first', 'second', 'third']);
+	expect(results.map((r) => r.done)).toEqual([false, false, true]);
+	for (const r of results.slice(0, 2)) c.block(/** @type {string} */ (r.value));
+	expect(await root.a).toBe('a');
+	expect(await root.b).toBe('b');
+});
+
+test('rejection reasons never reach the client by default', async () => {
+	const stream = unevalStream({
+		error: Promise.reject(new Error('db password=hunter2')),
+		object: Promise.reject({ secret: 'internal detail' }),
+		string: Promise.reject('stack trace')
+	});
+	let source = stream.head;
+	const c = client();
+	const root = c.head(stream.head);
+	for await (const block of stream.tail) {
+		source += block;
+		c.block(block);
+	}
+	for (const key of ['error', 'object', 'string']) {
+		await expect(root[key]).rejects.toThrow('devalue: failed to serialize asynchronous value');
+	}
+	expect(source).not.toMatch(/hunter2|secret|internal|stack/);
+});
+
+test.each(['sync', 'async'])('transformError (%s) shapes rejections and failures', async (mode) => {
+	const shared = { shared: true };
+	/** @param {unknown} error */
+	const shape = (error) => ({
+		message: error instanceof Error ? error.message : String(error),
+		shared
+	});
+	const stream = unevalStream(
+		{
+			shared,
+			rejected: Promise.reject(new Error('nope')),
+			unserializable: Promise.resolve({ fn() {} }),
+			resolved: Promise.resolve(1)
+		},
+		undefined,
+		{
+			transformError: (error) => (mode === 'sync' ? shape(error) : Promise.resolve(shape(error)))
+		}
+	);
+	const c = client();
+	const root = c.head(stream.head);
+	for await (const block of stream.tail) c.block(block);
+
+	await expect(root.rejected).rejects.toEqual({ message: 'nope', shared: root.shared });
+	const reason = await root.unserializable.catch((/** @type {any} */ e) => e);
+	expect(reason.message).toMatch(/Cannot stringify/);
+	expect(reason.shared).toBe(root.shared);
+	expect(await root.resolved).toBe(1);
+	expect(c.done_ids).toEqual([stream.id]);
+});
+
+test.each([
+	[
+		'throws',
+		() => {
+			throw new Error('transform failed');
+		}
+	],
+	['rejects', () => Promise.reject(new Error('transform failed'))],
+	['returns something unserializable', () => ({ fn() {} })],
+	['resolves to something unserializable', () => Promise.resolve(Symbol())],
+	['returns undefined', () => undefined],
+	['returns null', () => null],
+	['returns false', () => false],
+	['resolves to null', () => Promise.resolve(null)]
+])('falls back to the generic error when transformError %s', async (_, transformError) => {
+	const stream = unevalStream({ p: Promise.reject(new Error('secret')) }, undefined, {
+		transformError
+	});
+	const c = client();
+	const root = c.head(stream.head);
+	let source = '';
+	for await (const block of stream.tail) {
+		source += block;
+		c.block(block);
+	}
+	await expect(root.p).rejects.toThrow('devalue: failed to serialize asynchronous value');
+	expect(source).not.toContain('secret');
+	expect(c.done_ids).toEqual([stream.id]);
+});
+
+test('a pending async transformError does not hold back other settlements', async () => {
+	const transform = Promise.withResolvers();
+	const stream = unevalStream(
+		{ failed: Promise.reject(new Error('x')), ok: Promise.resolve(1) },
+		undefined,
+		{ transformError: () => transform.promise }
+	);
+	const c = client();
+	const root = c.head(stream.head);
+	c.block(/** @type {string} */ ((await stream.tail.next()).value));
+	expect(await root.ok).toBe(1);
+	transform.resolve('shaped');
+	c.block(/** @type {string} */ ((await stream.tail.next()).value));
+	await expect(root.failed).rejects.toBe('shaped');
+	expect((await stream.tail.next()).done).toBe(true);
+});
+
+test('return() during an async transformError ends the stream', async () => {
+	const stream = unevalStream({ p: Promise.reject(new Error('x')) }, undefined, {
+		transformError: () => new Promise(() => {})
+	});
+	const next = stream.tail.next();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	await stream.tail.return();
+	expect(await next).toEqual({ done: true, value: undefined });
+});
