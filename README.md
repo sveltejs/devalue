@@ -127,7 +127,7 @@ Evaluate `head` once, then each block once, in the order they're produced, in th
 
 | Option    | Description                                                                                                                                                             |
 | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `receive` | `(id, value) => void`, called once per stream with its revived value, as soon as its head is handled.                                                                   |
+| `receive` | `(id, value) => void`, called with each revived value as soon as its message is handled: once per stream's head, or once per `uneval` for a [`Session`](#session).      |
 | `done`    | `(id) => void`, called once per stream after its last block has been handled (including after an abort). Every promise in it has settled, and nothing more will arrive. |
 | `target`  | The object that holds the queue. Defaults to `globalThis`.                                                                                                              |
 | `key`     | The property of `target` that holds the queue. Defaults to `'__d'`.                                                                                                     |
@@ -158,6 +158,41 @@ devalue.unevalStream(value, (v, js) => {
 #### Versioning
 
 The output of `unevalStream` and `devalue/uneval-stream/client` speak a protocol, and can come from different deployments or caches. They have to come from the same major version of devalue, so update both together.
+
+### `Session`
+
+`unevalStream` decides what goes in each block. If you need to decide that yourself — to send more values after the head, to choose which settled promises go in which payload, or to handle errors per value — use a `Session`, which is what `unevalStream` is built on. It serializes any number of values, in order, against everything it has already sent, and only produces output when you ask for it:
+
+```js
+const session = new devalue.Session({ id: 'data' });
+
+res.write(`<script>${session.uneval({ user: getUser() })}</script>`);
+
+// later values can refer to objects and promises from earlier ones
+res.write(`<script>${session.uneval({ posts: getPosts() })}</script>`);
+
+while (session.pending > 0) {
+  await session.changed();
+  const { code, errors } = session.flush();
+  for (const { error } of errors) console.warn(error);
+  if (code) res.write(`<script>${code}</script>`);
+}
+
+res.write(`<script>${session.end()}</script>`);
+```
+
+The client is the same `install` as for `unevalStream`. `receive` is called once per `uneval`, and `done` once `end`'s statement has been handled.
+
+| Member    | Description                                                                                                                                                                                                                                                                                                                                                                             |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `uneval`  | `(value) => string`. A statement that recreates `value` on the client and passes it to `receive`. Promises inside it become pending promises on the client. Throws if `value` can't be serialized, in which case nothing about it is recorded, so the session can carry on.                                                                                                             |
+| `flush`   | `() => { code, errors }`. `code` is a statement that settles every promise that has settled since the last flush, or `''`. Settled values may contain further promises, which become pending. `errors` lists the promises that resolved to something that can't be serialized, with the errors that kept them from serializing; they reject on the client, as `transformError` decides. |
+| `changed` | `() => Promise<void>`. Resolves once there's something to flush (immediately, if there already is), or once the session has ended. It doesn't flush anything itself, so it's safe to race against other promises, or to abandon.                                                                                                                                                        |
+| `pending` | The number of promises sent to the client that a `flush` hasn't settled yet.                                                                                                                                                                                                                                                                                                            |
+| `end`     | `() => string`. The final statement: it rejects every promise still pending on the client and ends the stream, so `done` is called. Settlements that haven't been flushed are dropped, so call `flush` first. The session can't be used afterwards.                                                                                                                                     |
+| `id`      | The session key, which `receive` and `done` are called with.                                                                                                                                                                                                                                                                                                                            |
+
+`new Session(options)` takes `id`, `scope` and `transformError`, as `unevalStream` does, and `replacer`. A promise that has already settled when it's passed to `uneval` can be flushed after a microtask. Evaluate the statements once each, in the order they were produced, and don't mutate the values you've passed in until the session has ended.
 
 ### `unflatten`
 

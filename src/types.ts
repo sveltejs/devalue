@@ -93,6 +93,41 @@ export interface UnevalStreamOptions {
 	transformError?: (error: unknown) => unknown;
 }
 
+/** Options for `new Session()`. */
+export interface SessionOptions {
+	/**
+	 * Session key. Pass a stable value when the output must be byte-identical across runs. It
+	 * must be unique on the page until the session has ended.
+	 */
+	id?: string;
+	/**
+	 * Trusted assignable expression that holds the client queue. Default `globalThis.__d`.
+	 * Must be the same location as `install`'s `target[key]` on the client.
+	 */
+	scope?: string;
+	/** Called for each value before it's serialized, as with `uneval` */
+	replacer?: UnevalReplacer;
+	/**
+	 * Turns a rejection reason, or the error that kept a resolved value from serializing,
+	 * into the value the client promise rejects with. May return a promise. Like a
+	 * replacer, returning `undefined`, `null` or `false` keeps the default: the client
+	 * promise rejects with a generic Error. So does throwing, rejecting, or returning
+	 * something that can't be serialized.
+	 */
+	transformError?: (error: unknown) => unknown;
+}
+
+/** The result of `Session#flush`. */
+export interface SessionFlushResult {
+	/** A statement that settles the promises, or `''` if there was nothing to settle */
+	code: string;
+	/**
+	 * The promises that resolved to something that can't be serialized, and the errors that
+	 * kept them from serializing. They reject on the client, as `transformError` decides.
+	 */
+	errors: Array<{ promise: Promise<unknown>; error: unknown }>;
+}
+
 /** The result of `unevalStream`. */
 export interface UnevalStreamResult {
 	/**
@@ -115,7 +150,10 @@ export interface InstallOptions {
 	target?: object;
 	/** The property of `target` that holds the queue. Defaults to `'__d'` */
 	key?: PropertyKey;
-	/** Receives each stream's revived value, as soon as its head is handled. Called once per stream */
+	/**
+	 * Receives each revived value, as soon as its message is handled: once per `unevalStream`
+	 * head, and once per `Session#uneval`
+	 */
 	receive(id: string, value: unknown): void;
 	/**
 	 * Called once per stream, after its last message has been handled (including after an abort): every

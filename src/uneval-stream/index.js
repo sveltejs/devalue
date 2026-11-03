@@ -1,5 +1,5 @@
 /**
- * @import { UnevalReplacer, UnevalStreamOptions, UnevalStreamResult } from '../types.js';
+ * @import { SessionFlushResult, SessionOptions, UnevalReplacer, UnevalStreamOptions, UnevalStreamResult } from '../types.js';
  */
 import { js, JavaScriptSource } from '../javascript-source.js';
 import { analyze } from '../uneval.js';
@@ -29,44 +29,62 @@ const MAX_PATH_LENGTH = 128;
  */
 export function unevalStream(value, replacer, options = {}) {
 	if (options.signal?.aborted) throw options.signal.reason;
-	const scope = options.scope ?? 'globalThis.__d';
-	const id = options.id ?? random_id();
-	const key = stringify_string(id);
-	const session = new Session(replacer, options, scope, key);
-	const head = start(session, value);
-	return { head, tail: session, id };
+	const session = new Session({
+		id: options.id,
+		scope: options.scope,
+		replacer,
+		transformError: options.transformError
+	});
+	const head = start(session, value, options.signal);
+	return { head, tail: new Tail(session), id: session.id };
 }
 
 /**
- * Emits the head for a new session. Assigned inside `Session` so it can reach private state.
- * @type {(session: Session, value: any) => string}
+ * Emits the head for `unevalStream`. Assigned inside `Session` so it can reach private state.
+ * @type {(session: Session, value: any, signal: AbortSignal | undefined) => string}
  */
 let start;
 
-/** Persistent request state is owned here, never by the input-bearing setup scope. */
-class Session {
+/**
+ * Emits `unevalStream`'s next tail block. Assigned inside `Session` so it can reach private state.
+ * @type {(session: Session) => Promise<IteratorResult<string, undefined>>}
+ */
+let step;
+
+/**
+ * Ends `unevalStream`'s tail early. Assigned inside `Session` so it can reach private state.
+ * @type {(session: Session) => void}
+ */
+let stop;
+
+/**
+ * Serializes any number of values, in order, against everything it has already sent to the
+ * client, so later values can refer to objects and promises from earlier ones. Promises
+ * become pending promises on the client, and `flush` settles the ones that have settled.
+ * Nothing is sent unless you ask for it, so you decide what goes in each payload.
+ *
+ * Persistent request state is owned here, never by the input-bearing setup scope.
+ */
+export class Session {
 	static {
-		start = (session, value) => session.#start(value);
+		start = (session, value, signal) => session.#start(value, signal);
+		step = (session) => session.#step();
+		stop = (session) => session.#finish();
 	}
 
-	/**
-	 * @param {UnevalReplacer | undefined} replacer
-	 * @param {UnevalStreamOptions} options
-	 * @param {string} scope
-	 * @param {string} key
-	 */
-	constructor(replacer, options, scope, key) {
-		this.#replacer = replacer;
+	/** @param {SessionOptions} [options] */
+	constructor(options = {}) {
+		this.#replacer = options.replacer;
 		this.#transform_error = options.transformError;
-		this.#signal = options.signal;
-		this.#scope = scope;
-		this.#key = key;
+		this.#scope = options.scope ?? 'globalThis.__d';
+		this.#id = options.id ?? random_id();
+		this.#key = stringify_string(this.#id);
 		this.#on_abort = this.#abort_stream.bind(this);
 	}
 
 	/** @type {UnevalReplacer | undefined} */
 	#replacer;
-	/** @type {UnevalStreamOptions['transformError']} */
+	/** @type {SessionOptions['transformError']} */
 	#transform_error;
 	/** @type {AbortSignal | undefined} */
 	#signal;
@@ -75,6 +93,8 @@ class Session {
 	 * @type {string}
 	 */
 	#scope;
+	/** @type {string} */
+	#id;
 	/**
 	 * The session key, as a string literal
 	 * @type {string}
@@ -83,11 +103,85 @@ class Session {
 	/** @type {() => void} */
 	#on_abort;
 
+	/** The session key, which the client's `receive` and `done` are called with */
+	get id() {
+		return this.#id;
+	}
+
+	/** The number of promises sent to the client that a `flush` hasn't settled yet */
+	get pending() {
+		return this.#pending;
+	}
+
 	/**
+	 * Returns a statement that recreates `value` on the client and passes it to `install`'s
+	 * `receive`. It can refer to anything this session has already sent. Promises inside it
+	 * become pending promises on the client, which later flushes settle. Throws if `value`
+	 * can't be serialized, in which case nothing about it is recorded.
 	 * @param {any} value
 	 * @returns {string}
 	 */
-	#start(value) {
+	uneval(value) {
+		if (this.#done) throw new Error('devalue: the session has ended');
+		return this.#message(`(s,n)=>n(${this.#emit_value(value, false)})`);
+	}
+
+	/**
+	 * Returns a statement that settles every promise that has settled since the last flush
+	 * (or `''` if none have). Settled values are serialized like `uneval`, so promises inside
+	 * them become pending too. The errors that kept resolved values from serializing are
+	 * returned in `errors`; those promises reject on the client, as `transformError` decides.
+	 * @returns {SessionFlushResult}
+	 */
+	flush() {
+		/** @type {SessionFlushResult['errors']} */
+		const errors = [];
+		const statements = this.#drain(errors);
+		const code = statements.length > 0 ? this.#message(`(s)=>{${statements.join(';')}}`) : '';
+		return { code, errors };
+	}
+
+	/**
+	 * Resolves once there's something to flush (immediately, if there already is), or once the
+	 * session has ended. Doesn't flush anything itself, so it's safe to race or abandon.
+	 * @returns {Promise<void>}
+	 */
+	changed() {
+		if (this.#done || this.#queue.length > 0) return Promise.resolve();
+		this.#change ??= deferred();
+		return this.#change.promise;
+	}
+
+	/**
+	 * Returns the session's final statement, which rejects every promise still pending on the
+	 * client and tells the client the stream is over, so `install`'s `done` is called. Settlements
+	 * that haven't been flushed are dropped, so call `flush` first to send them.
+	 * @returns {string}
+	 */
+	end() {
+		if (this.#done) throw new Error('devalue: the session has ended');
+		const code = this.#message(`(s)=>{${this.#pending > 0 ? 's.a();' : ''}return 1}`);
+		this.#finish();
+		return code;
+	}
+
+	/**
+	 * A statement that pushes a message onto the client queue, creating the queue if this
+	 * might be the first payload on the page
+	 * @param {string} fn
+	 * @param {boolean} [create]
+	 */
+	#message(fn, create = true) {
+		return `${create ? `(${this.#scope}??=[])` : this.#scope}.push([${this.#key},${fn}]);`;
+	}
+
+	/**
+	 * @param {any} value
+	 * @param {AbortSignal | undefined} signal
+	 * @returns {string}
+	 */
+	#start(value, signal) {
+		this.#signal = signal;
 		this.#signal?.addEventListener('abort', this.#on_abort);
 
 		let head;
@@ -148,6 +242,13 @@ class Session {
 	 */
 	#queue = [];
 
+	/**
+	 * The promises sent to the client that haven't been settled in a block yet, so that `flush`
+	 * can say which one failed to serialize
+	 * @type {Map<number, Promise<unknown>>}
+	 */
+	#promises = new Map();
+
 	#next_slot = 0;
 	#next_promise = 0;
 	/** The number of pending promises that have been sent to the client but not yet resolved */
@@ -165,16 +266,10 @@ class Session {
 	#delivery = { current: this };
 
 	/**
-	 * In order to fulfill the AsyncIterableIterator contract (and avoid accidentally sending results out of order),
-	 * we use a chain of promises to force subsequent calls to `#next` to resolve in the original call order.
+	 * Resolves the promise returned by `changed`, once a settlement is queued or the session finishes
+	 * @type {ReturnType<typeof deferred> | null}
 	 */
-	#chain = Promise.resolve();
-
-	/**
-	 * Resumes a `next()` waiting for a settlement or for the session to finish
-	 * @type {(value?: unknown) => void}
-	 */
-	#wake = noop;
+	#change = null;
 
 	/**
 	 * Set by an abort and cleared once the final block that rejects the remaining
@@ -277,6 +372,7 @@ class Session {
 				if (!head) for (const [thing, location] of locations) known.set(thing, location);
 				for (const [promise, index] of fresh) {
 					this.#pending += 1;
+					this.#promises.set(index, /** @type {Promise<unknown>} */ (promise));
 					Session.#subscribe(promise, index, this.#delivery);
 				}
 			}
@@ -297,21 +393,50 @@ class Session {
 	#enqueue(index, ok, value) {
 		if (this.#done) return;
 		this.#queue.push({ index, ok, value });
-		this.#wake();
+		this.#notify();
+	}
+
+	#notify() {
+		const change = this.#change;
+		this.#change = null;
+		change?.resolve();
+	}
+
+	/**
+	 * Turns the queued settlements into statements
+	 * @param {SessionFlushResult['errors']} [errors] Receives the errors that kept resolved values from serializing
+	 * @returns {string[]}
+	 */
+	#drain(errors) {
+		const statements = [];
+		// Synchronously transformed failures are queued behind and join these statements.
+		const queue = this.#queue;
+		for (let i = 0; i < queue.length; i += 1) {
+			const { index, ok, value } = queue[i];
+			const statement = this.#settle(index, ok, value, errors);
+			if (statement === null) continue;
+			this.#pending -= 1;
+			this.#promises.delete(index);
+			statements.push(statement);
+		}
+		queue.length = 0;
+		return statements;
 	}
 
 	/**
 	 * @param {number} index
 	 * @param {boolean} ok
 	 * @param {unknown} value
+	 * @param {SessionFlushResult['errors']} [errors]
 	 */
-	#settle(index, ok, value) {
+	#settle(index, ok, value, errors) {
 		if (value === FAILURE) return `s.r(${index},1,${FAILED})`;
 		try {
 			return `s.r(${index},${ok ? 0 : 1},${this.#emit_value(value, false)})`;
 		} catch (error) {
 			// A transformed error that can't be serialized is not transformed again.
 			if (!ok) return `s.r(${index},1,${FAILED})`;
+			errors?.push({ promise: /** @type {Promise<unknown>} */ (this.#promises.get(index)), error });
 			this.#fail(index, error);
 			return null;
 		}
@@ -355,13 +480,12 @@ class Session {
 		this.#replacer_cache.clear();
 		this.#primitives.clear();
 		this.#queue.length = 0;
+		this.#promises.clear();
 		this.#replacer = undefined;
 		this.#transform_error = undefined;
 		this.#signal = undefined;
 		this.#on_abort = noop;
-		const wake = this.#wake;
-		this.#wake = noop;
-		wake();
+		this.#notify();
 	}
 
 	#abort_stream() {
@@ -374,23 +498,12 @@ class Session {
 	async #step() {
 		for (;;) {
 			while (!this.#done && this.#queue.length === 0) {
-				await new Promise((resolve) => (this.#wake = resolve));
-				this.#wake = noop;
+				await this.changed();
 			}
 
 			if (this.#done && !this.#abort) return DONE;
 
-			const statements = [];
-			// Synchronously transformed failures are queued behind and join this block.
-			const queue = this.#queue;
-			for (let i = 0; i < queue.length; i += 1) {
-				const { index, ok, value } = queue[i];
-				const statement = this.#settle(index, ok, value);
-				if (statement === null) continue;
-				this.#pending -= 1;
-				statements.push(statement);
-			}
-			queue.length = 0;
+			const statements = this.#drain();
 
 			// Checked after settling, since a replacer can abort while this block is emitted.
 			// Rejects everything still pending on the client, including any promises this
@@ -408,27 +521,10 @@ class Session {
 			if (complete) statements.push('return 1');
 
 			// The head has created the queue (or `install` has replaced it) by now
-			const value = `${this.#scope}.push([${this.#key},(s)=>{${statements.join(';')}}]);`;
+			const value = this.#message(`(s)=>{${statements.join(';')}}`, false);
 			if (complete) this.#finish();
 			return { done: false, value };
 		}
-	}
-
-	/** @returns {Promise<IteratorResult<string, undefined>>} */
-	next() {
-		const result = this.#chain.then(this.#step.bind(this));
-		this.#chain = result.then(noop, noop);
-		return result;
-	}
-
-	/** @returns {Promise<IteratorResult<string, undefined>>} */
-	return() {
-		this.#finish();
-		return Promise.resolve(DONE);
-	}
-
-	[Symbol.asyncIterator]() {
-		return this;
 	}
 
 	/**
@@ -458,6 +554,48 @@ class Session {
 		const session = delivery.current;
 		if (session) session.#enqueue(index, ok, value);
 	}
+}
+
+/** The `tail` of `unevalStream` */
+class Tail {
+	/** @param {Session} session */
+	constructor(session) {
+		this.#session = session;
+	}
+
+	/** @type {Session} */
+	#session;
+
+	/**
+	 * In order to fulfill the AsyncIterableIterator contract (and avoid accidentally sending results out of order),
+	 * we use a chain of promises to force subsequent calls to `next` to resolve in the original call order.
+	 */
+	#chain = Promise.resolve();
+
+	/** @returns {Promise<IteratorResult<string, undefined>>} */
+	next() {
+		const result = this.#chain.then(() => step(this.#session));
+		this.#chain = result.then(noop, noop);
+		return result;
+	}
+
+	/** @returns {Promise<IteratorResult<string, undefined>>} */
+	return() {
+		stop(this.#session);
+		return Promise.resolve(DONE);
+	}
+
+	[Symbol.asyncIterator]() {
+		return this;
+	}
+}
+
+function deferred() {
+	/** @type {() => void} */
+	let resolve = noop;
+	/** @type {Promise<void>} */
+	const promise = new Promise((fulfil) => (resolve = fulfil));
+	return { promise, resolve };
 }
 
 /**
