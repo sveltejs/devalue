@@ -1,4 +1,5 @@
 export { uneval } from './uneval.js';
+export { unevalStream } from './uneval-stream.js';
 export { parse, unflatten } from './parse.js';
 export { stringify, stringifyAsync } from './stringify.js';
 export {
