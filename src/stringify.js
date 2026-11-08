@@ -119,37 +119,35 @@ function run(async, value, reducers, options) {
 
 		if (type === 'undefined') return UNDEFINED;
 
+		/** @type {number | undefined} */
+		let number;
+
 		// `ops.toPrimitive` is the boundary between the value being serialized and
 		// plain host JavaScript: everything below operates on the extracted host
 		// primitive, so native comparisons and arithmetic are correct there.
 		if (type === 'number') {
-			const number = /** @type {number} */ (ops.toPrimitive(thing));
+			number = /** @type {number} */ (ops.toPrimitive(thing));
 			if (Number.isNaN(number)) return NAN;
 			if (number === Infinity) return POSITIVE_INFINITY;
 			if (number === -Infinity) return NEGATIVE_INFINITY;
 			if (number === 0 && 1 / number < 0) return NEGATIVE_ZERO;
-
-			// numbers bypass `indexes`: small non-negative integers repeat often
-			// enough to deduplicate through an array, other numbers are emitted as-is
-			const small_integer = Number.isInteger(number) && number >= 0 && number < 1024;
-
-			if (small_integer) {
-				const existing = small_integer_indexes[number];
-				if (existing !== undefined) return existing;
-			}
-
-			index ??= p++;
-			if (small_integer) small_integer_indexes[number] = index;
-			stringified[index] = String(number);
-			return index;
 		}
 
 		const id = ops.identify(thing);
 
-		if (indexes.has(id)) return /** @type {number} */ (indexes.get(id));
-
-		index ??= p++;
-		indexes.set(id, index);
+		// small non-negative integers repeat often enough that an array lookup
+		// is noticeably cheaper than `indexes`
+		if (typeof id === 'number' && id >>> 0 === id && id < 1024) {
+			const existing = small_integer_indexes[id];
+			if (existing !== undefined) return existing;
+			index ??= p++;
+			small_integer_indexes[id] = index;
+		} else {
+			const existing = indexes.get(id);
+			if (existing !== undefined) return existing;
+			index ??= p++;
+			indexes.set(id, index);
+		}
 
 		if (type === 'object' || type === 'function' || type === 'symbol') {
 			for (const { key, fn } of custom) {
@@ -171,7 +169,7 @@ function run(async, value, reducers, options) {
 		let str = '';
 
 		if (type !== 'object') {
-			str = stringify_primitive(ops.toPrimitive(thing));
+			str = stringify_primitive(type === 'number' ? number : ops.toPrimitive(thing));
 		} else if (ops.isThenable(thing)) {
 			if (!async) {
 				error(`Cannot stringify a Promise or thenable — use stringifyAsync instead`, thing);

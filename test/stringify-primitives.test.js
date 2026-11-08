@@ -126,10 +126,8 @@ describe('stringify primitives', () => {
 		expect(stringify([0, 0, 1023, 1023])).toBe('[[1,1,2,2],0,1023]');
 	});
 
-	test('emits other repeated numbers as-is', () => {
-		expect(stringify([1024, 1024, 0.5, 0.5, -1, -1])).toBe(
-			'[[1,2,3,4,5,6],1024,1024,0.5,0.5,-1,-1]'
-		);
+	test('deduplicates other repeated numbers', () => {
+		expect(stringify([1024, 1024, 0.5, 0.5, -1, -1])).toBe('[[1,1,2,2,3,3],1024,0.5,-1]');
 	});
 
 	test('deduplicates repeated strings, booleans, null and bigints', () => {

@@ -111,8 +111,8 @@ export interface StringifyOperations {
 	 * Override this when serializing through handles, where two distinct
 	 * handle objects may refer to the same underlying value.
 	 *
-	 * Keys are compared across every value in the payload except numbers,
-	 * strings included, so an implementation that derives keys for objects must
+	 * Keys are compared across *every* value in the payload, including
+	 * primitives, so an implementation that derives keys for objects must
 	 * make sure they cannot collide with a primitive that appears in the
 	 * same payload — returning e.g. the string `'42'` as an object's key
 	 * would alias it to the string `'42'` elsewhere in the payload and emit
