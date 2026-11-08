@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, vi } from 'vitest';
 import { stringify_string, valid_array_indices } from './utils.js';
 
 describe('valid_array_indices', () => {
@@ -93,5 +93,29 @@ describe('stringify_string', () => {
 		expect(stringify_string('\udc00\ud83d\ude00')).toBe('"\\udc00\ud83d\ude00"');
 		// a pair next to characters that are always escaped
 		expect(stringify_string('<\ud83d\ude00"\n')).toBe('"\\u003C\ud83d\ude00\\"\\n"');
+	});
+});
+
+describe('stringify_string without String.prototype.isWellFormed', () => {
+	// `isWellFormed` is ES2024 (Node 20, Chrome 111), so it is missing in
+	// Node 18 and in browsers such as Chrome 109
+	test('falls back to escaping only unpaired surrogates', async () => {
+		const descriptor = Object.getOwnPropertyDescriptor(String.prototype, 'isWellFormed');
+		// @ts-expect-error simulate an engine without the method
+		delete String.prototype.isWellFormed;
+
+		try {
+			vi.resetModules();
+			const { stringify_string } = await import('./utils.js');
+
+			expect(stringify_string('hello')).toBe('"hello"');
+			expect(stringify_string('\ud83d\ude00')).toBe('"\ud83d\ude00"');
+			expect(stringify_string('a\ud800b')).toBe('"a\\ud800b"');
+			expect(stringify_string('\udc00\ud83d\ude00')).toBe('"\\udc00\ud83d\ude00"');
+			expect(stringify_string('<\ud83d\ude00"')).toBe('"\\u003C\ud83d\ude00\\""');
+		} finally {
+			if (descriptor) Object.defineProperty(String.prototype, 'isWellFormed', descriptor);
+			vi.resetModules();
+		}
 	});
 });
