@@ -40,8 +40,9 @@ export function uneval(value, replacer) {
 	const names = new Map();
 	const reserved = new Set();
 	const templates = new Set();
-	// everything the fast pass visited has been seen exactly once
-	const seen = plain.seen;
+	// everything the fast pass visited has been seen exactly once. Things
+	// visited from here on are added with an id of -1
+	const visited = plain.ids;
 
 	// the path to the value being walked, recorded as-is and only formatted
 	// by `error` — see `format_path`
@@ -86,12 +87,12 @@ export function uneval(value, replacer) {
 	/** @param {any} thing */
 	function walk(thing) {
 		if (!is_primitive(thing)) {
-			if (seen.has(thing)) {
+			if (visited.has(thing)) {
 				if (!names.has(thing)) names.set(thing, '');
 				return;
 			}
 
-			seen.add(thing);
+			visited.set(thing, -1);
 
 			if (replacer) {
 				const fragment = plain.replaced.has(thing)
@@ -279,8 +280,8 @@ export function uneval(value, replacer) {
 		}
 	}
 
-	// Reuse the traversal set to track declarations during serialization.
-	seen.clear();
+	// Tracks declarations during serialization.
+	const seen = new Set();
 	const inlining = custom.size > 0 ? new Set() : null;
 
 	/** @type {Map<any, () => void>} */
@@ -413,8 +414,16 @@ export function uneval(value, replacer) {
 			return source.render(stringify);
 		}
 
-		const frame = partials?.get(thing);
-		if (frame) return stringify_rest(frame);
+		const id = /** @type {number} */ (visited.get(thing));
+
+		if (id >= 0) {
+			// the fast pass serialized this, or started to
+			const text = texts[id];
+			if (text !== undefined && is_reusable(id, ends[id])) return text;
+
+			const frame = partials?.get(thing);
+			if (frame) return stringify_rest(frame);
+		}
 
 		const type = get_type(thing);
 
@@ -632,21 +641,49 @@ export function uneval(value, replacer) {
 		return result + '}';
 	}
 
-	// If nothing needs a name, the value contains no repeated references, so
-	// the text the fast pass produced for each frame is still correct. (No name
-	// can be added while stringifying either: that only happens when a value
-	// contains itself, and `walk` would have named the value it found twice.)
+	// The text the fast pass produced for an object can be reused unless something
+	// inside it has since been given a name, in which case the name belongs there
+	// instead. Ids were handed out in the order things were visited, so the things
+	// inside an object are the ones with ids between its own and its `end`.
+	const { texts, ends, count } = plain;
+
+	/**
+	 * `named[id]` is the number of named things with an id less than `id`
+	 * @type {Uint32Array | null}
+	 */
+	let named = null;
+
+	if (names.size > 0 && count > 0) {
+		named = new Uint32Array(count + 1);
+
+		for (const thing of names.keys()) {
+			const id = visited.get(thing);
+			if (id !== undefined && id >= 0) named[id + 1] = 1;
+		}
+
+		for (let i = 1; i <= count; i += 1) named[i] += named[i - 1];
+	}
+
+	/**
+	 * Whether nothing with an id from `start` up to (but not including) `end` has a name
+	 * @param {number} start
+	 * @param {number} end
+	 */
+	function is_reusable(start, end) {
+		return named === null || named[end] === named[start];
+	}
+
 	/** @type {Map<any, { thing: any, index: number, partial: string }> | null} */
 	let partials = null;
 
-	if (names.size === 0) {
-		for (const frame of frames) {
-			const { thing, partial } = frame;
-			if (partial === undefined) continue;
-			// sparse arrays are serialized differently
-			if (Array.isArray(thing) && valid_array_indices(thing).length !== thing.length) continue;
-			(partials ??= new Map()).set(thing, /** @type {any} */ (frame));
-		}
+	for (const frame of frames) {
+		const { thing, partial } = frame;
+		if (partial === undefined) continue;
+		// the fast pass visited everything in `partial` after `thing` and before it stopped
+		if (!is_reusable(/** @type {number} */ (visited.get(thing)), count)) continue;
+		// sparse arrays are serialized differently
+		if (Array.isArray(thing) && valid_array_indices(thing).length !== thing.length) continue;
+		(partials ??= new Map()).set(thing, /** @type {any} */ (frame));
 	}
 
 	const str = stringify(value);
@@ -675,10 +712,25 @@ class PlainSerializer {
 	replaced = new Map();
 
 	/**
-	 * Every object and long string visited so far
-	 * @type {Set<any>}
+	 * Every object and long string visited so far, numbered in the order they were visited
+	 * @type {Map<any, number>}
 	 */
-	seen = new Set();
+	ids = new Map();
+
+	/** The number of ids handed out */
+	count = 0;
+
+	/**
+	 * The serialization of each array and plain object that was visited in full, by id
+	 * @type {string[]}
+	 */
+	texts = [];
+
+	/**
+	 * For each of those, the value `count` had once its contents had been visited
+	 * @type {number[]}
+	 */
+	ends = [];
 
 	/**
 	 * Every long string visited so far
@@ -721,14 +773,14 @@ class PlainSerializer {
 	 * @returns {string}
 	 */
 	#serialize(thing) {
-		const seen = this.seen;
+		const ids = this.ids;
 
 		switch (typeof thing) {
 			case 'string':
 				if (thing.length >= MIN_STRING_LENGTH) {
 					// a long string that appears more than once may need to be hoisted
-					if (seen.has(thing)) return this.#bail();
-					seen.add(thing);
+					if (ids.has(thing)) return this.#bail();
+					ids.set(thing, this.count++);
 					this.long_strings.push(thing);
 				}
 
@@ -748,8 +800,9 @@ class PlainSerializer {
 
 		if (thing === null) return 'null';
 
-		if (seen.has(thing)) return this.#bail();
-		seen.add(thing);
+		if (ids.has(thing)) return this.#bail();
+		const id = this.count++;
+		ids.set(thing, id);
 
 		if (this.#replacer) {
 			const fragment = this.#replacer(thing, js);
@@ -782,7 +835,8 @@ class PlainSerializer {
 				}
 			}
 
-			return result + ']';
+			this.ends[id] = this.count;
+			return (this.texts[id] = result + ']');
 		}
 
 		if (proto === Date.prototype) {
@@ -818,7 +872,8 @@ class PlainSerializer {
 			}
 		}
 
-		return result + '}';
+		this.ends[id] = this.count;
+		return (this.texts[id] = result + '}');
 	}
 
 	/**
@@ -826,7 +881,7 @@ class PlainSerializer {
 	 * @param {any} thing
 	 */
 	#bail_at(thing) {
-		this.seen.delete(thing);
+		this.ids.delete(thing);
 		return this.#bail();
 	}
 
