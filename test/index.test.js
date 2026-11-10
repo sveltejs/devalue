@@ -254,6 +254,16 @@ const fixtures = {
 				expect(value[1]).toBe('b');
 			}
 		},
+		{
+			name: 'Array (sparse, after other values)',
+			value: [{ a: 1 }, new Set([1]), , 2],
+			js: '[{a:1},new Set([1]),,2]',
+			json: `[[1,3,${consts.HOLE},4],{"a":2},1,["Set",2],2]`,
+			validate: (value) => {
+				expect(value.length).toBe(4);
+				expect(Object.keys(value)).toEqual(['0', '1', '3']);
+			}
+		},
 		((arr) => {
 			arr[1000000] = 'x';
 			return {
