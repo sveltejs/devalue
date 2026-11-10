@@ -28,11 +28,20 @@ const MIN_STRING_LENGTH = 128;
  * @param {UnevalReplacer} [replacer]
  */
 export function uneval(value, replacer) {
+	// Most values are acyclic trees of plain objects, dense arrays, dates and
+	// primitives. Those need no reference counting, so try to serialize them in a
+	// single pass first. If that pass meets anything else, the general algorithm
+	// below takes over from where it stopped.
+	const plain = new PlainSerializer(replacer);
+	const result = plain.serialize(value);
+	if (result !== null) return result;
+
 	/** @type {Map<any, string>} */
 	const names = new Map();
 	const reserved = new Set();
 	const templates = new Set();
-	const seen = new Set();
+	// everything the fast pass visited has been seen exactly once
+	const seen = plain.seen;
 
 	// the path to the value being walked, recorded as-is and only formatted
 	// by `error` — see `format_path`
@@ -85,7 +94,9 @@ export function uneval(value, replacer) {
 			seen.add(thing);
 
 			if (replacer) {
-				const fragment = replacer(thing, js);
+				const fragment = plain.replaced.has(thing)
+					? plain.replaced.get(thing)
+					: replacer(thing, js);
 
 				if (fragment) {
 					const source = JavaScriptSource.from(fragment);
@@ -202,7 +213,50 @@ export function uneval(value, replacer) {
 		}
 	}
 
-	walk(value);
+	for (const string of plain.long_strings) {
+		(primitive_counts ??= new Map()).set(string, 1);
+	}
+
+	const { frames } = plain;
+
+	if (frames.length === 0) {
+		walk(value);
+	} else {
+		// `frames` holds the containers the fast pass was inside when it stopped,
+		// innermost first. Everything before the position recorded in each has
+		// been visited, so only the rest needs to be walked.
+		for (let i = frames.length - 1; i >= 0; i -= 1) keys.push(frames[i].key);
+
+		for (let i = 0; i < frames.length; i += 1) {
+			keys.pop();
+			const { thing, index } = frames[i];
+			// the fast pass never started the innermost frame's current child,
+			// whereas the outer frames' current children are the inner frames
+			const start = i === 0 ? index : index + 1;
+
+			if (Array.isArray(thing)) {
+				for (const key of valid_array_indices(thing)) {
+					const index = +key;
+					if (index < start) continue;
+					keys.push(index);
+					walk(thing[index]);
+					keys.pop();
+				}
+			} else {
+				const object_keys = Object.keys(thing);
+				for (let j = start; j < object_keys.length; j += 1) {
+					const key = object_keys[j];
+					if (key === '__proto__') {
+						error(`Cannot stringify objects with __proto__ keys`, thing);
+					}
+
+					keys.push(key);
+					walk(thing[key]);
+					keys.pop();
+				}
+			}
+		}
+	}
 
 	let name_index = 0;
 	function next_name() {
@@ -358,6 +412,9 @@ export function uneval(value, replacer) {
 		if (source) {
 			return source.render(stringify);
 		}
+
+		const frame = partials?.get(thing);
+		if (frame) return stringify_rest(frame);
 
 		const type = get_type(thing);
 
@@ -548,6 +605,50 @@ export function uneval(value, replacer) {
 		}
 	}
 
+	/**
+	 * Finish serializing a container that the fast pass started
+	 * @param {{ thing: any, index: number, partial: string }} frame
+	 */
+	function stringify_rest({ thing, index, partial }) {
+		let result = partial;
+
+		if (Array.isArray(thing)) {
+			for (let i = index; i < thing.length; i += 1) {
+				if (i > index) result += ',';
+				result += stringify(thing[i]);
+			}
+
+			return result + ']';
+		}
+
+		const object_keys = Object.keys(thing);
+
+		for (let i = index; i < object_keys.length; i += 1) {
+			const key = object_keys[i];
+			if (i > index) result += `,${safe_key(key)}:`;
+			result += stringify(thing[key]);
+		}
+
+		return result + '}';
+	}
+
+	// If nothing needs a name, the value contains no repeated references, so
+	// the text the fast pass produced for each frame is still correct. (No name
+	// can be added while stringifying either: that only happens when a value
+	// contains itself, and `walk` would have named the value it found twice.)
+	/** @type {Map<any, { thing: any, index: number, partial: string }> | null} */
+	let partials = null;
+
+	if (names.size === 0) {
+		for (const frame of frames) {
+			const { thing, partial } = frame;
+			if (partial === undefined) continue;
+			// sparse arrays are serialized differently
+			if (Array.isArray(thing) && valid_array_indices(thing).length !== thing.length) continue;
+			(partials ??= new Map()).set(thing, /** @type {any} */ (frame));
+		}
+	}
+
 	const str = stringify(value);
 
 	if (statements.length === 0) {
@@ -555,6 +656,184 @@ export function uneval(value, replacer) {
 	}
 
 	return `(function(){${statements.join(';')};return ${str}}())`;
+}
+
+/**
+ * Single-pass serializer for acyclic trees of plain objects, dense arrays, dates,
+ * strings, numbers, booleans, `null` and `undefined`. Its output is identical to
+ * that of the general algorithm. `serialize` returns `null` as soon as it meets
+ * anything else — a repeated reference, a repeated long string, a value the
+ * replacer claims, any other kind of object — leaving behind what the general
+ * algorithm needs to carry on from that point.
+ */
+class PlainSerializer {
+	/**
+	 * Every object the replacer has been called with, and what it returned. The
+	 * general algorithm reads from this rather than calling the replacer a second time
+	 * @type {Map<any, any>}
+	 */
+	replaced = new Map();
+
+	/**
+	 * Every object and long string visited so far
+	 * @type {Set<any>}
+	 */
+	seen = new Set();
+
+	/**
+	 * Every long string visited so far
+	 * @type {string[]}
+	 */
+	long_strings = [];
+
+	/**
+	 * If the pass stopped, the arrays and objects it was inside at the time, innermost
+	 * first. `index` is the position (in the array, or in `Object.keys`) of the child
+	 * being visited, and `key` is that child's key. `partial`, if present, is the
+	 * container's serialization up to that child
+	 * @type {Array<{ thing: any, index: number, key: string | number, partial?: string }>}
+	 */
+	frames = [];
+
+	/** @type {Map<string, string>} */
+	#keys = new Map();
+
+	#replacer;
+
+	#ok = true;
+
+	/** @param {UnevalReplacer | undefined} replacer */
+	constructor(replacer) {
+		this.#replacer = replacer;
+	}
+
+	/**
+	 * @param {any} value
+	 * @returns {string | null}
+	 */
+	serialize(value) {
+		const result = this.#serialize(value);
+		return this.#ok ? result : null;
+	}
+
+	/**
+	 * @param {any} thing
+	 * @returns {string}
+	 */
+	#serialize(thing) {
+		const seen = this.seen;
+
+		switch (typeof thing) {
+			case 'string':
+				if (thing.length >= MIN_STRING_LENGTH) {
+					// a long string that appears more than once may need to be hoisted
+					if (seen.has(thing)) return this.#bail();
+					seen.add(thing);
+					this.long_strings.push(thing);
+				}
+
+				return stringify_string(thing);
+
+			case 'number':
+			case 'boolean':
+			case 'undefined':
+				return stringify_primitive(thing);
+
+			case 'object':
+				break;
+
+			default:
+				return this.#bail();
+		}
+
+		if (thing === null) return 'null';
+
+		if (seen.has(thing)) return this.#bail();
+		seen.add(thing);
+
+		if (this.#replacer) {
+			const fragment = this.#replacer(thing, js);
+			this.replaced.set(thing, fragment);
+
+			if (fragment !== undefined && fragment !== null && fragment !== false) {
+				return this.#bail_at(thing);
+			}
+		}
+
+		const proto = Object.getPrototypeOf(thing);
+
+		if (proto === Array.prototype) {
+			let result = '[';
+
+			for (let i = 0; i < thing.length; i += 1) {
+				const element = thing[i];
+				// holes are serialized differently to `undefined`
+				if (element === undefined && !(i in thing)) {
+					this.frames.push({ thing, index: i, key: i });
+					return this.#bail();
+				}
+
+				if (i > 0) result += ',';
+				result += this.#serialize(element);
+
+				if (!this.#ok) {
+					this.frames.push({ thing, index: i, key: i, partial: result });
+					return '';
+				}
+			}
+
+			return result + ']';
+		}
+
+		if (proto === Date.prototype) {
+			// `Object.create(Date.prototype)` is not a date
+			if (get_type(thing) !== 'Date') return this.#bail_at(thing);
+			return `new Date(${thing.getTime()})`;
+		}
+
+		if (proto !== Object.prototype || Object.getOwnPropertySymbols(thing).length > 0) {
+			return this.#bail_at(thing);
+		}
+
+		const keys = Object.keys(thing);
+		let result = '{';
+
+		for (let i = 0; i < keys.length; i += 1) {
+			const key = keys[i];
+
+			if (key === '__proto__') {
+				this.frames.push({ thing, index: i, key });
+				return this.#bail();
+			}
+
+			let safe = this.#keys.get(key);
+			if (safe === undefined) this.#keys.set(key, (safe = safe_key(key)));
+
+			result += i > 0 ? `,${safe}:` : `${safe}:`;
+			result += this.#serialize(thing[key]);
+
+			if (!this.#ok) {
+				this.frames.push({ thing, index: i, key, partial: result });
+				return '';
+			}
+		}
+
+		return result + '}';
+	}
+
+	/**
+	 * Stop at an object that the general algorithm needs to visit from scratch
+	 * @param {any} thing
+	 */
+	#bail_at(thing) {
+		this.seen.delete(thing);
+		return this.#bail();
+	}
+
+	#bail() {
+		this.#ok = false;
+		return '';
+	}
 }
 
 /**
