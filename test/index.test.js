@@ -254,6 +254,16 @@ const fixtures = {
 				expect(value[1]).toBe('b');
 			}
 		},
+		{
+			name: 'Array (sparse, after other values)',
+			value: [{ a: 1 }, new Set([1]), , 2],
+			js: '[{a:1},new Set([1]),,2]',
+			json: `[[1,3,${consts.HOLE},4],{"a":2},1,["Set",2],2]`,
+			validate: (value) => {
+				expect(value.length).toBe(4);
+				expect(Object.keys(value)).toEqual(['0', '1', '3']);
+			}
+		},
 		((arr) => {
 			arr[1000000] = 'x';
 			return {
@@ -1154,6 +1164,24 @@ async function catch_async_error(fn) {
 
 	expect.unreachable('expected operation to reject');
 }
+
+test('uneval: serializes containers whose text is assembled in several chunks', () => {
+	const numbers = Array.from({ length: 2000 }, (_, i) => i);
+	const entries = Array.from({ length: 1000 }, (_, i) => [`key${i}`, i]);
+
+	const value = {
+		a: 1,
+		big: numbers.slice(),
+		b: 2,
+		wide: Object.fromEntries(entries),
+		list: [1, numbers.slice(), 2]
+	};
+
+	const list = numbers.join(',');
+	const wide = entries.map(([key, value]) => `${key}:${value}`).join(',');
+
+	expect(uneval(value)).toBe(`{a:1,big:[${list}],b:2,wide:{${wide}},list:[1,[${list}],2]}`);
+});
 
 describe.each(Object.entries(fixtures))('uneval: %s', (name, tests) => {
 	test.each(tests.map((t) => [t.name, t]))('%s', (_name, t) => {

@@ -28,11 +28,20 @@ const MIN_STRING_LENGTH = 128;
  * @param {UnevalReplacer} [replacer]
  */
 export function uneval(value, replacer) {
+	// Acyclic trees of JSON.stringify-able data need no reference counting,
+	// so try to serialize them in a single pass first. If that pass meets anything
+	// else, the general algorithm below takes over from where it stopped.
+	const plain = new PlainSerializer(replacer);
+	const result = plain.serialize(value);
+	if (result !== null) return result;
+
 	/** @type {Map<any, string>} */
 	const names = new Map();
 	const reserved = new Set();
 	const templates = new Set();
-	const seen = new Set();
+	// everything the fast pass visited has been seen exactly once. Things
+	// visited from here on are added with an id of -1
+	const visited = plain.ids;
 
 	// the path to the value being walked, recorded as-is and only formatted
 	// by `error` — see `format_path`
@@ -77,15 +86,17 @@ export function uneval(value, replacer) {
 	/** @param {any} thing */
 	function walk(thing) {
 		if (!is_primitive(thing)) {
-			if (seen.has(thing)) {
+			if (visited.has(thing)) {
 				if (!names.has(thing)) names.set(thing, '');
 				return;
 			}
 
-			seen.add(thing);
+			visited.set(thing, -1);
 
 			if (replacer) {
-				const fragment = replacer(thing, js);
+				const fragment = plain.replaced.has(thing)
+					? plain.replaced.get(thing)
+					: replacer(thing, js);
 
 				if (fragment) {
 					const source = JavaScriptSource.from(fragment);
@@ -202,7 +213,50 @@ export function uneval(value, replacer) {
 		}
 	}
 
-	walk(value);
+	for (const string of plain.long_strings) {
+		(primitive_counts ??= new Map()).set(string, 1);
+	}
+
+	const { frames } = plain;
+
+	if (frames.length === 0) {
+		walk(value);
+	} else {
+		// `frames` holds the containers the fast pass was inside when it stopped,
+		// innermost first. Everything before the position recorded in each has
+		// been visited, so only the rest needs to be walked.
+		for (let i = frames.length - 1; i >= 0; i -= 1) keys.push(frames[i].key);
+
+		for (let i = 0; i < frames.length; i += 1) {
+			keys.pop();
+			const { thing, index } = frames[i];
+			// the fast pass never started the innermost frame's current child,
+			// whereas the outer frames' current children are the inner frames
+			const start = i === 0 ? index : index + 1;
+
+			if (Array.isArray(thing)) {
+				for (const key of valid_array_indices(thing)) {
+					const index = +key;
+					if (index < start) continue;
+					keys.push(index);
+					walk(thing[index]);
+					keys.pop();
+				}
+			} else {
+				const object_keys = Object.keys(thing);
+				for (let j = start; j < object_keys.length; j += 1) {
+					const key = object_keys[j];
+					if (key === '__proto__') {
+						error(`Cannot stringify objects with __proto__ keys`, thing);
+					}
+
+					keys.push(key);
+					walk(thing[key]);
+					keys.pop();
+				}
+			}
+		}
+	}
 
 	let name_index = 0;
 	function next_name() {
@@ -225,8 +279,8 @@ export function uneval(value, replacer) {
 		}
 	}
 
-	// Reuse the traversal set to track declarations during serialization.
-	seen.clear();
+	// Tracks declarations during serialization.
+	const seen = new Set();
 	const inlining = custom.size > 0 ? new Set() : null;
 
 	/** @type {Map<any, () => void>} */
@@ -357,6 +411,17 @@ export function uneval(value, replacer) {
 
 		if (source) {
 			return source.render(stringify);
+		}
+
+		const id = /** @type {number} */ (visited.get(thing));
+
+		if (id >= 0) {
+			// the fast pass serialized this, or started to
+			const text = texts[id];
+			if (text !== undefined && is_reusable(id, ends[id])) return text;
+
+			const frame = partials?.get(thing);
+			if (frame) return stringify_rest(frame);
 		}
 
 		const type = get_type(thing);
@@ -548,6 +613,78 @@ export function uneval(value, replacer) {
 		}
 	}
 
+	/**
+	 * Finish serializing a container that the fast pass started
+	 * @param {{ thing: any, index: number, partial: string }} frame
+	 */
+	function stringify_rest({ thing, index, partial }) {
+		let result = partial;
+
+		if (Array.isArray(thing)) {
+			for (let i = index; i < thing.length; i += 1) {
+				if (i > index) result += ',';
+				result += stringify(thing[i]);
+			}
+
+			return result + ']';
+		}
+
+		const object_keys = Object.keys(thing);
+
+		for (let i = index; i < object_keys.length; i += 1) {
+			const key = object_keys[i];
+			if (i > index) result += `,${safe_key(key)}:`;
+			result += stringify(thing[key]);
+		}
+
+		return result + '}';
+	}
+
+	// The text the fast pass produced for an object can be reused unless something
+	// inside it has since been given a name, in which case the name belongs there
+	// instead. Ids were handed out in the order things were visited, so the things
+	// inside an object are the ones with ids between its own and its `end`.
+	const { texts, ends, count } = plain;
+
+	/**
+	 * `named[id]` is the number of named things with an id less than `id`
+	 * @type {Uint32Array | null}
+	 */
+	let named = null;
+
+	if (names.size > 0 && count > 0) {
+		named = new Uint32Array(count + 1);
+
+		for (const thing of names.keys()) {
+			const id = visited.get(thing);
+			if (id !== undefined && id >= 0) named[id + 1] = 1;
+		}
+
+		for (let i = 1; i <= count; i += 1) named[i] += named[i - 1];
+	}
+
+	/**
+	 * Whether nothing with an id from `start` up to (but not including) `end` has a name
+	 * @param {number} start
+	 * @param {number} end
+	 */
+	function is_reusable(start, end) {
+		return named === null || named[end] === named[start];
+	}
+
+	/** @type {Map<any, { thing: any, index: number, partial: string }> | null} */
+	let partials = null;
+
+	for (const frame of frames) {
+		const { thing, partial } = frame;
+		if (partial === undefined) continue;
+		// the fast pass visited everything in `partial` after `thing` and before it stopped
+		if (!is_reusable(/** @type {number} */ (visited.get(thing)), count)) continue;
+		// sparse arrays are serialized differently
+		if (Array.isArray(thing) && valid_array_indices(thing).length !== thing.length) continue;
+		(partials ??= new Map()).set(thing, /** @type {any} */ (frame));
+	}
+
 	const str = stringify(value);
 
 	if (statements.length === 0) {
@@ -555,6 +692,264 @@ export function uneval(value, replacer) {
 	}
 
 	return `(function(){${statements.join(';')};return ${str}}())`;
+}
+
+/**
+ * Single-pass serializer for acyclic trees of plain objects, dense arrays, dates,
+ * strings, numbers, booleans, `null` and `undefined`. Its output is identical to
+ * that of the general algorithm. `serialize` returns `null` as soon as it meets
+ * anything else — a repeated reference, a repeated long string, a value the
+ * replacer claims, any other kind of object — leaving behind what the general
+ * algorithm needs to carry on from that point.
+ */
+// Text is flattened once this much of it has accumulated. See `#flatten`
+const CHUNK_LENGTH = 4096;
+
+class PlainSerializer {
+	/**
+	 * Every object the replacer has been called with, and what it returned. The
+	 * general algorithm reads from this rather than calling the replacer a second time
+	 * @type {Map<any, any>}
+	 */
+	replaced = new Map();
+
+	/**
+	 * Every object and long string visited so far, numbered in the order they were visited
+	 * @type {Map<any, number>}
+	 */
+	ids = new Map();
+
+	/** The number of ids handed out */
+	count = 0;
+
+	/**
+	 * The serialization of each array and plain object that was visited in full, by id
+	 * @type {string[]}
+	 */
+	texts = [];
+
+	/**
+	 * For each of those, the value `count` had once its contents had been visited
+	 * @type {number[]}
+	 */
+	ends = [];
+
+	/**
+	 * Every long string visited so far
+	 * @type {string[]}
+	 */
+	long_strings = [];
+
+	/**
+	 * If the pass stopped, the arrays and objects it was inside at the time, innermost
+	 * first. `index` is the position (in the array, or in `Object.keys`) of the child
+	 * being visited, and `key` is that child's key. `partial`, if present, is the
+	 * container's serialization up to that child
+	 * @type {Array<{ thing: any, index: number, key: string | number, partial?: string }>}
+	 */
+	frames = [];
+
+	/**
+	 * `key:` for each key seen so far, as it is written at the start of an object
+	 * @type {Map<string, string>}
+	 */
+	#first_keys = new Map();
+
+	/**
+	 * `,key:` for each key seen so far, as it is written anywhere else
+	 * @type {Map<string, string>}
+	 */
+	#keys = new Map();
+
+	#replacer;
+
+	#ok = true;
+
+	#read = 0;
+
+	/** @param {UnevalReplacer | undefined} replacer */
+	constructor(replacer) {
+		this.#replacer = replacer;
+	}
+
+	/**
+	 * @param {any} value
+	 * @returns {string | null}
+	 */
+	serialize(value) {
+		const result = this.#serialize(value);
+		return this.#ok ? result : null;
+	}
+
+	/**
+	 * @param {any} thing
+	 * @returns {string}
+	 */
+	#serialize(thing) {
+		const ids = this.ids;
+
+		switch (typeof thing) {
+			case 'string':
+				if (thing.length >= MIN_STRING_LENGTH) {
+					// a long string that appears more than once may need to be hoisted
+					if (ids.has(thing)) return this.#bail();
+					ids.set(thing, this.count++);
+					this.long_strings.push(thing);
+				}
+
+				return stringify_string(thing);
+
+			case 'number':
+			case 'boolean':
+			case 'undefined':
+				return stringify_primitive(thing);
+
+			case 'object':
+				break;
+
+			default:
+				return this.#bail();
+		}
+
+		if (thing === null) return 'null';
+
+		if (ids.has(thing)) return this.#bail();
+		const id = this.count++;
+		ids.set(thing, id);
+
+		if (this.#replacer) {
+			const fragment = this.#replacer(thing, js);
+			this.replaced.set(thing, fragment);
+
+			if (fragment !== undefined && fragment !== null && fragment !== false) {
+				return this.#bail_at(thing);
+			}
+		}
+
+		const proto = Object.getPrototypeOf(thing);
+
+		if (proto === Array.prototype) {
+			let result = '[';
+			// text that has yet to be flattened and added to `result`
+			let chunk = '';
+
+			for (let i = 0; i < thing.length; i += 1) {
+				const element = thing[i];
+				// holes are serialized differently to `undefined`
+				if (element === undefined && !(i in thing)) {
+					this.frames.push({ thing, index: i, key: i });
+					return this.#bail();
+				}
+
+				if (i > 0) chunk += ',';
+				const text = this.#serialize(element);
+
+				if (!this.#ok) {
+					this.frames.push({ thing, index: i, key: i, partial: result + chunk });
+					return '';
+				}
+
+				if (text.length >= CHUNK_LENGTH) {
+					// already in chunks of its own
+					result += chunk;
+					result += text;
+					chunk = '';
+				} else {
+					chunk += text;
+
+					if (chunk.length >= CHUNK_LENGTH) {
+						result += this.#flatten(chunk);
+						chunk = '';
+					}
+				}
+			}
+
+			this.ends[id] = this.count;
+			return (this.texts[id] = result + chunk + ']');
+		}
+
+		if (proto === Date.prototype) {
+			// `Object.create(Date.prototype)` is not a date
+			if (Object.prototype.toString.call(thing) !== '[object Date]') return this.#bail_at(thing);
+			return `new Date(${thing.getTime()})`;
+		}
+
+		if (proto !== Object.prototype || Object.getOwnPropertySymbols(thing).length > 0) {
+			return this.#bail_at(thing);
+		}
+
+		const keys = Object.keys(thing);
+		let result = '{';
+		let chunk = '';
+
+		for (let i = 0; i < keys.length; i += 1) {
+			const key = keys[i];
+
+			if (key === '__proto__') {
+				this.frames.push({ thing, index: i, key });
+				return this.#bail();
+			}
+
+			const prefixes = i > 0 ? this.#keys : this.#first_keys;
+			let prefix = prefixes.get(key);
+
+			if (prefix === undefined) {
+				prefixes.set(key, (prefix = `${i > 0 ? ',' : ''}${safe_key(key)}:`));
+			}
+
+			chunk += prefix;
+			const text = this.#serialize(thing[key]);
+
+			if (!this.#ok) {
+				this.frames.push({ thing, index: i, key, partial: result + chunk });
+				return '';
+			}
+
+			if (text.length >= CHUNK_LENGTH) {
+				result += chunk;
+				result += text;
+				chunk = '';
+			} else {
+				chunk += text;
+
+				if (chunk.length >= CHUNK_LENGTH) {
+					result += this.#flatten(chunk);
+					chunk = '';
+				}
+			}
+		}
+
+		this.ends[id] = this.count;
+		return (this.texts[id] = result + chunk + '}');
+	}
+
+	/**
+	 * Appending to a string doesn't copy it: engines record that the result is one
+	 * string followed by another, so text built from many small pieces is a deep
+	 * tree of fragments, every one of which stays alive (and gets moved around by
+	 * the garbage collector) until something reads the text. Reading a character
+	 * makes the engine copy the pieces into a single string and drop the tree.
+	 * @param {string} text
+	 */
+	#flatten(text) {
+		// accumulated so that the read can't be optimized away
+		this.#read += text.charCodeAt(0);
+		return text;
+	}
+
+	/**
+	 * Stop at an object that the general algorithm needs to visit from scratch
+	 * @param {any} thing
+	 */
+	#bail_at(thing) {
+		this.ids.delete(thing);
+		return this.#bail();
+	}
+
+	#bail() {
+		this.#ok = false;
+		return '';
+	}
 }
 
 /**
@@ -616,7 +1011,12 @@ function stringify_primitive(thing) {
 	if (thing === void 0) return 'void 0';
 	if (thing === 0 && 1 / thing < 0) return '-0';
 	const str = String(thing);
-	if (type === 'number') return str.replace(/^(-)?0\./, '$1.');
+	if (type === 'number') {
+		// only numbers between -1 and 1 have a leading zero to remove
+		if (thing > 0 && thing < 1) return str.charCodeAt(0) === 48 ? str.slice(1) : str;
+		if (thing < 0 && thing > -1) return str.charCodeAt(1) === 48 ? `-${str.slice(2)}` : str;
+		return str;
+	}
 	if (type === 'bigint') return thing + 'n';
 	return str;
 }
