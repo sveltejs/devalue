@@ -2,25 +2,25 @@
  * @import { UnevalReplacer } from './types.js';
  */
 import { js, JavaScriptSource } from './javascript-source.js';
+import { PlainSerializer } from './uneval-plain.js';
 import {
 	DevalueError,
 	MAP_KEY,
+	MIN_STRING_LENGTH,
 	enumerable_symbols,
-	escaped,
 	format_path,
 	get_name,
 	get_type,
 	is_buffer,
 	is_plain_object,
 	is_primitive,
+	safe_key,
+	safe_prop,
+	stringify_primitive,
 	stringify_sparse_array,
 	stringify_string,
 	valid_array_indices
 } from './utils.js';
-
-const unsafe_chars = /[<\b\f\n\r\t\0\u2028\u2029]/g;
-// Short strings have bounded escaping/output costs per reference.
-const MIN_STRING_LENGTH = 128;
 
 /**
  * Turn a value into the JavaScript that creates an equivalent value
@@ -696,202 +696,6 @@ export function uneval(value, replacer) {
 }
 
 /**
- * Single-pass serializer for acyclic trees of plain objects, dense arrays, dates,
- * strings, numbers, booleans, `null` and `undefined`. Its output is identical to
- * that of the general algorithm. `serialize` returns `null` as soon as it meets
- * anything else — a repeated reference, a repeated long string, a value the
- * replacer claims, any other kind of object — leaving behind what the general
- * algorithm needs to carry on from that point.
- */
-class PlainSerializer {
-	/**
-	 * Every object the replacer has been called with, and what it returned. The
-	 * general algorithm reads from this rather than calling the replacer a second time
-	 * @type {Map<any, any>}
-	 */
-	replaced = new Map();
-
-	/**
-	 * Every object and long string visited so far, numbered in the order they were visited
-	 * @type {Map<any, number>}
-	 */
-	ids = new Map();
-
-	/** The number of ids handed out */
-	count = 0;
-
-	/**
-	 * The serialization of each array and plain object that was visited in full, by id
-	 * @type {string[]}
-	 */
-	texts = [];
-
-	/**
-	 * For each of those, the value `count` had once its contents had been visited
-	 * @type {number[]}
-	 */
-	ends = [];
-
-	/**
-	 * Every long string visited so far
-	 * @type {string[]}
-	 */
-	long_strings = [];
-
-	/**
-	 * If the pass stopped, the arrays and objects it was inside at the time, innermost
-	 * first. `index` is the position (in the array, or in `Object.keys`) of the child
-	 * being visited, and `key` is that child's key. `partial`, if present, is the
-	 * container's serialization up to that child
-	 * @type {Array<{ thing: any, index: number, key: string | number, partial?: string }>}
-	 */
-	frames = [];
-
-	/** @type {Map<string, string>} */
-	#keys = new Map();
-
-	#replacer;
-
-	#ok = true;
-
-	/** @param {UnevalReplacer | undefined} replacer */
-	constructor(replacer) {
-		this.#replacer = replacer;
-	}
-
-	/**
-	 * @param {any} value
-	 * @returns {string | null}
-	 */
-	serialize(value) {
-		const result = this.#serialize(value);
-		return this.#ok ? result : null;
-	}
-
-	/**
-	 * @param {any} thing
-	 * @returns {string}
-	 */
-	#serialize(thing) {
-		const ids = this.ids;
-
-		switch (typeof thing) {
-			case 'string':
-				if (thing.length >= MIN_STRING_LENGTH) {
-					// a long string that appears more than once may need to be hoisted
-					if (ids.has(thing)) return this.#bail();
-					ids.set(thing, this.count++);
-					this.long_strings.push(thing);
-				}
-
-				return stringify_string(thing);
-
-			case 'number':
-			case 'boolean':
-			case 'undefined':
-				return stringify_primitive(thing);
-
-			case 'object':
-				break;
-
-			default:
-				return this.#bail();
-		}
-
-		if (thing === null) return 'null';
-
-		if (ids.has(thing)) return this.#bail();
-		const id = this.count++;
-		ids.set(thing, id);
-
-		if (this.#replacer) {
-			const fragment = this.#replacer(thing, js);
-			this.replaced.set(thing, fragment);
-
-			if (fragment !== undefined && fragment !== null && fragment !== false) {
-				return this.#bail_at(thing);
-			}
-		}
-
-		const proto = Object.getPrototypeOf(thing);
-
-		if (proto === Array.prototype) {
-			let result = '[';
-
-			for (let i = 0; i < thing.length; i += 1) {
-				const element = thing[i];
-				// holes are serialized differently to `undefined`
-				if (element === undefined && !(i in thing)) {
-					this.frames.push({ thing, index: i, key: i });
-					return this.#bail();
-				}
-
-				if (i > 0) result += ',';
-				result += this.#serialize(element);
-
-				if (!this.#ok) {
-					this.frames.push({ thing, index: i, key: i, partial: result });
-					return '';
-				}
-			}
-
-			this.ends[id] = this.count;
-			return (this.texts[id] = result + ']');
-		}
-
-		if (proto === Date.prototype) {
-			// `Object.create(Date.prototype)` is not a date
-			if (get_type(thing) !== 'Date') return this.#bail_at(thing);
-			return `new Date(${thing.getTime()})`;
-		}
-
-		if (proto !== Object.prototype || Object.getOwnPropertySymbols(thing).length > 0) {
-			return this.#bail_at(thing);
-		}
-
-		const keys = Object.keys(thing);
-		let result = '{';
-
-		for (let i = 0; i < keys.length; i += 1) {
-			const key = keys[i];
-
-			if (key === '__proto__') {
-				this.frames.push({ thing, index: i, key });
-				return this.#bail();
-			}
-
-			let safe = this.#keys.get(key);
-			if (safe === undefined) this.#keys.set(key, (safe = safe_key(key)));
-
-			result += i > 0 ? `,${safe}:` : `${safe}:`;
-			result += this.#serialize(thing[key]);
-
-			if (!this.#ok) {
-				this.frames.push({ thing, index: i, key, partial: result });
-				return '';
-			}
-		}
-
-		this.ends[id] = this.count;
-		return (this.texts[id] = result + '}');
-	}
-
-	/**
-	 * Stop at an object that the general algorithm needs to visit from scratch
-	 * @param {any} thing
-	 */
-	#bail_at(thing) {
-		this.ids.delete(thing);
-		return this.#bail();
-	}
-
-	#bail() {
-		this.#ok = false;
-		return '';
-	}
-}
-
-/**
  * Serialize the elements of `buffer`, read as `type`, as a comma-separated list.
  * The view is created from `type` rather than from the serialized value's own
  * constructor, which may be a subclass like Node's `Buffer` whose `toString`
@@ -919,38 +723,4 @@ function stringify_typed_array_elements(type, buffer) {
 	}
 
 	return array.toString();
-}
-
-/** @param {string} c */
-function escape_unsafe_char(c) {
-	return escaped[c] || c;
-}
-
-/** @param {string} str */
-function escape_unsafe_chars(str) {
-	return str.replace(unsafe_chars, escape_unsafe_char);
-}
-
-/** @param {string} key */
-function safe_key(key) {
-	return /^[_$a-zA-Z][_$a-zA-Z0-9]*$/.test(key) ? key : escape_unsafe_chars(JSON.stringify(key));
-}
-
-/** @param {string} key */
-function safe_prop(key) {
-	return /^[_$a-zA-Z][_$a-zA-Z0-9]*$/.test(key)
-		? `.${key}`
-		: `[${escape_unsafe_chars(JSON.stringify(key))}]`;
-}
-
-/** @param {any} thing */
-function stringify_primitive(thing) {
-	const type = typeof thing;
-	if (type === 'string') return stringify_string(thing);
-	if (thing === void 0) return 'void 0';
-	if (thing === 0 && 1 / thing < 0) return '-0';
-	const str = String(thing);
-	if (type === 'number') return str.replace(/^(-)?0\./, '$1.');
-	if (type === 'bigint') return thing + 'n';
-	return str;
 }

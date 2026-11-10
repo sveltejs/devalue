@@ -258,3 +258,51 @@ export function valid_array_indices(array) {
 export function filter_array_indices(keys) {
 	return keys.slice(0, array_index_cut(keys));
 }
+
+// Short strings have bounded escaping/output costs per reference, so `uneval`
+// only considers hoisting strings at least this long.
+export const MIN_STRING_LENGTH = 128;
+
+const unsafe_chars = /[<\b\f\n\r\t\0\u2028\u2029]/g;
+
+/** @param {string} c */
+export function escape_unsafe_char(c) {
+	return escaped[c] || c;
+}
+
+/** @param {string} str */
+export function escape_unsafe_chars(str) {
+	return str.replace(unsafe_chars, escape_unsafe_char);
+}
+
+/** @param {string} key */
+export function safe_key(key) {
+	return /^[_$a-zA-Z][_$a-zA-Z0-9]*$/.test(key) ? key : escape_unsafe_chars(JSON.stringify(key));
+}
+
+/** @param {string} key */
+export function safe_prop(key) {
+	return /^[_$a-zA-Z][_$a-zA-Z0-9]*$/.test(key)
+		? `.${key}`
+		: `[${escape_unsafe_chars(JSON.stringify(key))}]`;
+}
+
+/**
+ * Stringify a primitive for `uneval`
+ * @param {any} thing
+ */
+export function stringify_primitive(thing) {
+	const type = typeof thing;
+	if (type === 'string') return stringify_string(thing);
+	if (thing === void 0) return 'void 0';
+	if (thing === 0 && 1 / thing < 0) return '-0';
+	const str = String(thing);
+	if (type === 'number') {
+		// only numbers between -1 and 1 have a leading zero to remove
+		if (thing > 0 && thing < 1) return str.charCodeAt(0) === 48 ? str.slice(1) : str;
+		if (thing < 0 && thing > -1) return str.charCodeAt(1) === 48 ? `-${str.slice(2)}` : str;
+		return str;
+	}
+	if (type === 'bigint') return thing + 'n';
+	return str;
+}
