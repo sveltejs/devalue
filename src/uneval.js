@@ -28,10 +28,9 @@ const MIN_STRING_LENGTH = 128;
  * @param {UnevalReplacer} [replacer]
  */
 export function uneval(value, replacer) {
-	// Most values are acyclic trees of plain objects, dense arrays, dates and
-	// primitives. Those need no reference counting, so try to serialize them in a
-	// single pass first. If that pass meets anything else, the general algorithm
-	// below takes over from where it stopped.
+	// Acyclic trees of JSON.stringify-able data need no reference counting,
+	// so try to serialize them in a single pass first. If that pass meets anything
+	// else, the general algorithm below takes over from where it stopped.
 	const plain = new PlainSerializer(replacer);
 	const result = plain.serialize(value);
 	if (result !== null) return result;
