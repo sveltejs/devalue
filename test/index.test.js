@@ -1165,6 +1165,24 @@ async function catch_async_error(fn) {
 	expect.unreachable('expected operation to reject');
 }
 
+test('uneval: serializes containers whose text is assembled in several chunks', () => {
+	const numbers = Array.from({ length: 2000 }, (_, i) => i);
+	const entries = Array.from({ length: 1000 }, (_, i) => [`key${i}`, i]);
+
+	const value = {
+		a: 1,
+		big: numbers.slice(),
+		b: 2,
+		wide: Object.fromEntries(entries),
+		list: [1, numbers.slice(), 2]
+	};
+
+	const list = numbers.join(',');
+	const wide = entries.map(([key, value]) => `${key}:${value}`).join(',');
+
+	expect(uneval(value)).toBe(`{a:1,big:[${list}],b:2,wide:{${wide}},list:[1,[${list}],2]}`);
+});
+
 describe.each(Object.entries(fixtures))('uneval: %s', (name, tests) => {
 	test.each(tests.map((t) => [t.name, t]))('%s', (_name, t) => {
 		const source = uneval(t.value, t.replacer);

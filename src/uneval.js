@@ -702,6 +702,9 @@ export function uneval(value, replacer) {
  * replacer claims, any other kind of object — leaving behind what the general
  * algorithm needs to carry on from that point.
  */
+// Text is flattened once this much of it has accumulated. See `#flatten`
+const CHUNK_LENGTH = 4096;
+
 class PlainSerializer {
 	/**
 	 * Every object the replacer has been called with, and what it returned. The
@@ -761,6 +764,8 @@ class PlainSerializer {
 	#replacer;
 
 	#ok = true;
+
+	#read = 0;
 
 	/** @param {UnevalReplacer | undefined} replacer */
 	constructor(replacer) {
@@ -825,6 +830,8 @@ class PlainSerializer {
 
 		if (proto === Array.prototype) {
 			let result = '[';
+			// text that has yet to be flattened and added to `result`
+			let chunk = '';
 
 			for (let i = 0; i < thing.length; i += 1) {
 				const element = thing[i];
@@ -834,17 +841,31 @@ class PlainSerializer {
 					return this.#bail();
 				}
 
-				if (i > 0) result += ',';
-				result += this.#serialize(element);
+				if (i > 0) chunk += ',';
+				const text = this.#serialize(element);
 
 				if (!this.#ok) {
-					this.frames.push({ thing, index: i, key: i, partial: result });
+					this.frames.push({ thing, index: i, key: i, partial: result + chunk });
 					return '';
+				}
+
+				if (text.length >= CHUNK_LENGTH) {
+					// already in chunks of its own
+					result += chunk;
+					result += text;
+					chunk = '';
+				} else {
+					chunk += text;
+
+					if (chunk.length >= CHUNK_LENGTH) {
+						result += this.#flatten(chunk);
+						chunk = '';
+					}
 				}
 			}
 
 			this.ends[id] = this.count;
-			return (this.texts[id] = result + ']');
+			return (this.texts[id] = result + chunk + ']');
 		}
 
 		if (proto === Date.prototype) {
@@ -859,6 +880,7 @@ class PlainSerializer {
 
 		const keys = Object.keys(thing);
 		let result = '{';
+		let chunk = '';
 
 		for (let i = 0; i < keys.length; i += 1) {
 			const key = keys[i];
@@ -875,17 +897,44 @@ class PlainSerializer {
 				prefixes.set(key, (prefix = `${i > 0 ? ',' : ''}${safe_key(key)}:`));
 			}
 
-			result += prefix;
-			result += this.#serialize(thing[key]);
+			chunk += prefix;
+			const text = this.#serialize(thing[key]);
 
 			if (!this.#ok) {
-				this.frames.push({ thing, index: i, key, partial: result });
+				this.frames.push({ thing, index: i, key, partial: result + chunk });
 				return '';
+			}
+
+			if (text.length >= CHUNK_LENGTH) {
+				result += chunk;
+				result += text;
+				chunk = '';
+			} else {
+				chunk += text;
+
+				if (chunk.length >= CHUNK_LENGTH) {
+					result += this.#flatten(chunk);
+					chunk = '';
+				}
 			}
 		}
 
 		this.ends[id] = this.count;
-		return (this.texts[id] = result + '}');
+		return (this.texts[id] = result + chunk + '}');
+	}
+
+	/**
+	 * Appending to a string doesn't copy it: engines record that the result is one
+	 * string followed by another, so text built from many small pieces is a deep
+	 * tree of fragments, every one of which stays alive (and gets moved around by
+	 * the garbage collector) until something reads the text. Reading a character
+	 * makes the engine copy the pieces into a single string and drop the tree.
+	 * @param {string} text
+	 */
+	#flatten(text) {
+		// accumulated so that the read can't be optimized away
+		this.#read += text.charCodeAt(0);
+		return text;
 	}
 
 	/**
