@@ -33,23 +33,23 @@ export default [
 	benchmark('small object', { id: 42, name: 'Jane Smith', roles: ['admin', 'editor'] }, 100000),
 	benchmark('100 records', records(100), 500),
 	benchmark('1000 records', records(1000), 50),
-	benchmark('1000 plain rows', { rows }, 100),
-	benchmark('1000 plain rows, replacer', { rows }, 100, () => undefined),
-	benchmark('1000 plain rows, then a Map', { rows, map: new Map([[1, 2]]) }, 100),
+	benchmark('plain rows', { rows }, 100),
+	benchmark('plain rows, replacer', { rows }, 100, () => undefined),
+	benchmark('rows, then a Map', { rows, map: new Map([[1, 2]]) }, 100),
 	benchmark(
-		'1000 plain rows, then a custom value',
+		'rows, then a custom value',
 		{ rows, streamed: Promise.resolve(1) },
 		100,
 		(thing, js) => (thing instanceof Promise ? js`defer(${1})` : undefined)
 	),
-	benchmark('1000 plain rows, then a repeated reference', [...rows, { shared }, { shared }], 100),
+	benchmark('rows, then a repeated reference', [...rows, { shared }, { shared }], 100),
 	benchmark(
-		'1000 plain rows, then a Map of every row',
+		'rows, then a Map of every row',
 		{ rows, by_id: new Map(rows.map((row) => [row.id, row])) },
 		50
 	),
 	benchmark(
-		'1000 rows sharing one object',
+		'rows sharing one object',
 		rows.map((row) => ({ ...row, shared })),
 		100
 	),
