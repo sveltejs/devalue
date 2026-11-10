@@ -44,6 +44,11 @@ export default [
 	),
 	benchmark('1000 plain rows, then a repeated reference', [...rows, { shared }, { shared }], 100),
 	benchmark(
+		'1000 plain rows, then a Map of every row',
+		{ rows, by_id: new Map(rows.map((row) => [row.id, row])) },
+		50
+	),
+	benchmark(
 		'1000 rows sharing one object',
 		rows.map((row) => ({ ...row, shared })),
 		100
