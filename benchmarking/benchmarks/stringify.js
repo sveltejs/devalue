@@ -1,4 +1,4 @@
-import { stringify } from '../../src/index.js';
+import { sparseArrayReducer, stringify } from '../../src/index.js';
 import { records } from '../records.js';
 import { fastest_test } from '../utils.js';
 
@@ -7,14 +7,15 @@ import { fastest_test } from '../utils.js';
  * @param {any} value
  * @param {number} iterations
  * @param {import('../../src/types.js').StringifyOptions} [options]
+ * @param {Record<string, (value: any) => any>} [reducers]
  */
-function benchmark(label, value, iterations, options) {
+function benchmark(label, value, iterations, options, reducers) {
 	return {
 		label: `stringify: ${label}`,
 		async fn() {
-			for (let i = 0; i < iterations; i += 1) stringify(value, undefined, options);
+			for (let i = 0; i < iterations; i += 1) stringify(value, reducers, options);
 			return fastest_test(3, () => {
-				for (let i = 0; i < iterations; i += 1) stringify(value, undefined, options);
+				for (let i = 0; i < iterations; i += 1) stringify(value, reducers, options);
 			});
 		}
 	};
@@ -69,5 +70,5 @@ export default [
 		Array.from({ length: 1000 }, (_, i) => i / 7),
 		1000
 	),
-	benchmark('sparse array', sparse, 20000)
+	benchmark('sparse array', sparse, 20000, undefined, { SparseArray: sparseArrayReducer })
 ];
