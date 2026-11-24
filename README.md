@@ -145,7 +145,7 @@ const vector = devalue.parse(stringified, {
 console.log(vector.magnitude()); // 50
 ```
 
-If a function passed to `stringify` returns a truthy value, it's treated as a match.
+If a function passed to `stringify` returns a truthy value, it's treated as a match. Reducers are called for objects, functions and symbols, but not for other primitives.
 
 You can also use custom types with `uneval` by specifying a custom replacer:
 

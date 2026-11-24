@@ -76,6 +76,9 @@ function run(async, value, reducers, options) {
 	/** @type {Map<any, number>} */
 	const indexes = new Map();
 
+	/** @type {number[]} */
+	const small_integer_indexes = [];
+
 	/** @type {Array<{ key: string, fn: (value: any) => any }>} */
 	const custom = [];
 	if (reducers) {
@@ -132,16 +135,27 @@ function run(async, value, reducers, options) {
 
 		const id = ops.identify(thing);
 
-		if (indexes.has(id)) return /** @type {number} */ (indexes.get(id));
+		// small non-negative integers repeat often enough that an array lookup
+		// is noticeably cheaper than `indexes`
+		if (typeof id === 'number' && id >>> 0 === id && id < 1024) {
+			const existing = small_integer_indexes[id];
+			if (existing !== undefined) return existing;
+			index ??= p++;
+			small_integer_indexes[id] = index;
+		} else {
+			const existing = indexes.get(id);
+			if (existing !== undefined) return existing;
+			index ??= p++;
+			indexes.set(id, index);
+		}
 
-		index ??= p++;
-		indexes.set(id, index);
-
-		for (const { key, fn } of custom) {
-			const value = fn(thing);
-			if (value) {
-				stringified[index] = `["${key}",${flatten(value)}]`;
-				return index;
+		if (type === 'object' || type === 'function' || type === 'symbol') {
+			for (const { key, fn } of custom) {
+				const value = fn(thing);
+				if (value) {
+					stringified[index] = `["${key}",${flatten(value)}]`;
+					return index;
+				}
 			}
 		}
 

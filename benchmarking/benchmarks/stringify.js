@@ -6,18 +6,28 @@ import { fastest_test } from '../utils.js';
  * @param {string} label
  * @param {any} value
  * @param {number} iterations
+ * @param {Record<string, (value: any) => any>} [reducers]
  */
-function benchmark(label, value, iterations) {
+function benchmark(label, value, iterations, reducers) {
 	return {
 		label: `stringify: ${label}`,
 		async fn() {
-			for (let i = 0; i < iterations; i += 1) stringify(value);
+			for (let i = 0; i < iterations; i += 1) stringify(value, reducers);
 			return fastest_test(3, () => {
-				for (let i = 0; i < iterations; i += 1) stringify(value);
+				for (let i = 0; i < iterations; i += 1) stringify(value, reducers);
 			});
 		}
 	};
 }
+
+/** @type {Record<string, (value: any) => any>} */
+const object_reducers = {};
+for (let i = 0; i < 7; i += 1) {
+	const flag = `__marker_${i}`;
+	object_reducers[`Marker${i}`] = (value) => !!value && value[flag] === true && value.data;
+}
+
+const rows = Array.from({ length: 1000 }, (_, i) => ({ id: i, name: `Row ${i}` }));
 
 const sparse = [];
 sparse[1000000] = records(1);
@@ -61,5 +71,7 @@ export default [
 		Array.from({ length: 1000 }, (_, i) => i / 7),
 		1000
 	),
+	benchmark('1000 rows', rows, 200),
+	benchmark('1000 rows, 7 reducers', rows, 200, object_reducers),
 	benchmark('sparse array', sparse, 20000)
 ];
