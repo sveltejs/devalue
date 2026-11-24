@@ -1,3 +1,4 @@
+import parse_benchmarks from './benchmarks/parse.js';
 import stringify_benchmarks from './benchmarks/stringify.js';
 import typed_array_benchmarks from './benchmarks/typed-array.js';
 import uneval_benchmarks from './benchmarks/uneval.js';
@@ -16,6 +17,10 @@ const suites = [
 	{
 		name: 'stringify benchmarks',
 		benchmarks: stringify_benchmarks.filter(filter_fn)
+	},
+	{
+		name: 'parse benchmarks',
+		benchmarks: parse_benchmarks.filter(filter_fn)
 	},
 	{
 		name: 'uneval benchmarks',

@@ -30,6 +30,57 @@ export function merge_operations(defaults, overrides) {
 	return merged;
 }
 
+const native_to_iso_string = Date.prototype.toISOString;
+const native_get_time = Date.prototype.getTime;
+
+/** @param {number} n */
+const pad2 = (n) => (n < 10 ? '0' + n : '' + n);
+
+/** @param {number} n */
+const pad3 = (n) => (n < 10 ? '00' + n : n < 100 ? '0' + n : '' + n);
+
+/**
+ * matches the native toISOString for any valid time, several times faster in v8
+ * @param {number} time
+ */
+function to_iso_string(time) {
+	const ms = ((time % 86400000) + 86400000) % 86400000;
+
+	// civil_from_days from https://howardhinnant.github.io/date_algorithms.html
+	const z = (time - ms) / 86400000 + 719468;
+	const era = Math.floor(z / 146097);
+	const doe = z - era * 146097;
+	const yoe = Math.floor(
+		(doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365
+	);
+	const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));
+	const mp = Math.floor((5 * doy + 2) / 153);
+	const day = doy - Math.floor((153 * mp + 2) / 5) + 1;
+	const month = mp < 10 ? mp + 3 : mp - 9;
+	const year = yoe + era * 400 + (month <= 2 ? 1 : 0);
+
+	const seconds = Math.floor(ms / 1000);
+
+	return (
+		(year >= 0 && year <= 9999
+			? ('000' + year).slice(-4)
+			: (year < 0 ? '-' : '+') + ('00000' + Math.abs(year)).slice(-6)) +
+		'-' +
+		pad2(month) +
+		'-' +
+		pad2(day) +
+		'T' +
+		pad2(Math.floor(seconds / 3600)) +
+		':' +
+		pad2(Math.floor(seconds / 60) % 60) +
+		':' +
+		pad2(seconds % 60) +
+		'.' +
+		pad3(ms % 1000) +
+		'Z'
+	);
+}
+
 /** @type {{ kind: 'not-plain' }} */
 const NOT_PLAIN = /* @__PURE__ */ Object.freeze({ kind: 'not-plain' });
 
@@ -67,7 +118,14 @@ const stringify_operations = {
 
 	unbox: (boxed) => boxed.valueOf(),
 
-	toISOString: (date) => (isNaN(date.getDate()) ? '' : date.toISOString()),
+	toISOString: (date) => {
+		if (isNaN(date.getDate())) return '';
+
+		// a patched or cross realm toISOString is still called
+		return date.toISOString === native_to_iso_string
+			? to_iso_string(native_get_time.call(date))
+			: date.toISOString();
+	},
 
 	toStringValue: (value) => value.toString(),
 

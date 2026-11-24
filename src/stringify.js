@@ -140,7 +140,10 @@ function run(async, value, reducers, options) {
 
 		const id = ops.identify(thing);
 
-		if (references && indexes.has(id)) return /** @type {number} */ (indexes.get(id));
+		if (references) {
+			const existing = indexes.get(id);
+			if (existing !== undefined) return existing;
+		}
 
 		// without reducers, only objects can lead back to themselves
 		const tracked = !references && (type === 'object' || custom.length > 0);

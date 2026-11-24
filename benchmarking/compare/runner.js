@@ -1,8 +1,14 @@
+import parse_benchmarks from '../benchmarks/parse.js';
 import stringify_benchmarks from '../benchmarks/stringify.js';
 import typed_array_benchmarks from '../benchmarks/typed-array.js';
 import uneval_benchmarks from '../benchmarks/uneval.js';
 
-const benchmarks = [...stringify_benchmarks, ...typed_array_benchmarks, ...uneval_benchmarks];
+const benchmarks = [
+	...stringify_benchmarks,
+	...parse_benchmarks,
+	...typed_array_benchmarks,
+	...uneval_benchmarks
+];
 const results = [];
 
 for (let i = 0; i < benchmarks.length; i += 1) {
