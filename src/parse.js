@@ -36,9 +36,6 @@ export function unflatten(parsed, revivers, options) {
 	const ops = merge_operations(default_parse_operations, options?.operations);
 
 	const references = options?.references ?? true;
-	if (typeof references !== 'boolean') {
-		throw new TypeError('references must be a boolean');
-	}
 
 	/** @type {Set<number>} */
 	const referenced = new Set();

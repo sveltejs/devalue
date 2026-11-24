@@ -94,11 +94,6 @@ describe('stringify with references: false', () => {
 		const json = await stringifyAsync([p, p], undefined, strict);
 		expect(parse(json, undefined, strict)).toEqual([{ a: 1 }, { a: 1 }]);
 	});
-
-	test('validates the option', () => {
-		// @ts-expect-error
-		expect(() => stringify(1, undefined, { references: 'no' })).toThrow(TypeError);
-	});
 });
 
 describe('parse with references: false', () => {
@@ -170,10 +165,5 @@ describe('parse with references: false', () => {
 	test('the default still allows references', () => {
 		const result = parse('[[1,1],{"a":2},1]');
 		expect(result[0]).toBe(result[1]);
-	});
-
-	test('validates the option', () => {
-		// @ts-expect-error
-		expect(() => parse('[1]', undefined, { references: 0 })).toThrow(TypeError);
 	});
 });

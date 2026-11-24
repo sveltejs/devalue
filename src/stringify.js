@@ -74,9 +74,6 @@ function run(async, value, reducers, options) {
 	const stringified = [];
 
 	const references = options?.references ?? true;
-	if (typeof references !== 'boolean') {
-		throw new TypeError('references must be a boolean');
-	}
 
 	/** @type {Map<any, number>} */
 	const indexes = new Map();
