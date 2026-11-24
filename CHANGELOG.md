@@ -1,5 +1,10 @@
 # devalue changelog
 
+## 6.0.4
+### Patch Changes
+
+- 7c3ef2e: fix: fall back when `String.prototype.isWellFormed` is unavailable (Node 18, Chrome < 111)
+
 ## 6.0.3
 ### Patch Changes
 
