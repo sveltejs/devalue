@@ -74,6 +74,11 @@ describe('stringify with references: false', () => {
 		expect(() => stringify(box, box_reducers, strict)).toThrow(/circular reference/);
 	});
 
+	test('throws on a reducer that returns its own primitive input', () => {
+		const reducers = { Same: (v) => typeof v === 'string' && v };
+		expect(() => stringify('x', reducers, strict)).toThrow(/circular reference/);
+	});
+
 	test('serializes a shared custom value once per occurrence', () => {
 		const shared = new Box(1);
 		const json = stringify([shared, shared], box_reducers, strict);

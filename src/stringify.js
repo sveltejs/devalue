@@ -140,9 +140,12 @@ function run(async, value, reducers, options) {
 
 		const id = ops.identify(thing);
 
-		if (references) {
-			if (indexes.has(id)) return /** @type {number} */ (indexes.get(id));
-		} else {
+		if (references && indexes.has(id)) return /** @type {number} */ (indexes.get(id));
+
+		// without reducers, only objects can lead back to themselves
+		const tracked = !references && (type === 'object' || custom.length > 0);
+
+		if (tracked) {
 			if (ancestors.has(id)) {
 				error(`Cannot stringify a circular reference when \`references\` is \`false\``, thing);
 			}
@@ -156,7 +159,7 @@ function run(async, value, reducers, options) {
 			const value = fn(thing);
 			if (value) {
 				stringified[index] = `["${key}",${flatten(value)}]`;
-				ancestors.delete(id);
+				if (tracked) ancestors.delete(id);
 				return index;
 			}
 		}
@@ -432,7 +435,7 @@ function run(async, value, reducers, options) {
 		}
 
 		stringified[index] = str;
-		ancestors.delete(id);
+		if (tracked) ancestors.delete(id);
 		return index;
 	}
 
