@@ -9,7 +9,7 @@ import {
 	UNDEFINED
 } from './constants.js';
 import { default_parse_operations, merge_operations } from './operations.js';
-import { is_valid_array_index, is_valid_array_len } from './utils.js';
+import { is_valid_array_index } from './utils.js';
 
 function invalid() {
 	throw new Error('Invalid input');
@@ -162,8 +162,7 @@ export function unflatten(parsed, revivers, options) {
 						break;
 
 					case 'RegExp':
-						hydrated[index] = ops.fromRegExpInfo(value[1], value[2]);
-						break;
+						throw new Error('Cannot parse a RegExp');
 
 					case 'Object': {
 						const wrapped_index = value[1];
@@ -273,35 +272,14 @@ export function unflatten(parsed, revivers, options) {
 						throw new Error(`Unknown type ${type}`);
 				}
 			} else if (value[0] === SPARSE) {
-				// Sparse array encoding: [SPARSE, length, idx, val, idx, val, ...]
-				const len = value[1];
-
-				if (!is_valid_array_len(len)) {
-					invalid();
-				}
-
-				// `len` comes from the input rather than being bounded by it, so
-				// `createSparseArray` is responsible for not allocating storage
-				// proportional to it.
-				const array = ops.createSparseArray(len);
-				hydrated[index] = array;
-
-				for (let i = 2; i < value.length; i += 2) {
-					const idx = value[i];
-
-					if (!is_valid_array_index(idx) || idx >= len) {
-						invalid();
-					}
-
-					ops.set(array, idx, hydrate(value[i + 1]));
-				}
+				throw new Error('Cannot parse a sparse array');
 			} else {
 				const array = ops.createArray(value.length);
 				hydrated[index] = array;
 
 				for (let i = 0; i < value.length; i += 1) {
 					const n = value[i];
-					if (n === HOLE) continue;
+					if (n === HOLE) throw new Error('Cannot parse a sparse array');
 
 					ops.set(array, i, hydrate(n));
 				}

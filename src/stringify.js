@@ -1,11 +1,9 @@
 import { DevalueError, MAP_KEY, format_path, quote_key, stringify_string } from './utils.js';
 import {
-	HOLE,
 	NAN,
 	NEGATIVE_INFINITY,
 	NEGATIVE_ZERO,
 	POSITIVE_INFINITY,
-	SPARSE,
 	UNDEFINED
 } from './constants.js';
 import { encode64 } from './base64.js';
@@ -225,95 +223,24 @@ function run(async, value, reducers, options) {
 					break;
 
 				case 'RegExp':
-					const { source, flags } = ops.regExpInfo(thing);
-					str = flags
-						? `["RegExp",${stringify_string(source)},"${flags}"]`
-						: `["RegExp",${stringify_string(source)}]`;
-					break;
+					error(`Cannot stringify a RegExp`, thing);
 
 				case 'Array': {
-					// For dense arrays (no holes), we iterate normally.
-					// When we encounter the first hole, we call Object.keys
-					// to determine the sparseness, then decide between:
-					//   - HOLE encoding: [-2, val, -2, ...] (default)
-					//   - Sparse encoding: [-7, length, idx, val, ...] (for very sparse arrays)
-					// Only the sparse path avoids iterating every slot, which
-					// is what protects against the DoS of e.g. `arr[1000000] = 1`.
-					let mostly_dense = false;
-
 					const length = ops.lengthOf(thing);
-
 					str = '[';
 
 					for (let i = 0; i < length; i += 1) {
-						if (i > 0) str += ',';
-
-						if (ops.hasOwn(thing, i)) {
-							keys.push(i);
-							str += flatten(ops.get(thing, i));
-							keys.pop();
-						} else if (mostly_dense) {
-							// Use dense encoding. The heuristic guarantees the
-							// array is only mildly sparse, so iterating over every
-							// slot is fine.
-							str += HOLE;
-						} else {
-							// Decide between HOLE encoding and sparse encoding.
-							//
-							// HOLE encoding: each hole is serialized as the HOLE
-							// sentinel (-2). For example, [, "a", ,] becomes
-							// [-2, 0, -2]. Each hole costs 3 chars ("-2" + comma).
-							//
-							// Sparse encoding: lists only populated indices.
-							// For example, [, "a", ,] becomes [-7, 3, 1, 0] — the
-							// -7 sentinel, the array length (3), then index-value
-							// pairs. This avoids paying per-hole, but each element
-							// costs extra chars to write its index.
-							//
-							// The values are the same size either way, so the
-							// choice comes down to structural overhead:
-							//
-							//   HOLE overhead:
-							//     3 chars per hole ("-2" + comma)
-							//     = (L - P) * 3
-							//
-							//   Sparse overhead:
-							//     "-7,"          — 3 chars (sparse sentinel + comma)
-							//     + length + "," — (d + 1) chars (array length + comma)
-							//     + per element: index + "," — (d + 1) chars
-							//     = (4 + d) + P * (d + 1)
-							//
-							// where L is the array length, P is the number of
-							// populated elements, and d is the number of digits
-							// in L (an upper bound on the digits in any index).
-							//
-							// Sparse encoding is cheaper when:
-							//   (4 + d) + P * (d + 1) < (L - P) * 3
-							const populated_keys = ops.indicesOf(thing);
-							const population = populated_keys.length;
-							const d = String(length).length;
-
-							const hole_cost = (length - population) * 3;
-							const sparse_cost = 4 + d + population * (d + 1);
-
-							if (hole_cost > sparse_cost) {
-								str = '[' + SPARSE + ',' + length;
-								for (let j = 0; j < populated_keys.length; j++) {
-									const key = populated_keys[j];
-									keys.push(+key);
-									str += ',' + key + ',' + flatten(ops.get(thing, key));
-									keys.pop();
-								}
-								break;
-							} else {
-								mostly_dense = true;
-								str += HOLE;
-							}
+						if (!ops.hasOwn(thing, i)) {
+							error(`Cannot stringify a sparse array`, thing);
 						}
+
+						if (i > 0) str += ',';
+						keys.push(i);
+						str += flatten(ops.get(thing, i));
+						keys.pop();
 					}
 
 					str += ']';
-
 					break;
 				}
 
