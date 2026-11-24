@@ -73,8 +73,19 @@ function run(async, value, reducers, options) {
 	/** @type {any[]} */
 	const stringified = [];
 
+	const references = options?.references ?? true;
+	if (typeof references !== 'boolean') {
+		throw new TypeError('references must be a boolean');
+	}
+
 	/** @type {Map<any, number>} */
 	const indexes = new Map();
+
+	/**
+	 * ids on the current path, used to reject cycles when references is false
+	 * @type {Set<any>}
+	 */
+	let ancestors = new Set();
 
 	/** @type {Array<{ key: string, fn: (value: any) => any }>} */
 	const custom = [];
@@ -132,15 +143,23 @@ function run(async, value, reducers, options) {
 
 		const id = ops.identify(thing);
 
-		if (indexes.has(id)) return /** @type {number} */ (indexes.get(id));
+		if (references) {
+			if (indexes.has(id)) return /** @type {number} */ (indexes.get(id));
+		} else {
+			if (ancestors.has(id)) {
+				error(`Cannot stringify a circular reference when \`references\` is \`false\``, thing);
+			}
+			ancestors.add(id);
+		}
 
 		index ??= p++;
-		indexes.set(id, index);
+		if (references) indexes.set(id, index);
 
 		for (const { key, fn } of custom) {
 			const value = fn(thing);
 			if (value) {
 				stringified[index] = `["${key}",${flatten(value)}]`;
+				ancestors.delete(id);
 				return index;
 			}
 		}
@@ -164,9 +183,12 @@ function run(async, value, reducers, options) {
 			// the callback runs after the synchronous walk has unwound `keys`,
 			// so the path to the thenable has to be captured and reinstated
 			const prev_keys = keys.slice();
+			// likewise the ancestors, so a thenable resolving to its own container is a cycle
+			const prev_ancestors = references ? null : new Set(ancestors);
 
 			str = ops.toPromise(thing).then((value) => {
 				keys = prev_keys;
+				if (prev_ancestors) ancestors = prev_ancestors;
 
 				const i = flatten(value, index);
 				if (i < 0) stringified[index] = i;
@@ -413,6 +435,7 @@ function run(async, value, reducers, options) {
 		}
 
 		stringified[index] = str;
+		ancestors.delete(id);
 		return index;
 	}
 

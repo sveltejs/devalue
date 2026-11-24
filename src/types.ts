@@ -295,6 +295,15 @@ export interface DefaultStringifyOperations extends StringifyOperations {
 /** Options for `stringify` and `stringifyAsync`. */
 export interface StringifyOptions {
 	/**
+	 * Whether repeated values are deduplicated into shared references (the
+	 * default). When `false`, every occurrence of a value is serialized
+	 * separately, like `JSON.stringify`, and cyclical values throw. Use this
+	 * to produce payloads accepted by `parse` with `references: false`.
+	 * @default true
+	 */
+	references?: boolean;
+
+	/**
 	 * Overrides for the introspection/extraction operations used while
 	 * serializing. Omitted members fall back to `defaultStringifyOperations`.
 	 */
@@ -477,6 +486,19 @@ export interface DefaultParseOperations extends ParseOperations {
 
 /** Options for `parse` and `unflatten`. */
 export interface ParseOptions {
+	/**
+	 * Whether the payload may reference a value more than once (the default).
+	 * When `false`, a repeated or cyclical reference throws, so the result is
+	 * always a tree whose size is proportional to the size of the payload, as
+	 * with `JSON.parse`. Use this for untrusted input, so that a small payload
+	 * cannot expand into a large amount of work for code that walks the result.
+	 *
+	 * Payloads must be produced by `stringify` with `references: false`.
+	 * Custom revivers and operations are not constrained by this option.
+	 * @default true
+	 */
+	references?: boolean;
+
 	/**
 	 * Overrides for the construction operations used while reviving.
 	 * Omitted members fall back to `defaultParseOperations`.

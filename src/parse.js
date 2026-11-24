@@ -35,6 +35,14 @@ export function unflatten(parsed, revivers, options) {
 	/** @type {import('./types.js').ParseOperations} */
 	const ops = merge_operations(default_parse_operations, options?.operations);
 
+	const references = options?.references ?? true;
+	if (typeof references !== 'boolean') {
+		throw new TypeError('references must be a boolean');
+	}
+
+	/** @type {Set<number>} */
+	const referenced = new Set();
+
 	if (typeof parsed === 'number') return hydrate(parsed, true);
 
 	if (!Array.isArray(parsed) || parsed.length === 0) {
@@ -79,6 +87,14 @@ export function unflatten(parsed, revivers, options) {
 			invalid();
 		}
 
+		if (!references) {
+			// one use per slot keeps the result a tree no larger than the payload, and rules out cycles
+			if (referenced.has(index)) {
+				throw new Error('Cannot parse a repeated reference when `references` is `false`');
+			}
+			referenced.add(index);
+		}
+
 		if (index in hydrated) return hydrated[index];
 
 		if (index >= values.length) {
@@ -109,7 +125,8 @@ export function unflatten(parsed, revivers, options) {
 					// through to the `hydrating` guard here would wrongly reject a valid
 					// cycle. An actually infinite payload (e.g. `[["Custom", 0]]`) is never
 					// cached, so it still hits the guard below.
-					if (Object.hasOwn(hydrated, i)) {
+					// skipped when references is false so that hydrate rejects the reuse
+					if (references && Object.hasOwn(hydrated, i)) {
 						return (hydrated[index] = reviver(hydrated[i]));
 					}
 
