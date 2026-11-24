@@ -132,6 +132,41 @@ describe('operations option', () => {
 // Side-effect-free serialization
 // ---------------------------------------------------------------------------
 
+describe('default toISOString', () => {
+	test('matches Date.prototype.toISOString', () => {
+		const times = [
+			0, -1, 1, 8.64e15, -8.64e15, 951782400000, 253402300799999, 253402300800000, -62167219200000,
+			-62167219200001
+		];
+
+		let seed = 1;
+		for (let i = 0; i < 10000; i += 1) {
+			seed = (seed * 16807) % 2147483647;
+			times.push(Math.round((seed / 2147483647 - 0.5) * 2 * 8.64e15));
+			times.push(Math.round((seed / 2147483647 - 0.5) * 8e12));
+		}
+
+		for (const time of times) {
+			const date = new Date(time);
+			expect(defaultStringifyOperations.toISOString(date)).toBe(date.toISOString());
+		}
+
+		expect(defaultStringifyOperations.toISOString(new Date(NaN))).toBe('');
+	});
+
+	test('calls an overridden toISOString', () => {
+		class Day extends Date {
+			toISOString() {
+				return super.toISOString().slice(0, 10) + 'T00:00:00.000Z';
+			}
+		}
+
+		expect(defaultStringifyOperations.toISOString(new Day(1700000000000))).toBe(
+			'2023-11-14T00:00:00.000Z'
+		);
+	});
+});
+
 describe('side-effect-free operations', () => {
 	test('toISOString override avoids patched Date.prototype.toISOString', () => {
 		const original = Date.prototype.toISOString;

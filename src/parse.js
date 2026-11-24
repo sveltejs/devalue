@@ -37,8 +37,8 @@ export function unflatten(parsed, revivers, options) {
 
 	const references = options?.references ?? true;
 
-	/** @type {Set<number>} */
-	const referenced = new Set();
+	/** @type {boolean[]} */
+	const referenced = [];
 
 	if (typeof parsed === 'number') return hydrate(parsed, true);
 
@@ -86,10 +86,10 @@ export function unflatten(parsed, revivers, options) {
 
 		if (!references) {
 			// one use per slot keeps the result a tree no larger than the payload, and rules out cycles
-			if (referenced.has(index)) {
+			if (referenced[index]) {
 				throw new Error('Cannot parse a repeated reference when `references` is `false`');
 			}
-			referenced.add(index);
+			referenced[index] = true;
 		}
 
 		if (index in hydrated) return hydrated[index];
