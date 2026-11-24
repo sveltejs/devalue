@@ -7,6 +7,7 @@ import {
 	MAP_KEY,
 	enumerable_symbols,
 	escaped,
+	filter_array_indices,
 	format_path,
 	get_name,
 	get_type,
@@ -14,13 +15,17 @@ import {
 	is_plain_object,
 	is_primitive,
 	stringify_sparse_array,
-	stringify_string,
-	valid_array_indices
+	stringify_string
 } from './utils.js';
 
 const unsafe_chars = /[<\b\f\n\r\t\0\u2028\u2029]/g;
 // Short strings have bounded escaping/output costs per reference.
 const MIN_STRING_LENGTH = 128;
+
+/** @param {any[]} array */
+function array_indices(array) {
+	return filter_array_indices(Object.getOwnPropertyNames(array));
+}
 
 /**
  * Turn a value into the JavaScript that creates an equivalent value
@@ -111,17 +116,24 @@ export function uneval(value, replacer) {
 					walk(thing.valueOf());
 					return;
 
+				case 'RegExp':
+					error(`Cannot stringify a RegExp`, thing);
+
 				case 'Number':
 				case 'Boolean':
 				case 'Date':
-				case 'RegExp':
 				case 'URL':
 				case 'URLSearchParams':
 					return;
 
 				case 'Array':
 					// Never scan the logical length of a dictionary-backed sparse array.
-					for (const i of valid_array_indices(thing)) {
+					const indices = array_indices(thing);
+					if (indices.length !== thing.length) {
+						error(`Cannot stringify a sparse array`, thing);
+					}
+
+					for (const i of indices) {
 						keys.push(+i);
 						walk(thing[i]);
 						keys.pop();
@@ -264,7 +276,7 @@ export function uneval(value, replacer) {
 
 					case 'Array': {
 						seen.add(thing);
-						const indices = valid_array_indices(thing);
+						const indices = array_indices(thing);
 						const array =
 							thing.length > 32 + 2 * indices.length
 								? stringify_sparse_array(thing.length)
@@ -437,7 +449,7 @@ export function uneval(value, replacer) {
 						//
 						// Object.assign is cheaper when:
 						//   (18 + A) + P * (d + 2) < L + 2
-						const populated_keys = valid_array_indices(/** @type {any[]} */ (thing));
+						const populated_keys = array_indices(/** @type {any[]} */ (thing));
 						const population = populated_keys.length;
 						const d = String(thing.length).length;
 						const array = stringify_sparse_array(thing.length);

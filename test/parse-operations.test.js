@@ -136,29 +136,20 @@ describe('parse operations option', () => {
 // ---------------------------------------------------------------------------
 
 describe('sparse arrays', () => {
-	test('createSparseArray produces the declared length without eager allocation', () => {
-		// A tiny payload declaring a huge length must not allocate.
-		const revived = unflatten([[-7, 50_000_000, 3, 1], 'x']);
+	test('legacy encodings are rejected before construction operations run', () => {
+		let called = false;
 
-		expect(revived.length).toEqual(50_000_000);
-		expect(revived[3]).toEqual('x');
-		expect(Object.keys(revived)).toEqual(['3']);
-	});
-
-	test('createSparseArray override receives the declared length', () => {
-		/** @type {number[]} */
-		const lengths = [];
-
-		unflatten([[-7, 1234, 3, 1], 'x'], undefined, {
-			operations: {
-				createSparseArray(length) {
-					lengths.push(length);
-					return defaultParseOperations.createSparseArray(length);
+		expect(() =>
+			unflatten([[-7, 1234, 3, 1], 'x'], undefined, {
+				operations: {
+					createSparseArray() {
+						called = true;
+						return [];
+					}
 				}
-			}
-		});
-
-		expect(lengths).toEqual([1234]);
+			})
+		).toThrow('Cannot parse a sparse array');
+		expect(called).toBeFalsy();
 	});
 });
 
@@ -194,19 +185,18 @@ describe.each([parse, unflatten].map((fn) => ({ fn })))(
 			({ Constructor }) => {
 				describe.each([{ bounds: [] }, { bounds: [0, 1] }])('bounds=$bounds', ({ bounds }) => {
 					// Keep these lengths small so regressions cannot exhaust memory.
-					test.each([
-						{ payload: [1024] },
-						{ payload: [[-7, 1024]] },
-						{ payload: [{ length: 3 }, 1024] }
-					])('rejects revived lengths and array-like values ($payload)', ({ payload }) => {
-						assert.throws(
-							() =>
-								revive([[Constructor.name, 1, ...bounds], ['ArrayBuffer', 2], ...payload], {
-									ArrayBuffer: (value) => value
-								}),
-							(error) => error instanceof TypeError
-						);
-					});
+					test.each([{ payload: [1024] }, { payload: [{ length: 3 }, 1024] }])(
+						'rejects revived lengths and array-like values ($payload)',
+						({ payload }) => {
+							assert.throws(
+								() =>
+									revive([[Constructor.name, 1, ...bounds], ['ArrayBuffer', 2], ...payload], {
+										ArrayBuffer: (value) => value
+									}),
+								(error) => error instanceof TypeError
+							);
+						}
+					);
 				});
 
 				describe.each([
@@ -397,7 +387,6 @@ describe('cross-realm operations', () => {
 
 		const value = {
 			when: new Date(1700000000000),
-			pattern: /ab+c/gi,
 			set: new Set([1, 2]),
 			map: new Map([['k', 'v']]),
 			list: [1, 2, 3],
@@ -408,8 +397,6 @@ describe('cross-realm operations', () => {
 
 		// Correct values...
 		expect(revived.when.toISOString()).toEqual('2023-11-14T22:13:20.000Z');
-		expect(revived.pattern.source).toEqual('ab+c');
-		expect(revived.pattern.flags).toEqual('gi');
 		expect([...revived.set]).toEqual([1, 2]);
 		// entries are flattened to primitives: the inner arrays belong to the
 		// other realm, so a structural comparison would fail on the prototype
@@ -426,7 +413,6 @@ describe('cross-realm operations', () => {
 		expect(
 			vm.runInContext(
 				`probe.when instanceof Date &&
-				 probe.pattern instanceof RegExp &&
 				 probe.set instanceof Set &&
 				 probe.map instanceof Map &&
 				 Array.isArray(probe.list) &&
@@ -539,12 +525,10 @@ describe('tripwire parse operations', () => {
 			date: new Date(1700000000000),
 			url: new URL('https://example.com/path?q=1'),
 			temporal: Temporal.Instant.from('2023-11-14T22:13:20Z'),
-			regexp: /ab+c/gi,
 			buffer: new Uint8Array([1, 2, 3, 4]).buffer,
 			view: new Uint8Array([5, 6, 7, 8]),
 			boxed: new Number(42),
-			array: [shared, , cyclic],
-			sparse: Object.assign(new Array(1000), { 999: shared }),
+			array: [shared, null, cyclic],
 			object: { shared },
 			null_object: Object.assign(Object.create(null), { shared }),
 			set: new Set([shared]),
@@ -556,8 +540,6 @@ describe('tripwire parse operations', () => {
 
 		expect(root.object.shared).toBe(root.array[0]);
 		expect(root.array[2].self).toBe(root.array[2]);
-		expect(root.sparse.length).toEqual(1000);
-		expect(root.sparse[999]).toBe(root.array[0]);
 	});
 });
 
@@ -637,13 +619,10 @@ describe('handle-based parse operations', () => {
 		assert_round_trip({ a: 1, nested: { b: [2, 3] } });
 		assert_round_trip([1, 'two', { three: 3 }]);
 		assert_round_trip(new Date(1700000000000));
-		assert_round_trip(/ab+c/gi);
 		assert_round_trip(new Map([['k', { v: 1 }]]));
 		assert_round_trip(new Set([1, 2, 3]));
 		assert_round_trip(new URL('https://example.com/path?q=1'));
 		assert_round_trip(new URLSearchParams('a=1&b=2'));
-		// eslint-disable-next-line no-sparse-arrays
-		assert_round_trip([1, , 3]);
 		assert_round_trip(Object.assign(Object.create(null), { x: 1 }));
 		assert_round_trip(new Number(42));
 		assert_round_trip(Temporal.Instant.from('2023-11-14T22:13:20Z'));

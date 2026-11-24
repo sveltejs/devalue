@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import * as vm from 'vm';
 import { describe, test, expect } from 'vitest';
 import * as consts from '../src/constants.js';
-import { uneval, unflatten, parse, stringify, stringifyAsync } from '../src/index.js';
+import { DevalueError, uneval, unflatten, parse, stringify, stringifyAsync } from '../src/index.js';
 
 globalThis.Temporal ??= (await import('@js-temporal/polyfill')).Temporal;
 
@@ -202,6 +202,7 @@ const fixtures = {
 	basics: [
 		{
 			name: 'RegExp',
+			banned: true,
 			value: /regexp/gim,
 			js: 'new RegExp("regexp","gim")',
 			json: '[["RegExp","regexp","gim"]]'
@@ -245,6 +246,7 @@ const fixtures = {
 		},
 		{
 			name: 'Array (sparse)',
+			banned: true,
 			value: [, 'b', ,],
 			js: '[,"b",,]',
 			json: `[[${consts.HOLE},1,${consts.HOLE}],"b"]`,
@@ -258,6 +260,7 @@ const fixtures = {
 			arr[1000000] = 'x';
 			return {
 				name: 'Array (very sparse)',
+				banned: true,
 				value: arr,
 				js: `Object.assign((function(a){a[4294967294]=0;delete a[4294967294];a.length=1000001;return a}([])),{1000000:"x"})`,
 				json: `[[${consts.SPARSE},1000001,1000000,1],"x"]`,
@@ -274,6 +277,7 @@ const fixtures = {
 			arr[20] = 'b';
 			return {
 				name: 'Array (very sparse, multiple values)',
+				banned: true,
 				value: arr,
 				js: `[,,,,,,,,,,"a",,,,,,,,,,"b"]`,
 				json: `[[${consts.SPARSE},21,10,1,20,2],"a","b"]`,
@@ -709,6 +713,7 @@ const fixtures = {
 
 		{
 			name: 'RegExp (repetition)',
+			banned: true,
 			value: ((regexp) => [regexp, regexp])(/regexp/),
 			js: '(function(){let a=new RegExp("regexp");return [a,a]}())',
 			json: '[[1,1],["RegExp","regexp"]]',
@@ -913,12 +918,14 @@ const fixtures = {
 		},
 		{
 			name: 'Dangerous regex',
+			banned: true,
 			value: /[</script><script>alert('xss')//]/,
 			js: `new RegExp("[\\u003C/script>\\u003Cscript>alert('xss')//]")`,
 			json: `[["RegExp","[\\u003C/script>\\u003Cscript>alert('xss')//]"]]`
 		},
 		{
 			name: 'Dangerous regex',
+			banned: true,
 			value: (() => {
 				const regex = /[</script><script>alert('xss')//]/;
 				return [regex, regex];
@@ -1157,6 +1164,11 @@ async function catch_async_error(fn) {
 
 describe.each(Object.entries(fixtures))('uneval: %s', (name, tests) => {
 	test.each(tests.map((t) => [t.name, t]))('%s', (_name, t) => {
+		if (t.banned) {
+			expect(() => uneval(t.value, t.replacer)).toThrow();
+			return;
+		}
+
 		const source = uneval(t.value, t.replacer);
 
 		if (name === 'strings' || name === 'XSS' || exact_uneval_numbers.has(t.name)) {
@@ -1708,6 +1720,11 @@ describe('uneval: custom source', () => {
 
 describe.each(Object.entries(fixtures))('stringify: %s', (_name, tests) => {
 	test.each(tests.map((t) => [t.name, t]))('%s', (_name, t) => {
+		if (t.banned) {
+			expect(() => stringify(t.value, t.reducers)).toThrow();
+			return;
+		}
+
 		const actual = stringify(t.value, t.reducers);
 		const expected = t.json;
 		expect(actual).toEqual(expected);
@@ -1741,6 +1758,11 @@ describe('parse wrapper', () => {
 
 describe.each(Object.entries(fixtures))('unflatten: %s', (_name, tests) => {
 	test.each(tests.map((t) => [t.name, t]))('%s', (_name, t) => {
+		if (t.banned) {
+			expect(() => unflatten(JSON.parse(t.json), t.revivers)).toThrow();
+			return;
+		}
+
 		const actual = unflatten(JSON.parse(t.json), t.revivers);
 		validate_fixture(t, actual);
 	});
@@ -1855,42 +1877,42 @@ const invalid = [
 	{
 		name: 'sparse array prototype pollution',
 		json: `[[${consts.SPARSE},1,"__proto__",{}]]`,
-		message: 'Invalid input'
+		message: 'Cannot parse a sparse array'
 	},
 	{
 		name: 'sparse array non-integer index',
 		json: `[[${consts.SPARSE},5,"foo",1]]`,
-		message: 'Invalid input'
+		message: 'Cannot parse a sparse array'
 	},
 	{
 		name: 'sparse array negative index',
 		json: `[[${consts.SPARSE},5,-1,1]]`,
-		message: 'Invalid input'
+		message: 'Cannot parse a sparse array'
 	},
 	{
 		name: 'sparse array out-of-bounds index',
 		json: `[[${consts.SPARSE},2,5,1]]`,
-		message: 'Invalid input'
+		message: 'Cannot parse a sparse array'
 	},
 	{
 		name: 'sparse array non-integer length',
 		json: `[[${consts.SPARSE},"abc"]]`,
-		message: 'Invalid input'
+		message: 'Cannot parse a sparse array'
 	},
 	{
 		name: 'sparse array negative length',
 		json: `[[${consts.SPARSE},-3]]`,
-		message: 'Invalid input'
+		message: 'Cannot parse a sparse array'
 	},
 	{
 		name: 'sparse array float length',
 		json: `[[${consts.SPARSE},1.5]]`,
-		message: 'Invalid input'
+		message: 'Cannot parse a sparse array'
 	},
 	{
 		name: 'sparse array float index',
 		json: `[[${consts.SPARSE},5,1.5,1]]`,
-		message: 'Invalid input'
+		message: 'Cannot parse a sparse array'
 	},
 	{
 		name: 'prototype pollution via null-prototype object',
@@ -2116,211 +2138,26 @@ describe.each([uneval, stringify].map((fn) => ({ fn })))('$fn.name', ({ fn }) =>
 	});
 });
 
-test('handles very sparse arrays efficiently', () => {
-	const arr = [];
-	arr[1_000_000] = 'x';
-
-	// This should complete nearly instantly, not iterate 1M times
-	const start = performance.now();
-	const json = stringify(arr);
-	const elapsed = performance.now() - start;
-
-	expect(elapsed < 100, `stringify took ${elapsed}ms, expected < 100ms`).toBeTruthy();
-
-	// Verify round-trip
-	const result = parse(json);
-	expect(result.length).toBe(1_000_001);
-	expect(result[1_000_000]).toBe('x');
-	expect(!(0 in result)).toBeTruthy();
-
-	// Verify uneval too
-	const start2 = performance.now();
-	const js = uneval(arr);
-	const elapsed2 = performance.now() - start2;
-	expect(elapsed2 < 100, `uneval took ${elapsed2}ms, expected < 100ms`).toBeTruthy();
-});
-
-test.each(['empty', 'single', 'shared', 'cyclic'])(
-	'uneval does not scan sparse array holes (%s)',
-	(kind) => {
-		const length = 2 ** 32 - 1;
-		const index = length - 1;
-		const array = parse(kind === 'empty' ? `[[-7,${length}]]` : `[[-7,${length},${index},1],42]`);
-
-		// Count property probes rather than relying on wall-clock timings. This
-		// also bounds the work if either traversal regresses to scanning holes.
-		let probes = 0;
-		function probe() {
-			expect(++probes <= 100, 'uneval should only inspect populated indices').toBeTruthy();
-		}
-
-		const proxy = new Proxy(array, {
-			get(target, key, receiver) {
-				probe();
-				return Reflect.get(target, key, receiver);
-			},
-			has(target, key) {
-				probe();
-				return Reflect.has(target, key);
-			},
-			getOwnPropertyDescriptor(target, key) {
-				probe();
-				return Reflect.getOwnPropertyDescriptor(target, key);
-			}
-		});
-
-		if (kind === 'cyclic') array[index] = proxy;
-
-		const js = uneval(kind === 'shared' ? [proxy, proxy] : proxy);
-		expect(js.length < 150, 'sparse output should stay compact').toBeTruthy();
-		const result = (0, eval)(js);
-		const restored = kind === 'shared' ? result[0] : result;
-
-		expect(restored.length).toBe(length);
-		expect(Object.keys(restored)).toStrictEqual(kind === 'empty' ? [] : [String(index)]);
-		if (kind !== 'empty') expect(restored[index]).toBe(kind === 'cyclic' ? restored : 42);
-		if (kind === 'shared') expect(result[0]).toBe(result[1]);
-	}
-);
-
-test.each([
-	{ length: 3, shared: false },
-	{ length: 3, shared: true },
-	{ length: 1000, shared: false },
-	{ length: 1000, shared: true }
-])(
-	'uneval ignores inherited array elements (length=$length, shared=$shared)',
-	({ length, shared }) => {
-		const proto = Object.create(Array.prototype);
-		for (const index of [1, length - 1]) {
-			Object.defineProperty(proto, index, {
-				enumerable: index === 1,
-				get() {
-					throw new Error('inherited array elements should not be read');
-				}
-			});
-		}
-		const array = [42];
-		array.length = length;
-		Object.setPrototypeOf(array, proto);
-
-		const result = (0, eval)(uneval(shared ? [array, array] : array));
-		const restored = shared ? result[0] : result;
-		expect(restored.length).toBe(length);
-		expect(Object.keys(restored)).toStrictEqual(['0']);
-		expect(restored[0]).toBe(42);
-		if (shared) expect(result[0]).toBe(result[1]);
-	}
-);
-
-test('uneval ignores non-index properties on shared arrays', () => {
-	const array = [42];
-	for (const key of ['foo', '-1', '01', '1e0', '1.5', '4294967295', Symbol('key')]) {
-		Object.defineProperty(array, key, {
-			enumerable: true,
-			get() {
-				throw new Error('non-index array properties should not be read');
-			}
-		});
-	}
-
-	const result = (0, eval)(uneval([array, array]));
-	expect(result).toStrictEqual([[42], [42]]);
-	expect(result[0]).toBe(result[1]);
-});
-
-test('uneval reports the path of invalid sparse array elements', () => {
+test('rejects sparse arrays before visiting their elements', () => {
+	const invalid = () => {};
 	const array = [];
-	const value = () => {};
-	array[99_999_999] = value;
-	const root = { array };
+	array[99_999_999] = invalid;
 
-	assert.throws(
-		() => uneval(root),
-		(error) =>
-			error.name === 'DevalueError' &&
-			error.path === '.array[99999999]' &&
-			error.value === value &&
-			error.root === root
-	);
-});
-
-test('ignores non-numeric array properties in dense encoding', () => {
-	// Dense path (few holes — array literal / HOLE encoding wins)
-	const arr = [, 'a', , 'b'];
-	arr.foo = 'should be ignored';
-	arr.bar = 42;
-
-	// uneval — should produce the holey literal, no mention of "foo" or "bar"
-	const js = uneval(arr);
-	expect(!js.includes('foo'), `uneval output should not contain "foo": ${js}`).toBeTruthy();
-	expect(!js.includes('bar'), `uneval output should not contain "bar": ${js}`).toBeTruthy();
-	expect(
-		!js.includes('should be ignored'),
-		`uneval output should not contain non-numeric value: ${js}`
-	).toBeTruthy();
-	const evaled = (0, eval)(js);
-	expect(evaled.length).toBe(4);
-	expect(evaled[1]).toBe('a');
-	expect(evaled[3]).toBe('b');
-	expect(!(0 in evaled)).toBeTruthy();
-
-	// stringify — should produce HOLE encoding, no mention of "foo" or "bar"
-	const json = stringify(arr);
-	expect(!json.includes('foo'), `stringify output should not contain "foo": ${json}`).toBeTruthy();
-	expect(!json.includes('bar'), `stringify output should not contain "bar": ${json}`).toBeTruthy();
-	const parsed = parse(json);
-	expect(parsed.length).toBe(4);
-	expect(parsed[1]).toBe('a');
-	expect(parsed[3]).toBe('b');
-	expect(!(0 in parsed)).toBeTruthy();
-});
-
-test.each([{ arr: [1, , 3] }, { arr: [1, ,] }, { arr: [1, , , 4] }, { arr: [1, 2, , 4] }])(
-	'uneval round-trips sparse arrays whose first hole is not at index 0 ($arr)',
-	({ arr }) => {
-		const evaled = (0, eval)(uneval(arr));
-		expect(evaled.length, `length for keys ${Object.keys(arr).join(',')}`).toBe(arr.length);
-		expect(Object.keys(evaled)).toEqual(Object.keys(arr));
-		for (const k of Object.keys(arr)) {
-			expect(evaled[k]).toBe(arr[k]);
-		}
+	for (const fn of [uneval, stringify]) {
+		const error = catch_error(() => fn({ array }));
+		expect(error).toBeInstanceOf(DevalueError);
+		expect(error.message).toBe('Cannot stringify a sparse array');
+		expect(error.path).toBe('.array');
+		expect(error.value).toBe(array);
 	}
-);
+});
 
-test('ignores non-numeric array properties in sparse encoding', () => {
-	// Sparse path (very sparse — Object.assign / SPARSE encoding wins)
-	const arr = [];
-	arr[1_000_000] = 'x';
-	arr.foo = 'should be ignored';
-	arr.bar = 42;
+test('dense arrays ignore non-index properties', () => {
+	const array = [1, 2];
+	array.extra = 'ignored';
 
-	// uneval — should produce Object.assign form, no mention of "foo" or "bar"
-	const js = uneval(arr);
-	expect(!js.includes('foo'), `uneval output should not contain "foo": ${js}`).toBeTruthy();
-	expect(!js.includes('bar'), `uneval output should not contain "bar": ${js}`).toBeTruthy();
-	expect(
-		!js.includes('should be ignored'),
-		`uneval output should not contain non-numeric value: ${js}`
-	).toBeTruthy();
-	expect(
-		js.includes('Object.assign'),
-		`uneval should use Object.assign for very sparse arrays`
-	).toBeTruthy();
-	const evaled = (0, eval)(js);
-	expect(evaled.length).toBe(1_000_001);
-	expect(evaled[1_000_000]).toBe('x');
-	expect(!(0 in evaled)).toBeTruthy();
-	expect(!('foo' in evaled)).toBeTruthy();
-
-	// stringify — should produce SPARSE encoding, no mention of "foo" or "bar"
-	const json = stringify(arr);
-	expect(!json.includes('foo'), `stringify output should not contain "foo": ${json}`).toBeTruthy();
-	expect(!json.includes('bar'), `stringify output should not contain "bar": ${json}`).toBeTruthy();
-	const parsed = parse(json);
-	expect(parsed.length).toBe(1_000_001);
-	expect(parsed[1_000_000]).toBe('x');
-	expect(!(0 in parsed)).toBeTruthy();
+	expect((0, eval)(uneval(array))).toEqual([1, 2]);
+	expect(parse(stringify(array))).toEqual([1, 2]);
 });
 
 test('does not create duplicate parameter names', () => {
@@ -2347,13 +2184,13 @@ test('reconstructs a referenced typed array before it is used in a cycle', () =>
 test('rejects sparse array __proto__ pollution via parse', () => {
 	// Attempt to set __proto__ on an array via the sparse array encoding
 	const payload = JSON.stringify([[consts.SPARSE, 1, '__proto__', { polluted: true }]]);
-	expect(() => parse(payload)).toThrow('Invalid input');
+	expect(() => parse(payload)).toThrow('Cannot parse a sparse array');
 });
 
 test('rejects sparse array __proto__ pollution via unflatten', () => {
 	// Same attack via unflatten (which receives already-parsed data)
 	const payload = [[consts.SPARSE, 1, '__proto__', { polluted: true }]];
-	expect(() => unflatten(payload)).toThrow('Invalid input');
+	expect(() => unflatten(payload)).toThrow('Cannot parse a sparse array');
 });
 
 test('sparse array CPU exhaustion payload is rejected', () => {
@@ -2367,7 +2204,7 @@ test('sparse array CPU exhaustion payload is rejected', () => {
 	}
 	const payload = JSON.stringify(data);
 
-	expect(() => parse(payload)).toThrow('Invalid input');
+	expect(() => parse(payload)).toThrow('Cannot parse a sparse array');
 });
 
 test('sparse array type confusion via __proto__ is blocked', () => {
@@ -2386,146 +2223,30 @@ test('sparse array type confusion via __proto__ is blocked', () => {
 		}
 	}
 
-	expect(() => parse(payload, { Vector: ([x, y]) => new Vector(x, y) })).toThrow('Invalid input');
+	expect(() => parse(payload, { Vector: ([x, y]) => new Vector(x, y) })).toThrow(
+		'Cannot parse a sparse array'
+	);
 });
 
-test('valid sparse array parses correctly', () => {
-	// Ensure the fix does not break legitimate sparse array round-tripping.
-	// devalue format: [root_entry, ...other_entries]
-	// [-7, 3, 0, 1, 2, 2] = sparse array of length 3, index 0 = entries[1], index 2 = entries[2]
-	const goodPayload = JSON.stringify([[consts.SPARSE, 3, 0, 1, 2, 2], 'a', 'c']);
-	const result = parse(goodPayload);
-	expect(result).toBeInstanceOf(Array);
-	expect(result.length).toBe(3);
-	expect(result[0]).toBe('a');
-	expect(!(1 in result)).toBeTruthy();
-	expect(result[2]).toBe('c');
-	expect(Object.getPrototypeOf(result)).toBe(Array.prototype);
+test('legacy sparse encodings are rejected without allocation', () => {
+	const payload = JSON.stringify([[consts.SPARSE, 2 ** 32 - 1, 2 ** 32 - 2, 1], 42]);
+	expect(() => parse(payload)).toThrow('Cannot parse a sparse array');
 });
 
 test('errors on out-of-bounds indices', () => {
 	expect(() => parse('[["Set",7]]')).toThrow('Invalid input');
 });
 
-// Regression test for a DoS vulnerability in sparse array parsing.
-// The SPARSE encoding is `[-7, length, idx, val, ...]`. Previously, `parse`
-// handled this by calling `new Array(length)`, which V8 eagerly allocates
-// a backing store for. A malicious payload containing many such arrays
-// — each claiming a huge length but carrying no actual data — could force
-// the parser to allocate arbitrarily large amounts of memory and crash
-// the host process.
-//
-// Each case below crafts a payload whose combined implied allocation is
-// ~20GB. With a correct fix (lazy allocation / deferred length), every
-// case finishes near-instantly. Without it, the test process dies.
-
-/**
- * Builds a payload shaped like:
- *   [ {k0:1, k1:2, ..., k(count-1):count},   // root object, references each sparse array
- *     [-7, perArrayLen, 0, count+1],         // sparse array #0: length = perArrayLen, index 0 -> values[count+1]
- *     [-7, perArrayLen, 0, count+1],         // sparse array #1
- *     ...
- *     42 ]                                   // values[count+1], placed at index 0 of each sparse array
- *
- * Hydrating the root object forces every sparse array to be hydrated,
- * which (without the fix) triggers `new Array(perArrayLen)` `count` times.
- *
- * @param {number} count
- * @param {number} perArrayLen
- */
-function buildSparseDoSPayload(count, perArrayLen) {
-	let payload = '[{';
-
-	for (let i = 0; i < count; i += 1) {
-		if (i > 0) payload += ',';
-		payload += `"k${i}":${i + 1}`;
-	}
-
-	payload += '}';
-
-	for (let i = 0; i < count; i += 1) {
-		payload += `,[${consts.SPARSE},${perArrayLen},0,${count + 1}]`;
-	}
-
-	payload += ',42]';
-	return payload;
-}
-
-// Matrix of (perArrayLen, count) pairs — each row allocates ~2.5e9 slots
-// (~20GB assuming 8-byte pointers) if the parser eagerly materializes
-// sparse arrays.
-const sparseDoSCases = [
-	{ perArrayLen: 10_000, count: 250_000 },
-	{ perArrayLen: 100_000, count: 25_000 },
-	{ perArrayLen: 1_000_000, count: 2_500 },
-	{ perArrayLen: 10_000_000, count: 250 },
-	{ perArrayLen: 100_000_000, count: 25 }
-];
-
-test.each(sparseDoSCases)(
-	'does not eagerly allocate sparse arrays (len=$perArrayLen, count=$count)',
-	({ perArrayLen, count }) => {
-		const payload = buildSparseDoSPayload(count, perArrayLen);
-		const result = parse(payload);
-
-		// The root is the object whose keys reference every sparse array;
-		// accessing them forces hydration of all `count` arrays.
-		expect(typeof result).toBe('object');
-		expect(result !== null).toBeTruthy();
-
-		// Spot-check the first and last sparse arrays.
-		const first = result.k0;
-		const last = result[`k${count - 1}`];
-		expect(Array.isArray(first)).toBeTruthy();
-		expect(Array.isArray(last)).toBeTruthy();
-		expect(first.length).toBe(perArrayLen);
-		expect(last.length).toBe(perArrayLen);
-		expect(first[0]).toBe(42);
-		expect(last[0]).toBe(42);
-	}
-);
-
-test.each(['inline', 'shared', 'cyclic', 'holes'])(
-	'uneval evaluates %s sparse arrays without eager allocation',
-	(kind) => {
-		// As in the parse regressions above, eager allocation would require ~20GB.
-		const length = 1_000_000;
-		const arrays = Object.values(parse(buildSparseDoSPayload(2500, length)));
-		for (const array of arrays) {
-			if (kind === 'holes') {
-				delete array[0];
-			} else {
-				array[1] = kind === 'cyclic' ? array : undefined;
-			}
-		}
-
-		const js = uneval(kind === 'shared' ? [arrays, arrays.slice()] : arrays);
-		const result = (0, eval)(js);
-		const restored = kind === 'shared' ? result[0] : result;
-		expect(restored.length).toBe(arrays.length);
-
-		for (const i of [0, arrays.length - 1]) {
-			const array = restored[i];
-			expect(array).toBeInstanceOf(Array);
-			expect(array.length).toBe(length);
-			expect(Object.getOwnPropertyNames(array)).toStrictEqual(
-				kind === 'holes' ? ['length'] : ['0', '1', 'length']
-			);
-			expect(!(length - 1 in array)).toBeTruthy();
-			if (kind !== 'holes') {
-				expect(array[0]).toBe(42);
-				expect(array[1]).toBe(kind === 'cyclic' ? array : undefined);
-			}
-			if (kind === 'shared') expect(result[0][i]).toBe(result[1][i]);
-		}
-	}
-);
-
 // --- stringifyAsync tests ---
 
 // Verify same-version wire compatibility and round-trip semantics in one pass
 describe.each(Object.entries(fixtures))('stringifyAsync: %s', (_name, tests) => {
 	test.each(tests.map((t) => [t.name, t]))('%s', async (_name, t) => {
+		if (t.banned) {
+			await expect(stringifyAsync(t.value, t.reducers)).rejects.toThrow();
+			return;
+		}
+
 		const json = await stringifyAsync(t.value, t.reducers);
 
 		expect(json).toEqual(stringify(t.value, t.reducers));

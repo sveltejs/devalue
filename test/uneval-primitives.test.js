@@ -64,8 +64,6 @@ describe('uneval: repeated primitives', () => {
 			const map = new Map([[primitive, primitive]]);
 			const set = new Set([primitive]);
 			const box = Object(primitive);
-			const sparse = [];
-			sparse[1000] = primitive;
 			const value = Object.assign(Object.create(null), {
 				primitive,
 				array,
@@ -75,8 +73,7 @@ describe('uneval: repeated primitives', () => {
 				set,
 				set_again: set,
 				box,
-				box_again: box,
-				sparse
+				box_again: box
 			});
 			value.self = value;
 
@@ -92,7 +89,6 @@ describe('uneval: repeated primitives', () => {
 			assert.ok(result.set.has(primitive));
 			assert.strictEqual(result.box, result.box_again);
 			assert.strictEqual(result.box.valueOf(), primitive);
-			assert.deepStrictEqual(result.sparse, sparse);
 		});
 	});
 

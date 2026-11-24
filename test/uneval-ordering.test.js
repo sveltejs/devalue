@@ -240,7 +240,7 @@ describe('uneval: collection construction order', () => {
 			}
 			const data = Object.assign(Object.create(null), { answer: 42 });
 			const map = new Map([['data', data]]);
-			const list = [, map];
+			const list = [undefined, map];
 			const options = { list };
 			const wrapper = new Wrapper(options, map);
 			map.set('owner', wrapper).set('tail', 43);
@@ -259,7 +259,7 @@ describe('uneval: collection construction order', () => {
 			expect(revived.map).toBe(revived_map);
 			expect(Array.from(revived_map.keys())).toEqual(['data', 'owner', 'tail']);
 			expect(Object.getPrototypeOf(revived_map.get('data'))).toBe(null);
-			expect(0 in revived.options.list).toBeFalsy();
+			expect(revived.options.list[0]).toBeUndefined();
 			if (shared) {
 				expect(revived.options).toBe(result[1]);
 				expect(revived.options.list).toBe(result[2]);

@@ -19,15 +19,14 @@ describe.each([
 	{ name: 'stringifyAsync', fn: stringifyAsync },
 	{ name: 'uneval', fn: uneval }
 ])('$name error paths', ({ fn }) => {
-	test('reports sparse array indices and quoted keys', async () => {
+	test('reports array indices and quoted keys', async () => {
 		const invalid = () => {};
-		const array = [];
-		array[1000000] = { 0: { 'odd.key': invalid } };
+		const array = [{ 0: { 'odd.key': invalid } }];
 		const root = { array };
 
 		const error = await capture(fn, root);
 		expect(error).toBeInstanceOf(DevalueError);
-		expect(error.path).toBe('.array[1000000]["0"]["odd.key"]');
+		expect(error.path).toBe('.array[0]["0"]["odd.key"]');
 		expect(error.value).toBe(invalid);
 		expect(error.root).toBe(root);
 	});

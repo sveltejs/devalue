@@ -406,12 +406,9 @@ describe('handle-based operations', () => {
 		assert_parity({ a: 1, nested: { b: [2, 3] } });
 		assert_parity([1, 'two', { three: 3 }]);
 		assert_parity(new Date(1700000000000));
-		assert_parity(/ab+c/gi);
 		assert_parity(new Map([['k', { v: 1 }]]));
 		assert_parity(new Set([1, 2, 3]));
 		assert_parity(new URL('https://example.com/path?q=1'));
-		// eslint-disable-next-line no-sparse-arrays
-		assert_parity([1, , 3]);
 		assert_parity(Object.assign(Object.create(null), { x: 1 }));
 		assert_parity(new Number(42));
 	});
@@ -636,15 +633,9 @@ describe('tripwire operations (value is never touched)', () => {
 
 		const buffer = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]).buffer;
 
-		const sparse = [];
-		sparse[100] = 'x';
-
 		assert_untouched({ a: 1, nested: { b: [2, 3] }, first: shared, second: shared });
-		// eslint-disable-next-line no-sparse-arrays
-		assert_untouched([1, 'two', { three: 3 }, , 5]);
-		assert_untouched(sparse);
+		assert_untouched([1, 'two', { three: 3 }, null, 5]);
 		assert_untouched(new Date(1700000000000));
-		assert_untouched(/ab+c/gi);
 		assert_untouched(
 			new Map([
 				['k', { v: 1 }],

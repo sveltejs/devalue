@@ -5,7 +5,7 @@ Like `JSON.stringify`, but handles
 - cyclical references (`obj.self = obj`)
 - repeated references (`[value, value]`)
 - `undefined`, `Infinity`, `NaN`, `-0`
-- regular expressions
+- regular expressions (with opt-in helpers)
 - dates
 - `Map` and `Set`
 - `BigInt`
@@ -103,7 +103,7 @@ const serialized = devalue.stringify(data, undefined, { references: false });
 const value = devalue.parse(serialized, undefined, { references: false });
 ```
 
-The option is also accepted by `unflatten`. Custom revivers are not constrained by it. A reviver that returns something larger than its input is not covered, so avoid such revivers when parsing untrusted input.
+The option is also accepted by `unflatten`. Custom revivers are not constrained by it. A reviver that returns something larger than its input — an array whose length is a number read from the payload, as `sparseArrayReviver` does, for example — is not covered, so avoid such revivers when parsing untrusted input.
 
 ### `stringifyAsync`
 
@@ -197,9 +197,34 @@ The replacer must return a source created with the supplied `js` tag, or `undefi
 
 Note that any variables referenced in the resulting JavaScript (like `Vector` in the example above) must be in scope when it runs.
 
+### Sparse arrays and regular expressions
+
+Sparse arrays and regular expressions are rejected by default by `uneval`, `stringify`, `stringifyAsync`, `parse` and `unflatten`. They have repeatedly created security hazards and are uncommon in serialized application data. If they are required, devalue exports explicit opt-in helpers:
+
+```js
+const source = devalue.uneval(value, devalue.unsafeReplacer);
+
+const serialized = devalue.stringify(value, devalue.unsafeReducers);
+const value = devalue.parse(serialized, devalue.unsafeRevivers);
+```
+
+The individual helpers are also exported as `regexpReplacer`, `regexpReducer`, `regexpReviver`, `sparseArrayReplacer`, `sparseArrayReducer` and `sparseArrayReviver`. Reducers and revivers can be enabled individually under the matching `RegExp` or `SparseArray` key:
+
+```js
+const serialized = devalue.stringify(value, {
+  RegExp: devalue.regexpReducer
+});
+
+const value = devalue.parse(serialized, {
+  RegExp: devalue.regexpReviver
+});
+```
+
+Only opt in when the receiving code is prepared to handle these values safely. In particular, avoid running untrusted regular expressions against attacker-controlled strings. The sparse-array helpers reject directly self-referential arrays, which custom revivers cannot reconstruct without changing their identity.
+
 ## Custom operations
 
-Every introspection `stringify` performs on the value being serialized — property reads, prototype method calls, iteration, type classification — goes through an operations interface that you can override via the `operations` option. Omitted members fall back to the defaults (exported as `defaultStringifyOperations`), which behave exactly as devalue always has.
+Every introspection `stringify` performs on the value being serialized — property reads, prototype method calls, iteration, type classification — goes through an operations interface that you can override via the `operations` option. Omitted members fall back to the native defaults exported as `defaultStringifyOperations`.
 
 This is useful in two situations:
 
