@@ -125,6 +125,17 @@ export function get_name(index) {
 // such as emoji stay on the fast path
 const needs_escape = /["<\\\u0000-\u001f\u2028\u2029]/;
 
+// `String.prototype.isWellFormed` is ES2024 (Node 20, Chrome 111). Where it is
+// missing, any surrogate takes the slow path, which still leaves well-formed
+// pairs untouched since `JSON.stringify` only escapes unpaired surrogates
+const surrogate = /[\ud800-\udfff]/;
+
+/** @type {(str: string) => boolean} */
+const is_well_formed =
+	typeof String.prototype.isWellFormed === 'function'
+		? (str) => str.isWellFormed()
+		: (str) => !surrogate.test(str);
+
 // `JSON.stringify` already emits every escape we need except these three,
 // which it leaves raw: `<` (so output is safe inside a `<script>` tag) and
 // the line/paragraph separators (kept escaped for engines predating ES2019,
@@ -143,7 +154,7 @@ function escape_raw(char) {
 /** @param {string} str */
 export function stringify_string(str) {
 	// the common case: nothing to escape, no per-character work
-	if (!needs_escape.test(str) && str.isWellFormed()) return `"${str}"`;
+	if (!needs_escape.test(str) && is_well_formed(str)) return `"${str}"`;
 
 	return JSON.stringify(str).replace(json_leaves_raw, escape_raw);
 }
