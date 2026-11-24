@@ -69,6 +69,42 @@ devalue.parse(stringified); // { message: 'hello', self: [Circular] }
 
 Use `stringify` and `parse` when evaluating JavaScript isn't an option (such as when sending untrusted data from client to server).
 
+When an object contains lots of shared references, `stringify`'s output can be extremely compact. For example, serializing an object like the following:
+
+```ts
+const tags = Array(10_000).fill('t');
+const item = { name: 'x', tags };
+const data = { items: Array(10_000).fill(item) }; // every entry is the same object
+```
+
+...will produce a string whose size is many times smaller than the "expanded" size of the object. This is fine; when parsed, the object will still be small in memory, because all of the shared references are just pointers. However, if the resulting "secretly large" object is passed to code that doesn't expect shared references and therefore doesn't cache them, such as a validation schema:
+
+```ts
+const schema = v.object({
+  items: v.array(
+    v.object({
+      name: v.string(),
+      tags: v.array(v.string())
+    })
+  )
+});
+v.parse(schema, data); // uh oh!
+```
+
+...it can cause significantly more work than expected given the payload size. In the example above, the schema loops over `items` 10,000 times, which means it loops over each item's `tags` individually. Since it doesn't know every `item` is actually the same JavaScript object, it produces 10,000 × 10,000 string checks and 10,000 output arrays of 10,000 items each.
+
+Therefore, when parsing untrusted input (for example, data from the client being sent back to the server), use the `references: false` option. It rejects any payload that references a value more than once, including cycles, so the result is always a tree whose size is proportional to the size of the payload, just like with `JSON.parse`. On the sending side, pass the same option to `stringify` or `stringifyAsync`. Repeated values are then serialized once per occurrence instead of being deduplicated, and cyclical values throw:
+
+```js
+// client
+const serialized = devalue.stringify(data, undefined, { references: false });
+
+// server
+const value = devalue.parse(serialized, undefined, { references: false });
+```
+
+The option is also accepted by `unflatten`. Custom revivers are not constrained by it. A reviver that returns something larger than its input is not covered, so avoid such revivers when parsing untrusted input.
+
 ### `stringifyAsync`
 
 `stringifyAsync` is an async version of `stringify` that can handle promises:
