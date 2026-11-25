@@ -75,6 +75,10 @@ export function unflatten(parsed, revivers, options) {
 		if (index === NEGATIVE_INFINITY) return ops.fromPrimitive(-Infinity);
 		if (index === NEGATIVE_ZERO) return ops.fromPrimitive(-0);
 
+		if (typeof index === 'number' && index < 0) {
+			invalid();
+		}
+
 		if (standalone || typeof index !== 'number') {
 			invalid();
 		}

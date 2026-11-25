@@ -1813,6 +1813,11 @@ const invalid = [
 		error: SyntaxError
 	},
 	{
+		name: 'negative non-sentinel index',
+		json: '[{"a":-8}]',
+		message: 'Invalid input'
+	},
+	{
 		name: 'hole',
 		json: `${consts.HOLE}`,
 		message: 'Invalid input'
