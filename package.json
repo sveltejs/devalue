@@ -9,6 +9,11 @@
       "types": "./types/types.d.ts",
       "import": "./src/index.js",
       "default": "./src/index.js"
+    },
+    "./uneval-stream/client": {
+      "types": "./types/uneval-stream/client.d.ts",
+      "import": "./src/uneval-stream/client.js",
+      "default": "./src/uneval-stream/client.js"
     }
   },
   "files": [
