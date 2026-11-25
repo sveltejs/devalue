@@ -14,6 +14,7 @@ import {
 	is_plain_object,
 	is_primitive,
 	stringify_sparse_array,
+	stringify_primitive,
 	stringify_string,
 	valid_array_indices
 } from './utils.js';
@@ -437,7 +438,7 @@ export function uneval(value, replacer) {
 						//
 						// Object.assign is cheaper when:
 						//   (18 + A) + P * (d + 2) < L + 2
-						const populated_keys = valid_array_indices(/** @type {any[]} */ (thing));
+						const populated_keys = valid_array_indices(thing);
 						const population = populated_keys.length;
 						const d = String(thing.length).length;
 						const array = stringify_sparse_array(thing.length);
@@ -607,16 +608,4 @@ function safe_prop(key) {
 	return /^[_$a-zA-Z][_$a-zA-Z0-9]*$/.test(key)
 		? `.${key}`
 		: `[${escape_unsafe_chars(JSON.stringify(key))}]`;
-}
-
-/** @param {any} thing */
-function stringify_primitive(thing) {
-	const type = typeof thing;
-	if (type === 'string') return stringify_string(thing);
-	if (thing === void 0) return 'void 0';
-	if (thing === 0 && 1 / thing < 0) return '-0';
-	const str = String(thing);
-	if (type === 'number') return str.replace(/^(-)?0\./, '$1.');
-	if (type === 'bigint') return thing + 'n';
-	return str;
 }

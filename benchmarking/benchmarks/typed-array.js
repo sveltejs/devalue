@@ -1,6 +1,6 @@
 import { fastest_test } from '../utils.js';
 
-import { parse, stringify } from '../../index.js';
+import { parse, stringify } from '../../src/index.js';
 
 const value_small = new Uint8Array(Array.from({ length: 100 }, (_, i) => i));
 const value_medium = new Uint8Array(Array.from({ length: 10 * 1024 }, (_, i) => i % 256));
