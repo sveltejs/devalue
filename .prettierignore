@@ -1,7 +1,0 @@
-CHANGELOG.md
-pnpm-lock.yaml
-
-**/node_modules
-**/dist
-**/build
-**/test-results
