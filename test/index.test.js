@@ -2629,6 +2629,49 @@ describe('stringifyAsync: promises', () => {
 			})
 		);
 	});
+
+	// these values have no node representation — they are encoded as negative
+	// sentinels in the node that references them, so a promise cannot take over
+	// the node it reserved
+	test.each([
+		{ name: 'undefined', value: undefined },
+		{ name: 'NaN', value: NaN },
+		{ name: 'Infinity', value: Infinity },
+		{ name: '-Infinity', value: -Infinity },
+		{ name: '-0', value: -0 }
+	])('resolves a nested promise to $name', async ({ value }) => {
+		const promise = Promise.resolve(value);
+		const result = await stringifyAsync({ a: promise, b: [promise] });
+
+		assert.deepStrictEqual(parse(result), { a: value, b: [value] });
+	});
+
+	test('resolves a nested promise at the root to a sentinel', async () => {
+		expect(await stringifyAsync(Promise.resolve(-0))).toEqual(stringify(-0));
+
+		// the promise's own node is never referenced once its value is inlined,
+		// so only the parsed value is guaranteed to match
+		const nested = parse(await stringifyAsync({ a: Promise.resolve(Promise.resolve(undefined)) }));
+		assert.deepStrictEqual(nested, { a: undefined });
+	});
+
+	test('resolves a promise to a value that is already serialized', async () => {
+		const value = { self: /** @type {any} */ (null) };
+		value.self = Promise.resolve(value);
+
+		const json = await stringifyAsync(value);
+
+		expect(json).not.toContain('object Promise');
+		const parsed = parse(json);
+		expect(parsed.self).toBe(parsed);
+	});
+
+	test('does not confuse NUL characters with unresolved promises', async () => {
+		const key = '\u0000' + '0\u0000';
+		const result = await stringifyAsync({ [key]: Promise.resolve(undefined), '\u0000': '\u0000' });
+
+		assert.deepStrictEqual(parse(result), { [key]: undefined, '\u0000': '\u0000' });
+	});
 });
 
 // Error handling with stringifyAsync

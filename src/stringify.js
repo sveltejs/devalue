@@ -11,6 +11,14 @@ import {
 import { encode64 } from './base64.js';
 import { default_stringify_operations, merge_operations } from './operations.js';
 
+// A promise is serialized as the node its value would occupy, but that node's
+// index (or the negative sentinel for `undefined`, `NaN` etc) is only known
+// once the promise resolves. Until then, the node that references the promise
+// holds a placeholder. A raw NUL character can never appear in a serialized
+// node — `stringify_string` escapes it — so a NUL-delimited marker is
+// unambiguous.
+const PLACEHOLDER = /\u0000(\d+)\u0000/g;
+
 /**
  * Turn a value into a JSON string that can be parsed with `devalue.parse`
  * @param {any} value
@@ -18,8 +26,8 @@ import { default_stringify_operations, merge_operations } from './operations.js'
  * @param {import('./types.js').StringifyOptions} [options]
  */
 export function stringify(value, reducers, options) {
-	const stringified = run(false, value, reducers, options);
-	return typeof stringified === 'string' ? stringified : `[${stringified.join(',')}]`;
+	const { parts } = run(false, value, reducers, options);
+	return typeof parts === 'string' ? parts : `[${parts.join(',')}]`;
 }
 
 /**
@@ -29,29 +37,50 @@ export function stringify(value, reducers, options) {
  * @param {import('./types.js').StringifyOptions} [options]
  */
 export async function stringifyAsync(value, reducers, options) {
-	const stringified = run(true, value, reducers, options);
+	const { parts, tokens } = run(true, value, reducers, options);
 
-	if (typeof stringified === 'string') {
-		return stringified;
+	if (typeof parts === 'string') {
+		return parts;
+	}
+
+	// promises are awaited in turn; their callbacks can append further nodes
+	// (and further promises) as the resolved values are serialized
+	for (let i = 0; i < parts.length; i += 1) {
+		if (typeof parts[i] !== 'string') {
+			await parts[i];
+		}
+	}
+
+	// a promise at the root that resolves to a primitive sentinel replaces the
+	// document with that sentinel, exactly like a bare `undefined` does
+	if (typeof parts[0] === 'number' && parts[0] < 0) {
+		return `${parts[0]}`;
+	}
+
+	/**
+	 * Placeholders can point at other placeholders, when a promise resolves to
+	 * another promise, so follow the chain until it ends in a token
+	 * @param {string} placeholder
+	 */
+	function resolve_token(placeholder) {
+		let token = placeholder;
+
+		for (let i = 0; i <= tokens.size; i += 1) {
+			const next = tokens.get(token);
+			if (next === undefined) return token;
+			token = next;
+		}
+
+		return token;
 	}
 
 	let out = '[';
 
-	for (let i = 0; i < stringified.length; i += 1) {
-		let value = stringified[i];
+	for (let i = 0; i < parts.length; i += 1) {
+		const part = parts[i];
+		out += typeof part === 'string' ? part.replace(PLACEHOLDER, resolve_token) : `${part}`;
 
-		if (typeof value !== 'string') {
-			await value;
-			value = stringified[i];
-
-			if (i === 0 && value < 0) {
-				return `${value}`;
-			}
-		}
-
-		out += value;
-
-		if (i < stringified.length - 1) {
+		if (i < parts.length - 1) {
 			out += ',';
 		}
 	}
@@ -73,8 +102,13 @@ function run(async, value, reducers, options) {
 	/** @type {any[]} */
 	const stringified = [];
 
-	/** @type {Map<any, number>} */
+	/** @type {Map<any, number | string>} */
 	const indexes = new Map();
+
+	/** @type {Map<string, string>} */
+	const tokens = new Map();
+
+	let placeholder_id = 0;
 
 	/** @type {Array<{ key: string, fn: (value: any) => any }>} */
 	const custom = [];
@@ -132,7 +166,7 @@ function run(async, value, reducers, options) {
 
 		const id = ops.identify(thing);
 
-		if (indexes.has(id)) return /** @type {number} */ (indexes.get(id));
+		if (indexes.has(id)) return /** @type {number | string} */ (indexes.get(id));
 
 		index ??= p++;
 		indexes.set(id, index);
@@ -154,6 +188,9 @@ function run(async, value, reducers, options) {
 		/** @type {string | Promise<any>} */
 		let str = '';
 
+		/** @type {string | undefined} */
+		let placeholder;
+
 		if (type !== 'object') {
 			str = stringify_primitive(type === 'number' ? number : ops.toPrimitive(thing));
 		} else if (ops.isThenable(thing)) {
@@ -165,11 +202,31 @@ function run(async, value, reducers, options) {
 			// so the path to the thenable has to be captured and reinstated
 			const prev_keys = keys.slice();
 
+			placeholder = `\u0000${placeholder_id++}\u0000`;
+
+			// repeated references to the same promise must all point at the
+			// placeholder, not at the node the promise reserves
+			indexes.set(id, placeholder);
+
 			str = ops.toPromise(thing).then((value) => {
 				keys = prev_keys;
 
 				const i = flatten(value, index);
-				if (i < 0) stringified[index] = i;
+
+				if (i === index) {
+					// the resolved value occupies this node, so references to the promise
+					// point at the node itself
+					tokens.set(/** @type {string} */ (placeholder), `${index}`);
+				} else {
+					// the promise has no node of its own — a reference to it becomes a
+					// reference to the resolved node, or the sentinel for `undefined`,
+					// `NaN`, `±Infinity` and `-0`, none of which can be a node value
+					tokens.set(/** @type {string} */ (placeholder), typeof i === 'string' ? i : `${i}`);
+
+					// nothing references this slot any more, but the document has to stay
+					// valid JSON; a plain `0` is the least intrusive placeholder value
+					stringified[index] = typeof i === 'number' && i < 0 ? i : 0;
+				}
 			});
 
 			// Promises are awaited sequentially, and traversal may throw before
@@ -413,15 +470,15 @@ function run(async, value, reducers, options) {
 		}
 
 		stringified[index] = str;
-		return index;
+		return placeholder ?? index;
 	}
 
 	const index = flatten(value);
 
 	// special case — value is represented as a negative index
-	if (index < 0) return `${index}`;
+	if (typeof index === 'number' && index < 0) return { parts: `${index}`, tokens };
 
-	return stringified;
+	return { parts: stringified, tokens };
 }
 
 /**
