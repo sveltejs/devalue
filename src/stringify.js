@@ -140,7 +140,7 @@ function run(async, value, reducers, options) {
 		for (const { key, fn } of custom) {
 			const value = fn(thing);
 			if (value) {
-				stringified[index] = `["${key}",${flatten(value)}]`;
+				stringified[index] = `[${stringify_string(key)},${flatten(value)}]`;
 				return index;
 			}
 		}
